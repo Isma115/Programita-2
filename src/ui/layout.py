@@ -93,6 +93,7 @@ class MainLayout(ttk.Frame):
         self.btn_code.state(["pressed", "disabled"]) 
         self.btn_docs.state(["!pressed", "!disabled"])
         self.btn_console.state(["!pressed", "!disabled"])
+        self.update_idletasks()
 
     def show_docs_tab(self):
         """Displays the Documentation view."""
@@ -102,6 +103,7 @@ class MainLayout(ttk.Frame):
         self.btn_code.state(["!pressed", "!disabled"])
         self.btn_docs.state(["pressed", "disabled"])
         self.btn_console.state(["!pressed", "!disabled"])
+        self.update_idletasks()
 
     def show_console_tab(self):
         """Displays the Console view."""
@@ -111,6 +113,7 @@ class MainLayout(ttk.Frame):
         self.btn_code.state(["!pressed", "!disabled"])
         self.btn_docs.state(["!pressed", "!disabled"])
         self.btn_console.state(["pressed", "disabled"])
+        self.update_idletasks()
 
     def _clear_content(self):
         """Unpacks all views from the content frame."""

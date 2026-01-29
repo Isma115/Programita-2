@@ -121,5 +121,7 @@ class Controller:
             # Refresh UI if needed
             if hasattr(self.app.layout, 'code_view'):
                 self.app.layout.code_view.refresh_file_list()
+            return True
         else:
             print(f"Controller: Region '{region_name}' not found in project.")
+            return False

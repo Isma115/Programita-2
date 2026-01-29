@@ -450,6 +450,7 @@ class CodeView(ttk.Frame):
     def _update_file_list_safe(self, files):
         """Updates UI with search results (Main Thread)."""
         self.refresh_file_list(files)
+        self.update_idletasks()
 
     def _on_section_select(self, event=None):
         """Trigger update when section selection changes."""

@@ -102,20 +102,12 @@ class GlobalHotkeyListener:
                 threading.Thread(target=self.handle_trigger, daemon=True).start()
 
     def handle_trigger(self):
+        from src.addons import Arbitrary_sus
         try:
-            content = pyperclip.paste()
-            if not content:
-                print("GlobalHotkeyListener: Clipboard is empty.")
-                return
-
-            # Search for #region "name" in the clipboard content
-            match = re.search(r'#region\s+["\']?([^"\']+)["\']?', content)
-            if match:
-                region_name = match.group(1)
-                print(f"GlobalHotkeyListener: Found region '{region_name}' in clipboard.")
-                self.controller.replace_region_from_clipboard(region_name, content)
-            else:
-                print("GlobalHotkeyListener: No #region tag found in clipboard content.")
+            print("GlobalHotkeyListener: Shift + Left Click triggered. Delegating to Smart Paste.")
+            # Schedule on main thread to be safe with UI
+            if self.controller and self.controller.app and self.controller.app.root:
+                 self.controller.app.root.after(0, lambda: Arbitrary_sus.process_smart_paste(self.controller.app))
         except Exception as e:
             print(f"GlobalHotkeyListener: Error handling trigger: {e}")
 
