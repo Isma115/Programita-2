@@ -4,10 +4,12 @@ import tkinter.messagebox as messagebox
 from src.ui.styles import Styles
 
 class SectionCreationPopup(tk.Toplevel):
-    def __init__(self, parent, controller):
+    def __init__(self, parent, controller, section_name=None, initial_files=None):
         super().__init__(parent)
         self.controller = controller
-        self.title("Crear Nueva Sección")
+        self.original_section_name = section_name
+        self.initial_files_data = initial_files 
+        self.title("Editar Sección" if section_name else "Crear Nueva Sección")
         # Center the window
         window_width = 800
         window_height = 600
@@ -31,6 +33,9 @@ class SectionCreationPopup(tk.Toplevel):
         ttk.Label(header, text="Nombre de la Sección:", style="TLabel").pack(side="left")
         self.entry_name = ttk.Entry(header, width=30)
         self.entry_name.pack(side="left", padx=5)
+        
+        if self.original_section_name:
+            self.entry_name.insert(0, self.original_section_name)
         
         # Split View
         split_frame = ttk.Frame(self, style="Main.TFrame")
@@ -76,10 +81,55 @@ class SectionCreationPopup(tk.Toplevel):
         footer.pack(fill="x", padx=10, pady=10)
         
         ttk.Button(footer, text="Cancelar", style="Secondary.TButton", command=self.destroy).pack(side="right", padx=5)
-        ttk.Button(footer, text="Crear Sección", style="Action.TButton", command=self._on_save).pack(side="right", padx=5)
+        btn_text = "Guardar Cambios" if self.original_section_name else "Crear Sección"
+        ttk.Button(footer, text=btn_text, style="Action.TButton", command=self._on_save).pack(side="right", padx=5)
         
         # Sync scrolling
         self._sync_scrolling()
+
+        # If editing, populate files
+        if self.original_section_name and self.initial_files_data:
+             self._populate_initial_files(self.initial_files_data)
+
+    def _populate_initial_files(self, files):
+        # We need to find the relative paths for these absolute paths
+        all_files = self.controller.project_manager.get_files()
+        # Map abs -> rel
+        abs_to_rel = {f['path']: f['rel_path'] for f in all_files}
+        
+        rel_paths = []
+        for abs_path in files:
+            if abs_path in abs_to_rel:
+                rel_paths.append(abs_to_rel[abs_path])
+            else:
+                # If file not found in project map (maybe deleted?), show only filename or ignore
+                # Let's show it anyway to be safe, user can delete it
+                rel_paths.append(os.path.basename(abs_path))
+        
+        self.txt_relative.insert("1.0", "\n".join(rel_paths))
+        # Trigger update
+        self._on_text_change()
+
+
+
+    def _populate_initial_files(self, files):
+        # We need to find the relative paths for these absolute paths
+        all_files = self.controller.project_manager.get_files()
+        # Map abs -> rel
+        abs_to_rel = {f['path']: f['rel_path'] for f in all_files}
+        
+        rel_paths = []
+        for abs_path in files:
+            if abs_path in abs_to_rel:
+                rel_paths.append(abs_to_rel[abs_path])
+            else:
+                # If file not found in project map (maybe deleted?), show only filename or ignore
+                # Let's show it anyway to be safe, user can delete it
+                rel_paths.append(os.path.basename(abs_path))
+        
+        self.txt_relative.insert("1.0", "\n".join(rel_paths))
+        # Trigger update
+        self._on_text_change()
 
     def _sync_scrolling(self):
         # We can implement basic sync scroll if needed, but for MVP standard scrolling is fine.
@@ -149,7 +199,11 @@ class SectionCreationPopup(tk.Toplevel):
 
             if found_rel_path:
                 abs_path = file_map[found_rel_path]
-                resolved_lines.append(f"{found_rel_path}") 
+                # Format: parent_dir/filename
+                parent_dir = os.path.basename(os.path.dirname(found_rel_path))
+                filename = os.path.basename(found_rel_path)
+                display_path = f"{parent_dir}/{filename}" if parent_dir else filename
+                resolved_lines.append(display_path) 
                 self.valid_files.append(abs_path)
             else:
                 resolved_lines.append("--- No encontrado ---")
@@ -174,7 +228,10 @@ class SectionCreationPopup(tk.Toplevel):
                  return
 
         try:
-            self.controller.section_manager.create_section(name, self.valid_files)
+            if self.original_section_name:
+                self.controller.section_manager.update_section(self.original_section_name, name, self.valid_files)
+            else:
+                self.controller.section_manager.create_section(name, self.valid_files)
             self.destroy()
         except ValueError as e:
             messagebox.showerror("Error", str(e))

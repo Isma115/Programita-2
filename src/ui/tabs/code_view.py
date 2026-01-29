@@ -164,7 +164,10 @@ class CodeView(ttk.Frame):
         btn_frame = ttk.Frame(self.right_top_frame, style="Sidebar.TFrame")
         btn_frame.pack(fill="x", padx=5, pady=5)
         
+        button_width = 25 # Approximate characters
+
         ttk.Button(btn_frame, text="Nueva Sección", style="Nav.TButton", command=self._on_add_section).pack(fill="x", pady=2)
+        ttk.Button(btn_frame, text="Editar Sección", style="Nav.TButton", command=self._on_edit_section).pack(fill="x", pady=2)
         ttk.Button(btn_frame, text="Borrar Sección", style="Nav.TButton", command=self._on_delete_section).pack(fill="x", pady=2)
         ttk.Separator(btn_frame, orient="horizontal").pack(fill="x", pady=5)
         ttk.Button(btn_frame, text="Añadir Seleccionados a Sección", style="Nav.TButton", command=self._on_add_to_section).pack(fill="x", pady=2)
@@ -413,6 +416,24 @@ class CodeView(ttk.Frame):
             self._refresh_sections()
         except Exception as e:
             print(f"Error opening popup: {e}")
+            messagebox.showerror("Error", f"Error abriendo popup: {e}")
+
+    def _on_edit_section(self):
+        selected_indices = self.section_list.curselection()
+        if not selected_indices: 
+            messagebox.showwarning("Aviso", "Selecciona una sección para editar.")
+            return
+            
+        section_name = self.section_list.get(selected_indices[0])
+        files = self.controller.section_manager.get_files_in_section(section_name)
+        
+        from src.ui.popups.section_creation_popup import SectionCreationPopup
+        try:
+            popup = SectionCreationPopup(self, self.controller, section_name=section_name, initial_files=files)
+            self.wait_window(popup)
+            self._refresh_sections()
+        except Exception as e:
+            print(f"Error opening popup for edit: {e}")
             messagebox.showerror("Error", f"Error abriendo popup: {e}")
 
     def _on_delete_section(self):

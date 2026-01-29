@@ -76,6 +76,28 @@ class SectionManager:
         self.sections[name] = set(files) if files else set()
         self._save_section_to_disk(name)
 
+    def update_section(self, old_name, new_name, new_files):
+        """Updates an existing section (renaming and/or changing files)."""
+        if old_name not in self.sections:
+             raise ValueError(f"Section '{old_name}' not found.")
+        
+        clean_new_name = new_name.strip()
+        if not clean_new_name:
+             raise ValueError("Section name cannot be empty.")
+             
+        # If renaming, check collision
+        if clean_new_name != old_name and clean_new_name in self.sections:
+             raise ValueError(f"Section '{clean_new_name}' already exists.")
+
+        # Update data
+        # If renaming, delete old file first
+        if clean_new_name != old_name:
+            self._delete_section_from_disk(old_name)
+            del self.sections[old_name]
+        
+        self.sections[clean_new_name] = set(new_files) if new_files else set()
+        self._save_section_to_disk(clean_new_name)
+
     def delete_section(self, name):
         if name in self.sections:
             del self.sections[name]
