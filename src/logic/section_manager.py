@@ -1,0 +1,115 @@
+import os
+import json
+
+class SectionManager:
+    """
+    Manages 'Sections' of the application.
+    A section is a named collection of specific file paths.
+    Sections are persisted in the 'sections' directory.
+    """
+    SECTIONS_DIR = "sections"
+
+    def __init__(self):
+        # Ensure sections  persist directory exists
+        self.sections_path = os.path.join(os.getcwd(), self.SECTIONS_DIR)
+        if not os.path.exists(self.sections_path):
+            os.makedirs(self.sections_path)
+
+        self.sections = {} # Dict: {'Section Name': {set of absolute file paths}}
+        self._load_all_sections()
+
+    def _load_all_sections(self):
+        """Loads all sections from local JSON files."""
+        self.sections = {}
+        if not os.path.exists(self.sections_path):
+            return
+
+        for filename in os.listdir(self.sections_path):
+            if filename.endswith(".json"):
+                name = filename[:-5] # remove .json
+                filepath = os.path.join(self.sections_path, filename)
+                try:
+                    with open(filepath, 'r', encoding='utf-8') as f:
+                        data = json.load(f)
+                        if isinstance(data, list):
+                            self.sections[name] = set(data)
+                except Exception as e:
+                    print(f"Error loading section '{name}': {e}")
+
+    def _save_section_to_disk(self, name):
+        """Saves a specific section to disk."""
+        if name not in self.sections:
+            return
+            
+        filepath = os.path.join(self.sections_path, f"{name}.json")
+        try:
+            with open(filepath, 'w', encoding='utf-8') as f:
+                # Convert set to list for JSON serialization
+                json.dump(list(self.sections[name]), f, indent=4)
+        except Exception as e:
+            print(f"Error saving section '{name}': {e}")
+
+    def _delete_section_from_disk(self, name):
+        """Removes a section file from disk."""
+        filepath = os.path.join(self.sections_path, f"{name}.json")
+        if os.path.exists(filepath):
+            try:
+                os.remove(filepath)
+            except Exception as e:
+                print(f"Error deleting section file '{name}': {e}")
+
+    def create_section(self, name, files=None):
+        """Creates a new section, optionally with files."""
+        if name in self.sections:
+            raise ValueError(f"Section '{name}' already exists.")
+        
+        # Validate name for filename usage (basic)
+        safe_name = "".join(c for c in name if c.isalnum() or c in (' ', '_', '-')).strip()
+        if not safe_name or safe_name != name:
+             # Just a basic check, we can allow more if robust filename sanitization is added, 
+             # but for now let's be safe or just proceed if it matches basics.
+             # Actually, let's simple check empty
+             pass
+        if not name.strip():
+             raise ValueError("Section name cannot be empty.")
+
+        self.sections[name] = set(files) if files else set()
+        self._save_section_to_disk(name)
+
+    def delete_section(self, name):
+        if name in self.sections:
+            del self.sections[name]
+            self._delete_section_from_disk(name)
+
+    def add_files_to_section(self, section_name, file_paths):
+        """Adds files to an existing section."""
+        if section_name not in self.sections:
+            raise ValueError(f"Section '{section_name}' not found.")
+        
+        updated = False
+        for path in file_paths:
+            if path not in self.sections[section_name]:
+                self.sections[section_name].add(path)
+                updated = True
+        
+        if updated:
+            self._save_section_to_disk(section_name)
+
+    def remove_files_from_section(self, section_name, file_paths):
+        if section_name in self.sections:
+            updated = False
+            for path in file_paths:
+                if path in self.sections[section_name]:
+                    self.sections[section_name].remove(path)
+                    updated = True
+            
+            if updated:
+                self._save_section_to_disk(section_name)
+
+    def get_sections(self):
+        """Returns list of section names."""
+        return list(self.sections.keys())
+
+    def get_files_in_section(self, section_name):
+        """Returns the set of file paths in a section."""
+        return self.sections.get(section_name, set())
