@@ -1,4 +1,5 @@
 import os
+import re
 
 class ProjectManager:
     """
@@ -108,3 +109,33 @@ class ProjectManager:
         
         # Return just the file objects
         return [f[1] for f in scored_files]
+
+    def replace_region(self, region_name, new_content):
+        """
+        Searches for a region by name across all loaded files and replaces it.
+        Format: #region "name" ... #endregion
+        """
+        found = False
+        # Regex to find #region "name" ... #endregion
+        # It handles different comment styles (//, #, --) and optional quotes
+        regex_pattern = rf'([ \t]*(?://|#|--|/\*)\s*region\s+["\']?{re.escape(region_name)}["\']?.*?#endregion)'
+        
+        for file_data in self.files:
+            content = file_data['content']
+            if not content:
+                continue
+                
+            new_file_content, count = re.subn(regex_pattern, new_content, content, flags=re.DOTALL | re.IGNORECASE)
+            
+            if count > 0:
+                print(f"ProjectManager: Replaced region '{region_name}' in {file_data['rel_path']}")
+                file_data['content'] = new_file_content
+                # Save to disk
+                try:
+                    with open(file_data['path'], 'w', encoding='utf-8') as f:
+                        f.write(new_file_content)
+                    found = True
+                except Exception as e:
+                    print(f"ProjectManager: Error saving file {file_data['path']}: {e}")
+                    
+        return found

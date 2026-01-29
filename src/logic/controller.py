@@ -1,6 +1,7 @@
 from src.logic.project_manager import ProjectManager
 from src.logic.section_manager import SectionManager
 from src.logic.config_manager import ConfigManager
+from src.logic.global_hotkeys import GlobalHotkeyListener
 import os
 
 class Controller:
@@ -19,6 +20,7 @@ class Controller:
         self.project_manager = ProjectManager()
         self.section_manager = SectionManager()
         self.config_manager = ConfigManager()
+        self.hotkey_listener = GlobalHotkeyListener(self)
 
     def load_project_folder(self, path):
         """Loads a project folder and updates the UI."""
@@ -91,3 +93,17 @@ class Controller:
         """
         print("Logic: Switching to Docs View")
         self.app.layout.show_docs_tab()
+
+    def replace_region_from_clipboard(self, region_name, content):
+        """
+        Bridges the hotkey trigger to the project manager.
+        """
+        print(f"Controller: Attempting to replace region '{region_name}'")
+        success = self.project_manager.replace_region(region_name, content)
+        if success:
+            print(f"Controller: Successfully replaced region '{region_name}'")
+            # Refresh UI if needed
+            if hasattr(self.app.layout, 'code_view'):
+                self.app.layout.code_view.refresh_file_list()
+        else:
+            print(f"Controller: Region '{region_name}' not found in project.")
