@@ -132,7 +132,10 @@ class CodeView(ttk.Frame):
 
         # Split Right Pane into Top (List) and Bottom (Checkbox area)
         self.right_top_frame = ttk.Frame(self.right_frame, style="Sidebar.TFrame")
-        self.right_top_frame.pack(side="top", fill="x", expand=False)
+        self.right_top_frame.pack(side="top", fill="both", expand=True)
+
+        self.right_bottom_frame = ttk.Frame(self.right_frame, style="Sidebar.TFrame")
+        self.right_bottom_frame.pack(side="bottom", fill="x", expand=False)
 
 
 
@@ -151,7 +154,7 @@ class CodeView(ttk.Frame):
             highlightthickness=0,
             exportselection=0, # Prevent selection loss when focus changes
             font=Styles.FONT_MAIN,
-            height=25
+            height=15
         )
         self.section_list.bind("<<ListboxSelect>>", self._on_section_select)
         self.section_list.bind("<Button-1>", self._on_section_click)
@@ -166,15 +169,85 @@ class CodeView(ttk.Frame):
         ttk.Separator(btn_frame, orient="horizontal").pack(fill="x", pady=5)
         ttk.Button(btn_frame, text="Añadir Seleccionados a Sección", style="Nav.TButton", command=self._on_add_to_section).pack(fill="x", pady=2)
         
-        # Checkbox "Devolver regiones" moved up here
+        # Custom Large Checkbox "Devolver regiones" 
         self.var_return_regions = tk.BooleanVar(value=False)
-        self.chk_return_regions = ttk.Checkbutton(
-            btn_frame, 
-            text="Devolver regiones", 
-            variable=self.var_return_regions,
-            style="TCheckbutton"
+        
+        # Container frame for the custom checkbox
+        self.chk_container = ttk.Frame(self.right_bottom_frame, style="Sidebar.TFrame", cursor="hand2")
+        self.chk_container.pack(fill="x", padx=15, pady=20)
+        
+        # Indicator Canvas (The square) - Fixed size for consistency
+        self.chk_canvas = tk.Canvas(
+            self.chk_container,
+            width=30,
+            height=30,
+            bg=Styles.COLOR_BG_SIDEBAR,
+            highlightthickness=0,
+            bd=0
         )
-        self.chk_return_regions.pack(fill="x", pady=(10, 2))
+        self.chk_canvas.pack(side="left")
+        
+        # Draw initial state (unchecked)
+        self._draw_checkbox()
+        
+        # Text Label
+        self.lbl_chk_text = ttk.Label(
+            self.chk_container, 
+            text="Devolver regiones", 
+            style="TLabel",
+            font=("Segoe UI", 18, "bold")
+        )
+        self.lbl_chk_text.configure(background=Styles.COLOR_BG_SIDEBAR)
+        self.lbl_chk_text.pack(side="left", padx=(10, 0))
+        
+        # Bindings for click events
+        self.chk_container.bind("<Button-1>", self._toggle_return_regions)
+        self.chk_canvas.bind("<Button-1>", self._toggle_return_regions)
+        self.lbl_chk_text.bind("<Button-1>", self._toggle_return_regions)
+        
+        # Hover effects
+        self.chk_container.bind("<Enter>", self._on_chk_hover_enter)
+        self.chk_container.bind("<Leave>", self._on_chk_hover_leave)
+
+    def _draw_checkbox(self):
+        """Draws the current state on the canvas."""
+        self.chk_canvas.delete("all")
+        
+        is_checked = self.var_return_regions.get()
+        color = Styles.COLOR_ACCENT if is_checked else Styles.COLOR_DIM
+        outline_color = Styles.COLOR_ACCENT if is_checked else Styles.COLOR_DIM
+        
+        # Draw Border Square
+        self.chk_canvas.create_rectangle(
+            4, 4, 26, 26, 
+            outline=outline_color, 
+            width=2,
+            fill=Styles.COLOR_INPUT_BG if not is_checked else Styles.COLOR_ACCENT
+        )
+        
+        if is_checked:
+            # Draw Checkmark (X or Check)
+            self.chk_canvas.create_line(
+                8, 15, 13, 20, 
+                fill="white", width=3, capstyle=tk.ROUND
+            )
+            self.chk_canvas.create_line(
+                13, 20, 22, 10, 
+                fill="white", width=3, capstyle=tk.ROUND
+            )
+
+    def _on_chk_hover_enter(self, event):
+        self.lbl_chk_text.configure(foreground=Styles.COLOR_ACCENT)
+        # Subtle glow or border change could go here
+
+    def _on_chk_hover_leave(self, event):
+        self.lbl_chk_text.configure(foreground=Styles.COLOR_FG_TEXT)
+
+    def _toggle_return_regions(self, event=None):
+        """Toggles the custom checkbox state."""
+        new_val = not self.var_return_regions.get()
+        self.var_return_regions.set(new_val)
+        self._draw_checkbox()
 
         # Initial Refresh
         self._refresh_sections()

@@ -25,7 +25,7 @@ class Styles:
     FONT_MAIN = ("Segoe UI", 18, "bold")        
     FONT_HEADER = ("Segoe UI", 20, "bold")
     FONT_CODE = ("Consolas", 14)       
-    FONT_BUTTON = ("Segoe UI", 14, "bold")
+    FONT_BUTTON = ("Segoe UI", 18, "bold")
 
     @staticmethod
     def configure_styles(root):
@@ -95,7 +95,7 @@ class Styles:
             focuscolor=Styles.COLOR_BG_SIDEBAR,
             padding=(20, 15),
             relief="flat",
-            anchor="w" # Align text to left
+            anchor="center" # Center the text
         )
         style.map(
             "Nav.TButton",
@@ -201,8 +201,9 @@ class Styles:
             "TCheckbutton",
             background=Styles.COLOR_BG_SIDEBAR,
             foreground=Styles.COLOR_FG_TEXT,
-            font=Styles.FONT_MAIN,
-            focuscolor=Styles.COLOR_BG_SIDEBAR
+            font=("Segoe UI", 18, "bold"), # Larger and bolder
+            focuscolor=Styles.COLOR_BG_SIDEBAR,
+            padding=10
         )
         style.map(
             "TCheckbutton",
