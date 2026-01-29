@@ -3,6 +3,7 @@ from tkinter import ttk, filedialog
 import tkinter.messagebox as messagebox
 import threading
 import os
+import webbrowser
 from src.ui.styles import Styles
 
 class CodeView(ttk.Frame):
@@ -10,6 +11,31 @@ class CodeView(ttk.Frame):
     The main view for the 'Code' tab.
     Allows loading projects, listing files, and generating AI prompts.
     """
+    
+    
+    # 1. Claude
+    # 2. Gemini
+    # 3. DeepSeek
+    # 4. ChatGPT
+    # 5. GLM
+    # 6. Grok
+    # 7. Kimi2
+    AI_ORDER = [
+        "Claude", "Gemini", "DeepSeek",  # Green
+        "ChatGPT", "GLM",                # Yellow
+        "Grok", "Kimi2"                  # Red
+    ]
+
+    AI_URLS = {
+        "Claude": "https://claude.ai",
+        "Gemini": "https://gemini.google.com",
+        "DeepSeek": "https://chat.deepseek.com",
+        "ChatGPT": "https://chat.openai.com",
+        "GLM": "https://chatglm.cn",
+        "Grok": "https://x.com/i/grok",
+        "Kimi2": "https://kimi.moonshot.cn"
+    }
+
     def __init__(self, parent):
         super().__init__(parent, style="Main.TFrame")
         self.controller = parent.master.controller 
@@ -66,10 +92,35 @@ class CodeView(ttk.Frame):
             orient="horizontal", 
             variable=self.limit_var,
             command=self._on_limit_change,
-            length=300,
+            length=200,
             style="Horizontal.TScale"
         )
         self.slider.pack(side="left", fill="x")
+
+        # AI Selector
+        self.ai_var = tk.StringVar()
+        self.cmb_ai = ttk.Combobox(
+            slider_frame, 
+            textvariable=self.ai_var, 
+            values=self.AI_ORDER,
+            state="readonly",
+            width=15,
+            style="TCombobox"
+        )
+        self.cmb_ai.set("Claude") # Default to Best
+        self.cmb_ai.pack(side="left", padx=(20, 0))
+        
+        # Hook to colorize the listbox items when dropdown opens
+        self.cmb_ai.bind("<<ComboboxSelected>>", self._on_ai_selected)
+        self.cmb_ai.bind("<Button-1>", self._on_combo_click)
+        
+        # Attempt to colorize immediately? No, popdown doesn't exist yet.
+        # We can use postcommand if available or just bind Button-1 to configure after a delay.
+        self.cmb_ai['postcommand'] = self._colorize_combo_items
+
+
+
+
 
         # 2. File List (Treeview)
         # "Occupies 3/4 width" -> We'll handle this with sash positioning initially
@@ -115,6 +166,9 @@ class CodeView(ttk.Frame):
             padx=10, pady=10
         )
         self.txt_prompt.bind("<KeyRelease>", self._on_prompt_change)
+        # Bind Ctrl+Enter (and Command+Enter on Mac) to copy prompt
+        self.txt_prompt.bind("<Control-Return>", self._on_copy_prompt)
+        self.txt_prompt.bind("<Command-Return>", self._on_copy_prompt)
         self.txt_prompt.pack(side="left", fill="x", expand=True, pady=5)
         
         self.btn_copy = ttk.Button(
@@ -169,8 +223,7 @@ class CodeView(ttk.Frame):
         ttk.Button(btn_frame, text="Nueva Sección", style="Nav.TButton", command=self._on_add_section).pack(fill="x", pady=2)
         ttk.Button(btn_frame, text="Editar Sección", style="Nav.TButton", command=self._on_edit_section).pack(fill="x", pady=2)
         ttk.Button(btn_frame, text="Borrar Sección", style="Nav.TButton", command=self._on_delete_section).pack(fill="x", pady=2)
-        ttk.Separator(btn_frame, orient="horizontal").pack(fill="x", pady=5)
-        ttk.Button(btn_frame, text="Añadir Seleccionados a Sección", style="Nav.TButton", command=self._on_add_to_section).pack(fill="x", pady=2)
+
         
         # Custom Large Checkbox "Devolver regiones" 
         val_regions = False
@@ -218,6 +271,57 @@ class CodeView(ttk.Frame):
 
         # Initial sections load
         self._refresh_sections()
+
+    def _colorize_combo_items(self):
+        """Attempts to colorize the items in the dropdown listbox."""
+        # Delay slightly to allow listbox list to populate
+        self.after(100, self._apply_colors)
+
+    def _apply_colors(self):
+        try:
+            # Get the popdown window
+            popdown = self.cmb_ai.tk.call('ttk::combobox::PopdownWindow', self.cmb_ai)
+            listbox_path = f"{popdown}.f.l"
+            
+            if not self.tk.call('winfo', 'exists', listbox_path):
+                return
+            
+            # Colors
+            c_green = getattr(Styles, 'COLOR_AI_GREEN', '#57F287') 
+            c_yellow = getattr(Styles, 'COLOR_AI_YELLOW', '#FEE75C')
+            c_red = getattr(Styles, 'COLOR_AI_RED', '#ED4245')
+            c_bg = getattr(Styles, 'COLOR_INPUT_BG', '#313338')
+            
+            # Helper to set color
+            def set_color(idx, color):
+                try:
+                    self.tk.call(listbox_path, 'itemconfigure', idx, '-foreground', color)
+                    self.tk.call(listbox_path, 'itemconfigure', idx, '-background', c_bg)
+                    self.tk.call(listbox_path, 'itemconfigure', idx, '-selectbackground', Styles.COLOR_ACCENT)
+                    self.tk.call(listbox_path, 'itemconfigure', idx, '-selectforeground', '#ffffff')
+                except:
+                    pass
+
+            # Claude, Gemini, DeepSeek (0, 1, 2) -> Green
+            for i in range(3):
+                set_color(i, c_green)
+                
+            # ChatGPT, GLM (3, 4) -> Yellow
+            for i in range(3, 5):
+                set_color(i, c_yellow)
+                
+            # Grok, Kimi2 (5, 6) -> Red
+            for i in range(5, 7):
+                set_color(i, c_red)
+                
+        except Exception as e:
+            print(f"Error coloring combobox: {e}")
+
+    def _on_ai_selected(self, event=None):
+        pass
+
+    def _on_combo_click(self, event=None):
+        pass
 
     def _draw_checkbox(self):
         """Draws the current state on the canvas."""
@@ -372,7 +476,12 @@ class CodeView(ttk.Frame):
             self._on_section_select() # Update filter
             return "break" # Prevent default selection behavior if any
 
-    def _on_copy_prompt(self):
+    def _on_copy_prompt(self, event=None):
+        # If triggered by event, prevent default behavior (newline)
+        if event:
+            pass # Use "break" if needed, but Text widget default binding might be separate. 
+                 # Usually return "break" prevents further processing.
+        
         text = self.txt_prompt.get("1.0", "end-1c").strip()
         if not text:
             messagebox.showwarning("Aviso", "Escribe un mensaje primero.")
@@ -402,7 +511,12 @@ class CodeView(ttk.Frame):
             self.clipboard_clear()
             self.clipboard_append(text)
             
-            messagebox.showinfo("Prompt Generado", f"Prompt guardado en:\n{file_path}\n\nMensaje del usuario copiado al portapapeles.")
+            # Open AI URL
+            selected_ai = self.cmb_ai.get()
+            if selected_ai in self.AI_URLS:
+                url = self.AI_URLS[selected_ai]
+                webbrowser.open_new_tab(url)
+
             
         except Exception as e:
             messagebox.showerror("Error", f"No se pudo guardar el fichero:\n{e}")
@@ -443,34 +557,6 @@ class CodeView(ttk.Frame):
         name = self.section_list.get(selected_indices[0])
         self.controller.section_manager.delete_section(name)
         self._refresh_sections()
-
-    def _on_add_to_section(self):
-        selected_indices = self.section_list.curselection()
-        if not selected_indices: 
-            messagebox.showwarning("Aviso", "Selecciona una sección primero.")
-            return
-        section_name = self.section_list.get(selected_indices[0])
-        
-        # Get selected files from tree
-        selected_items = self.tree.selection()
-        if not selected_items:
-            messagebox.showwarning("Aviso", "Selecciona ficheros de la lista.")
-            return
-
-        file_paths = []
-        for unique_id in selected_items:
-            # We stored the absolute path in tags, but tree.item(id)['tags'] returns a list
-            # We fixed this in Logic phase but let's double check. 
-            # Controller access logic might need fix if not working? 
-            # The tool call above is mostly for UI inputs.
-            # I will trust the logic from previous step.
-            tags = self.tree.item(unique_id, "tags")
-            if tags:
-                file_paths.append(tags[0])
-        
-        if file_paths:
-            self.controller.section_manager.add_files_to_section(section_name, file_paths)
-            messagebox.showinfo("Éxito", f"{len(file_paths)} ficheros añadidos a '{section_name}'.")
 
     def _refresh_sections(self):
         self.section_list.delete(0, tk.END)

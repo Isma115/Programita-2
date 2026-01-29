@@ -210,3 +210,31 @@ class Styles:
             background=[("active", Styles.COLOR_BG_SIDEBAR)],
             foreground=[("active", Styles.COLOR_ACCENT)]
         )
+
+        # AI Grading Colors
+        Styles.COLOR_AI_GREEN = "#57F287"   # High Quality (Green)
+        Styles.COLOR_AI_YELLOW = "#FEE75C"  # Mid Quality (Yellow)
+        Styles.COLOR_AI_RED = "#ED4245"     # Basic (Red)
+
+        # Combobox Styles (Matching the Theme)
+        style.configure(
+            "TCombobox",
+            background=Styles.COLOR_INPUT_BG, 
+            foreground=Styles.COLOR_FG_TEXT,
+            fieldbackground=Styles.COLOR_INPUT_BG,
+            bordercolor=Styles.COLOR_BORDER,
+            darkcolor=Styles.COLOR_INPUT_BG,
+            lightcolor=Styles.COLOR_INPUT_BG,
+            arrowcolor=Styles.COLOR_DIM,
+            padding=5,
+            relief="flat",
+            borderwidth=0
+        )
+        style.map(
+            "TCombobox",
+            fieldbackground=[("readonly", Styles.COLOR_INPUT_BG)],
+            selectbackground=[("readonly", Styles.COLOR_INPUT_BG)],
+            selectforeground=[("readonly", Styles.COLOR_FG_TEXT)],
+            background=[("readonly", Styles.COLOR_INPUT_BG)],
+            foreground=[("readonly", Styles.COLOR_FG_TEXT)]
+        )
