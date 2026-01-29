@@ -209,6 +209,9 @@ class CodeView(ttk.Frame):
         self.chk_container.bind("<Enter>", self._on_chk_hover_enter)
         self.chk_container.bind("<Leave>", self._on_chk_hover_leave)
 
+        # Initial sections load
+        self._refresh_sections()
+
     def _draw_checkbox(self):
         """Draws the current state on the canvas."""
         self.chk_canvas.delete("all")
