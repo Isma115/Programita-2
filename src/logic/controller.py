@@ -94,6 +94,13 @@ class Controller:
         print("Logic: Switching to Docs View")
         self.app.layout.show_docs_tab()
 
+    def show_console_view(self):
+        """
+        Switch the main content area to the Console view.
+        """
+        print("Logic: Switching to Console View")
+        self.app.layout.show_console_tab()
+
     def replace_region_from_clipboard(self, region_name, content):
         """
         Bridges the hotkey trigger to the project manager.

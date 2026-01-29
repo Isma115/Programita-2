@@ -3,6 +3,7 @@ from tkinter import ttk
 from src.ui.styles import Styles
 from src.ui.tabs.code_view import CodeView
 from src.ui.tabs.doc_view import DocView
+from src.ui.tabs.console_view import ConsoleView
 
 class MainLayout(ttk.Frame):
     """
@@ -44,9 +45,10 @@ class MainLayout(ttk.Frame):
         self.nav_buttons_frame = ttk.Frame(self.navbar, style="Sidebar.TFrame")
         self.nav_buttons_frame.pack(side="left", fill="x", expand=True) # expand to fill navbar
         
-        # Configure columns to distribute space equally (50% - 50%)
+        # Configure columns to distribute space equally (33% - 33% - 33%)
         self.nav_buttons_frame.columnconfigure(0, weight=1)
         self.nav_buttons_frame.columnconfigure(1, weight=1)
+        self.nav_buttons_frame.columnconfigure(2, weight=1)
 
         # Tab Buttons
         self.btn_code = ttk.Button(
@@ -55,7 +57,6 @@ class MainLayout(ttk.Frame):
             style="Nav.TButton",
             command=self.controller.show_code_view
         )
-        # sticky="nsew" makes it fill the grid cell
         self.btn_code.grid(row=0, column=0, sticky="nsew", padx=0, pady=0) 
 
         self.btn_docs = ttk.Button(
@@ -66,6 +67,14 @@ class MainLayout(ttk.Frame):
         )
         self.btn_docs.grid(row=0, column=1, sticky="nsew", padx=0, pady=0)
 
+        self.btn_console = ttk.Button(
+            self.nav_buttons_frame,
+            text="Consola",
+            style="Nav.TButton",
+            command=self.controller.show_console_view
+        )
+        self.btn_console.grid(row=0, column=2, sticky="nsew", padx=0, pady=0)
+
     def _create_content_area(self):
         """Creates the area where tab content will be displayed."""
         self.content_frame = ttk.Frame(self, style="Main.TFrame")
@@ -74,6 +83,7 @@ class MainLayout(ttk.Frame):
         # Instantiate views
         self.code_view = CodeView(self.content_frame)
         self.doc_view = DocView(self.content_frame)
+        self.console_view = ConsoleView(self.content_frame)
 
     def show_code_tab(self):
         """Displays the Code view."""
@@ -82,6 +92,7 @@ class MainLayout(ttk.Frame):
         # Update button states (visual feedback)
         self.btn_code.state(["pressed", "disabled"]) 
         self.btn_docs.state(["!pressed", "!disabled"])
+        self.btn_console.state(["!pressed", "!disabled"])
 
     def show_docs_tab(self):
         """Displays the Documentation view."""
@@ -90,6 +101,16 @@ class MainLayout(ttk.Frame):
          # Update button states
         self.btn_code.state(["!pressed", "!disabled"])
         self.btn_docs.state(["pressed", "disabled"])
+        self.btn_console.state(["!pressed", "!disabled"])
+
+    def show_console_tab(self):
+        """Displays the Console view."""
+        self._clear_content()
+        self.console_view.pack(fill="both", expand=True)
+        # Update button states
+        self.btn_code.state(["!pressed", "!disabled"])
+        self.btn_docs.state(["!pressed", "!disabled"])
+        self.btn_console.state(["pressed", "disabled"])
 
     def _clear_content(self):
         """Unpacks all views from the content frame."""
