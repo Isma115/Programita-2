@@ -52,3 +52,21 @@ class ConfigManager:
         """Sets the file limit and saves config."""
         self.config["file_limit"] = int(limit)
         self.save_config()
+
+    def get_return_regions(self):
+        """Returns whether to return regions, defaulting to False."""
+        return self.config.get("return_regions", False)
+
+    def set_return_regions(self, value):
+        """Sets whether to return regions and saves config."""
+        self.config["return_regions"] = bool(value)
+        self.save_config()
+
+    def get_enable_hotkeys(self):
+        """Returns whether global hotkeys are enabled, defaulting to True."""
+        return self.config.get("enable_hotkeys", True)
+
+    def set_enable_hotkeys(self, value):
+        """Sets whether global hotkeys are enabled and saves config."""
+        self.config["enable_hotkeys"] = bool(value)
+        self.save_config()

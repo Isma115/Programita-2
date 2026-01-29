@@ -170,7 +170,11 @@ class CodeView(ttk.Frame):
         ttk.Button(btn_frame, text="Añadir Seleccionados a Sección", style="Nav.TButton", command=self._on_add_to_section).pack(fill="x", pady=2)
         
         # Custom Large Checkbox "Devolver regiones" 
-        self.var_return_regions = tk.BooleanVar(value=False)
+        val_regions = False
+        if hasattr(self.controller, 'config_manager'):
+            val_regions = self.controller.config_manager.get_return_regions()
+            
+        self.var_return_regions = tk.BooleanVar(value=val_regions)
         
         # Container frame for the custom checkbox
         self.chk_container = ttk.Frame(self.right_bottom_frame, style="Sidebar.TFrame", cursor="hand2")
@@ -251,6 +255,10 @@ class CodeView(ttk.Frame):
         new_val = not self.var_return_regions.get()
         self.var_return_regions.set(new_val)
         self._draw_checkbox()
+
+        # Update Config
+        if hasattr(self.controller, 'config_manager'):
+             self.controller.config_manager.set_return_regions(new_val)
 
         # Initial Refresh
         self._refresh_sections()

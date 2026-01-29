@@ -63,7 +63,7 @@ class Controller:
             prompt += f.get('content', '') + "\n"
             
         if return_regions:
-            prompt += "\n\nIMPORTANT: Return ONLY the COMPLETE modified regions. Only the regions that needed modification, and they must be complete. Do not return unchanged code."
+            prompt += "\n\nIMPORTANT: First, list all the regions that need modification. Then, return ONLY the COMPLETE modified regions. Only the regions that needed modification, and they must be complete. Do not return unchanged code."
             
         return prompt
 
