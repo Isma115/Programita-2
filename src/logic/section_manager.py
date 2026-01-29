@@ -9,7 +9,8 @@ class SectionManager:
     """
     SECTIONS_DIR = "sections"
 
-    def __init__(self):
+    def __init__(self, project_manager=None):
+        self.project_manager = project_manager
         # Ensure sections  persist directory exists
         self.sections_path = os.path.join(os.getcwd(), self.SECTIONS_DIR)
         if not os.path.exists(self.sections_path):

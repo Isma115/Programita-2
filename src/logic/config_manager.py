@@ -70,3 +70,15 @@ class ConfigManager:
         """Sets whether global hotkeys are enabled and saves config."""
         self.config["enable_hotkeys"] = bool(value)
         self.save_config()
+
+    def get_theme_colors(self):
+        """Returns the saved theme colors or None if default."""
+        return self.config.get("theme_colors")
+
+    def set_theme_colors(self, accent, hover):
+        """Sets the theme accent colors and saves config."""
+        self.config["theme_colors"] = {
+            "COLOR_ACCENT": accent,
+            "COLOR_ACCENT_HOVER": hover
+        }
+        self.save_config()

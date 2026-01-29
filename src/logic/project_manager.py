@@ -13,7 +13,8 @@ class ProjectManager:
         '.rb', '.swift', '.kt', '.sql', '.json', '.xml', '.yml', '.yaml'
     }
 
-    def __init__(self):
+    def __init__(self, config_manager=None):
+        self.config_manager = config_manager
         self.current_project_path = None
         self.files = [] # List of dicts: {'path': absolute_path, 'rel_path': relative_path, 'content': str}
 

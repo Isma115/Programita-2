@@ -1,7 +1,9 @@
+
 from src.logic.project_manager import ProjectManager
 from src.logic.section_manager import SectionManager
 from src.logic.config_manager import ConfigManager
 from src.logic.global_hotkeys import GlobalHotkeyListener
+from src.ui.styles import Styles
 import os
 
 class Controller:
@@ -17,9 +19,16 @@ class Controller:
             app: Reference to the main Application instance.
         """
         self.app = app
-        self.project_manager = ProjectManager()
-        self.section_manager = SectionManager()
         self.config_manager = ConfigManager()
+        
+        # Load Theme from Config
+        theme_colors = self.config_manager.get_theme_colors()
+        if theme_colors:
+            Styles.COLOR_ACCENT = theme_colors.get("COLOR_ACCENT", Styles.COLOR_ACCENT)
+            Styles.COLOR_ACCENT_HOVER = theme_colors.get("COLOR_ACCENT_HOVER", Styles.COLOR_ACCENT_HOVER)
+        
+        self.project_manager = ProjectManager(self.config_manager)
+        self.section_manager = SectionManager(self.project_manager)
         self.hotkey_listener = GlobalHotkeyListener(self)
 
     def load_project_folder(self, path):
