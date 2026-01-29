@@ -414,11 +414,11 @@ def show_popup(clipboard_text, match_text, file_path, ratio, line_num):
     def on_accept():
         # txt_edit se define más abajo, pero estará disponible cuando se pulse el botón
         new_content = txt_edit.get("1.0", "end-1c") 
-        if messagebox.askyesno("Confirmar", "¿Sustituir código original?"):
-            success = apply_replacement(file_path, state["start_idx"], state["end_idx"], new_content)
-            if success:
-                messagebox.showinfo("Éxito", "Actualizado.")
-                popup.destroy()
+        # Confirmación automática
+        success = apply_replacement(file_path, state["start_idx"], state["end_idx"], new_content)
+        if success:
+            # messagebox.showinfo("Éxito", "Actualizado.") # Removed popup
+            popup.destroy()
 
     # Cancel button (Rightmost)
     tk.Button(
@@ -553,7 +553,7 @@ def run_arbitrary_search(app_instance):
     try:
         clipboard_text = pyperclip.paste().strip()
         if not clipboard_text:
-            tk.messagebox.showinfo("Arbitrary", "Portapapeles vacío.")
+            logging.info("Arbitrary: Portapapeles vacío.")
             return
 
         code_files = []
@@ -584,7 +584,7 @@ def run_arbitrary_search(app_instance):
         if match and ratio > 0.1:
             show_popup(clipboard_text, match, file_path, ratio, line_num)
         else:
-            tk.messagebox.showinfo("Arbitrary", "Sin coincidencias.")
+            logging.info("Arbitrary: Sin coincidencias.")
 
     except Exception as e:
         app_instance.root.config(cursor="")
@@ -600,7 +600,7 @@ def process_smart_paste(app_instance):
     try:
         content = pyperclip.paste()
         if not content:
-            tk.messagebox.showinfo("Smart Paste", "Portapapeles vacío.")
+            logging.info("Smart Paste: Portapapeles vacío.")
             return
 
         # 1. Chequeo de Región
@@ -613,7 +613,7 @@ def process_smart_paste(app_instance):
              if hasattr(app_instance, 'controller'):
                  success = app_instance.controller.replace_region_from_clipboard(region_name, content)
                  if success:
-                     tk.messagebox.showinfo("Smart Paste", f"✅ Región '{region_name}' actualizada correctamente.")
+                     logging.info(f"Smart Paste: Región '{region_name}' actualizada correctamente.")
                  else:
                      tk.messagebox.showwarning("Smart Paste", f"⚠️ No se encontró la región '{region_name}' en el proyecto.")
              return

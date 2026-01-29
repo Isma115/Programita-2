@@ -223,9 +223,9 @@ class SectionCreationPopup(tk.Toplevel):
         if not self.valid_files:
              # It's allowed to create empty section? User asked for "create sections ... writing list of files".
              # Let's warn but allow if that was the intent, but usually we want files.
-             confirm = messagebox.askyesno("Confirmar", "No se han encontrado ficheros válidos. ¿Crear sección vacía?")
-             if not confirm:
-                 return
+             # confirm = messagebox.askyesno("Confirmar", "No se han encontrado ficheros válidos. ¿Crear sección vacía?")
+             # Assuming YES as per request to remove confirmation popups
+             pass
 
         try:
             if self.original_section_name:
