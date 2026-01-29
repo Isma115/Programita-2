@@ -22,7 +22,7 @@ class Styles:
     
     # Fonts (Larger and cleaner)
     FONT_FAMILY = "Segoe UI" # Fallback to standard if needed
-    FONT_MAIN = ("Segoe UI", 14)        
+    FONT_MAIN = ("Segoe UI", 18, "bold")        
     FONT_HEADER = ("Segoe UI", 20, "bold")
     FONT_CODE = ("Consolas", 14)       
     FONT_BUTTON = ("Segoe UI", 14, "bold")
@@ -158,13 +158,13 @@ class Styles:
             borderwidth=0,
             relief="flat",
             font=Styles.FONT_MAIN,
-            rowheight=35 # More breathing room
+            rowheight=55 # Even more room for larger bold font
         )
         style.configure(
             "Treeview.Heading",
             background=Styles.COLOR_BG_SIDEBAR,
             foreground=Styles.COLOR_FG_TEXT,
-            font=("Segoe UI", 12, "bold"),
+            font=("Segoe UI", 14, "bold"),
             borderwidth=0,
             relief="flat",
             padding=(10, 10)

@@ -218,7 +218,15 @@ class CodeView(ttk.Frame):
 
         for f in files[:limit]:
             size_kb = f"{len(f['content']) / 1024:.1f} KB"
-            self.tree.insert("", "end", values=(f['rel_path'], size_kb), tags=(f['path'],))
+            # Format path to show only parent/filename
+            rel_path = f['rel_path']
+            parts = rel_path.split(os.sep)
+            if len(parts) > 1:
+                display_path = os.path.join(parts[-2], parts[-1])
+            else:
+                display_path = rel_path
+                
+            self.tree.insert("", "end", values=(display_path, size_kb), tags=(f['path'],))
 
 
     def _on_prompt_change(self, event=None):
