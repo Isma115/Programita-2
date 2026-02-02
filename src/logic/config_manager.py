@@ -44,6 +44,15 @@ class ConfigManager:
         self.config["last_project"] = path
         self.save_config()
 
+    def get_doc_path(self):
+        """Returns the saved documentation folder path, or None."""
+        return self.config.get("doc_path")
+
+    def set_doc_path(self, path):
+        """Sets the documentation folder path and saves config."""
+        self.config["doc_path"] = path
+        self.save_config()
+
     def get_file_limit(self):
         """Returns the file limit, defaulting to 100."""
         return self.config.get("file_limit", 100)
