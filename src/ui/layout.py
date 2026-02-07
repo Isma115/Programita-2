@@ -4,6 +4,7 @@ from src.ui.styles import Styles
 from src.ui.tabs.code_view import CodeView
 from src.ui.tabs.doc_view import DocView
 from src.ui.tabs.console_view import ConsoleView
+from src.ui.tabs.database_view import DatabaseView
 
 class MainLayout(ttk.Frame):
     """
@@ -45,10 +46,11 @@ class MainLayout(ttk.Frame):
         self.nav_buttons_frame = ttk.Frame(self.navbar, style="Sidebar.TFrame")
         self.nav_buttons_frame.pack(side="left", fill="x", expand=True) # expand to fill navbar
         
-        # Configure columns to distribute space equally (33% - 33% - 33%)
+        # Configure columns to distribute space equally (25% each)
         self.nav_buttons_frame.columnconfigure(0, weight=1)
         self.nav_buttons_frame.columnconfigure(1, weight=1)
         self.nav_buttons_frame.columnconfigure(2, weight=1)
+        self.nav_buttons_frame.columnconfigure(3, weight=1)
 
         # Tab Buttons
         self.btn_code = ttk.Button(
@@ -59,13 +61,21 @@ class MainLayout(ttk.Frame):
         )
         self.btn_code.grid(row=0, column=0, sticky="nsew", padx=0, pady=0) 
 
+        self.btn_database = ttk.Button(
+            self.nav_buttons_frame,
+            text="BBDD",
+            style="Nav.TButton",
+            command=self.controller.show_database_view
+        )
+        self.btn_database.grid(row=0, column=1, sticky="nsew", padx=0, pady=0)
+
         self.btn_docs = ttk.Button(
             self.nav_buttons_frame,
             text="Documentación",
             style="Nav.TButton",
             command=self.controller.show_docs_view
         )
-        self.btn_docs.grid(row=0, column=1, sticky="nsew", padx=0, pady=0)
+        self.btn_docs.grid(row=0, column=2, sticky="nsew", padx=0, pady=0)
 
         self.btn_console = ttk.Button(
             self.nav_buttons_frame,
@@ -73,7 +83,7 @@ class MainLayout(ttk.Frame):
             style="Nav.TButton",
             command=self.controller.show_console_view
         )
-        self.btn_console.grid(row=0, column=2, sticky="nsew", padx=0, pady=0)
+        self.btn_console.grid(row=0, column=3, sticky="nsew", padx=0, pady=0)
 
     def _create_content_area(self):
         """Creates the area where tab content will be displayed."""
@@ -84,6 +94,7 @@ class MainLayout(ttk.Frame):
         self.code_view = CodeView(self.content_frame)
         self.doc_view = DocView(self.content_frame)
         self.console_view = ConsoleView(self.content_frame)
+        self.database_view = DatabaseView(self.content_frame)
 
     def show_code_tab(self):
         """Displays the Code view."""
@@ -93,6 +104,7 @@ class MainLayout(ttk.Frame):
         self.btn_code.state(["pressed", "disabled"]) 
         self.btn_docs.state(["!pressed", "!disabled"])
         self.btn_console.state(["!pressed", "!disabled"])
+        self.btn_database.state(["!pressed", "!disabled"])
         self.update_idletasks()
 
     def show_docs_tab(self):
@@ -103,6 +115,7 @@ class MainLayout(ttk.Frame):
         self.btn_code.state(["!pressed", "!disabled"])
         self.btn_docs.state(["pressed", "disabled"])
         self.btn_console.state(["!pressed", "!disabled"])
+        self.btn_database.state(["!pressed", "!disabled"])
         self.update_idletasks()
 
     def show_console_tab(self):
@@ -113,6 +126,18 @@ class MainLayout(ttk.Frame):
         self.btn_code.state(["!pressed", "!disabled"])
         self.btn_docs.state(["!pressed", "!disabled"])
         self.btn_console.state(["pressed", "disabled"])
+        self.btn_database.state(["!pressed", "!disabled"])
+        self.update_idletasks()
+
+    def show_database_tab(self):
+        """Displays the Database view."""
+        self._clear_content()
+        self.database_view.pack(fill="both", expand=True)
+        # Update button states
+        self.btn_code.state(["!pressed", "!disabled"])
+        self.btn_docs.state(["!pressed", "!disabled"])
+        self.btn_console.state(["!pressed", "!disabled"])
+        self.btn_database.state(["pressed", "disabled"])
         self.update_idletasks()
 
     def _clear_content(self):

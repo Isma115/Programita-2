@@ -110,6 +110,13 @@ class Controller:
         print("Logic: Switching to Console View")
         self.app.layout.show_console_tab()
 
+    def show_database_view(self):
+        """
+        Switch the main content area to the Database view.
+        """
+        print("Logic: Switching to Database View")
+        self.app.layout.show_database_tab()
+
     def replace_region_from_clipboard(self, region_name, content):
         """
         Bridges the hotkey trigger to the project manager.
