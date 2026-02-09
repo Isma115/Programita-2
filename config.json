@@ -1,7 +1,7 @@
 {
     "last_project": "/Users/ismaelmoraledalopez/Documents/Azure-Irrigation-Web/HidraSmart-Irrigation-System",
     "file_limit": 10,
-    "return_regions": false,
+    "return_regions": true,
     "doc_path": "/Users/ismaelmoraledalopez/Documents/Documentacion Irrigation",
     "theme_colors": {
         "COLOR_ACCENT": "#ED4245",

@@ -66,13 +66,13 @@ class Controller:
             relevant_files = self.project_manager.find_relevant_files(user_text)
         
         # Build Prompt
-        prompt = f"User Request: {user_text}\n\nContext Files:\n"
+        prompt = f"Petición del Usuario: {user_text}\n\nArchivos de Contexto:\n"
         for f in relevant_files[:10]: # Limit to top 10 matches for now
-            prompt += f"\n--- File: {f['rel_path']} ---\n"
+            prompt += f"\n--- Archivo: {f['rel_path']} ---\n"
             prompt += f.get('content', '') + "\n"
             
         if return_regions:
-            prompt += "\n\nIMPORTANT: First, list all the regions that need modification. Then, return ONLY the COMPLETE modified regions. Only the regions that needed modification, and they must be complete. Do not return unchanged code."
+            prompt += "\n\nIMPORTANTE: Primero, lista todas las regiones que necesitan modificación. Después, devuelve SOLO las regiones modificadas COMPLETAS. Solo las regiones que necesitaron modificación, y deben estar completas. No devuelvas código sin cambios."
             
         return prompt
 

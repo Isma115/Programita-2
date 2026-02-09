@@ -508,9 +508,13 @@ class CodeView(ttk.Frame):
             with open(file_path, "w", encoding="utf-8") as f:
                 f.write(prompt)
                 
-            # Copy ONLY user message to clipboard
+            # Copy user message + generation instructions (if enabled) to clipboard
+            clipboard_content = text
+            if return_regions:
+                clipboard_content += "\n\nIMPORTANTE: Primero, lista todas las regiones que necesitan modificación. Después, devuelve SOLO las regiones modificadas COMPLETAS. Solo las regiones que necesitaron modificación, y deben estar completas. No devuelvas código sin cambios."
+            
             self.clipboard_clear()
-            self.clipboard_append(text)
+            self.clipboard_append(clipboard_content)
             
             # Open AI URL
             selected_ai = self.cmb_ai.get()
