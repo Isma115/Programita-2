@@ -439,7 +439,6 @@ def show_popup(clipboard_text, match_text, file_path, ratio, line_num):
     content_frame.columnconfigure(0, weight=1)
     content_frame.columnconfigure(1, weight=1)
     content_frame.rowconfigure(1, weight=1)
-    content_frame.rowconfigure(3, weight=1)
     
     # --- PANELES ---
     
@@ -462,12 +461,7 @@ def show_popup(clipboard_text, match_text, file_path, ratio, line_num):
     txt_edit.config(bd=1, relief="solid") 
     txt_edit.grid(row=1, column=1, sticky="nsew", padx=5, pady=5)
     
-    # 3. Original
-    lbl_orig = tk.Label(content_frame, text="🔒 Original", bg=THEME["bg"], fg=THEME["comment"], font=FONT_UI)
-    lbl_orig.grid(row=2, column=0, columnspan=2, sticky="w", padx=5, pady=(10,0))
-    
-    txt_orig = create_styled_text_widget(content_frame, editable=False)
-    txt_orig.grid(row=3, column=0, columnspan=2, sticky="nsew", padx=5, pady=5)
+
 
     # --- UPDATES & EVENTS ---
     
@@ -495,12 +489,6 @@ def show_popup(clipboard_text, match_text, file_path, ratio, line_num):
         txt_edit.insert("1.0", full_block)
         highlight_syntax(txt_edit)
         
-        # Update Original
-        txt_orig.config(state="normal")
-        txt_orig.delete("1.0", "end")
-        txt_orig.insert("1.0", full_block)
-        highlight_syntax(txt_orig)
-        txt_orig.config(state="disabled")
 
         # Scroll to match logic
         # Calculate line offset
@@ -515,7 +503,6 @@ def show_popup(clipboard_text, match_text, file_path, ratio, line_num):
         # To center, we can try to see a few lines below it too if possible
         # Simple approach: see the line.
         txt_edit.see(f"{match_line}.0")
-        txt_orig.see(f"{match_line}.0")
         
         # Try to center visually (approximate)
         # Force update to get height
@@ -533,14 +520,12 @@ def show_popup(clipboard_text, match_text, file_path, ratio, line_num):
         try:
              # Just ensures it is visible. 
              txt_edit.see(f"{match_line}.0")
-             txt_orig.see(f"{match_line}.0")
              
              # Attempt to center: scroll so match_line is middle
              # Get total lines visible (height)
              visible_lines = 20 # assumption or txt_edit.cget('height')
              target_top = max(1, match_line - 10)
              txt_edit.yview(target_top)
-             txt_orig.yview(target_top)
         except:
             pass
 
@@ -557,20 +542,33 @@ def run_arbitrary_search(app_instance):
             return
 
         code_files = []
-        if hasattr(app_instance, 'controller') and hasattr(app_instance.controller, 'project_manager'):
-            files_data = app_instance.controller.project_manager.get_files()
-            # Convert to list of paths or keep as dict depending on what find_similar_region expects
-            # identify_best_file handles dicts if they have 'full_path', ProjectManager uses 'path'
-            # Let's map them to have 'full_path' or just pass 'path' if we adjust identify_best_file
-            # Actually, ProjectManager dicts have 'path' (absolute path).
-            # identify_best_file checks for 'full_path' in dict (line 50).
-            # Let's clean this up by creating a list of paths directly, which identify_best_file also accepts.
-            code_files = [f['path'] for f in files_data]
+        
+        # Get files from the CodeView TreeView (only listed files, not entire project)
+        if hasattr(app_instance, 'layout') and hasattr(app_instance.layout, 'code_view'):
+            code_view = app_instance.layout.code_view
+            if hasattr(code_view, 'tree'):
+                # Get all items from the TreeView
+                for item_id in code_view.tree.get_children():
+                    # The full path is stored in the tags of each item
+                    tags = code_view.tree.item(item_id, 'tags')
+                    if tags:
+                        # tags is a tuple, first element is the full path
+                        file_path = tags[0] if isinstance(tags, (list, tuple)) else tags
+                        if file_path and os.path.exists(file_path):
+                            code_files.append(file_path)
+        
+        # Fallback to all project files if no files found in TreeView
+        if not code_files:
+            if hasattr(app_instance, 'controller') and hasattr(app_instance.controller, 'project_manager'):
+                files_data = app_instance.controller.project_manager.get_files()
+                code_files = [f['path'] for f in files_data]
+                logging.info("Arbitrary: Usando todos los ficheros del proyecto (fallback).")
         
         if not code_files:
              tk.messagebox.showwarning("Arbitrary", "No hay archivos de código procesados.")
              return
 
+        logging.info(f"Arbitrary: Buscando en {len(code_files)} ficheros listados.")
         arbitrary_step = getattr(app_instance, 'arbitrary_step', 1)
 
         app_instance.root.config(cursor="watch")
@@ -596,6 +594,13 @@ def process_smart_paste(app_instance):
     Maneja la lógica de pegado inteligente lanzada por Shift+Click.
     1. Si es una región (#region "name") -> Reemplazo automático.
     2. Si NO es región -> Abre ventana de sustitución manual (Arbitrary Search).
+    
+    Supports multiple comment styles:
+    - // #region "name" (JS/TS/C++/Java)
+    - # #region "name" (Python/Shell)
+    - -- #region "name" (SQL/Lua)
+    - /* #region "name" */ (CSS/C)
+    - <!-- #region "name" --> (HTML/XML)
     """
     try:
         content = pyperclip.paste()
@@ -604,10 +609,25 @@ def process_smart_paste(app_instance):
             return
 
         # 1. Chequeo de Región
-        # Regex simple para detectar #region "nombre" o #region nombre
-        match = re.search(r'#region\s+["\']?([^"\']+)["\']?', content)
-        if match:
-             region_name = match.group(1)
+        # Regex para detectar región con múltiples estilos de comentarios
+        # Captura el nombre de la región independientemente del estilo de comentario
+        region_patterns = [
+            # Line comment styles: //, #, --
+            r'(?://|#|--)[ \t]*#?region[ \t]+["\']?([^"\'\n\r]+?)["\']?[ \t]*(?:\r?\n|$)',
+            # Block comment style: /* */
+            r'/\*[ \t]*#?region[ \t]+["\']?([^"\'\n\r]+?)["\']?[ \t]*\*/',
+            # HTML comment style: <!-- -->
+            r'<!--[ \t]*#?region[ \t]+["\']?([^"\'\n\r]+?)["\']?[ \t]*-->',
+        ]
+        
+        region_name = None
+        for pattern in region_patterns:
+            match = re.search(pattern, content)
+            if match:
+                region_name = match.group(1).strip()
+                break
+        
+        if region_name:
              logging.info(f"📋 Smart Paste: Detectada región '{region_name}' en portapapeles.")
              
              if hasattr(app_instance, 'controller'):

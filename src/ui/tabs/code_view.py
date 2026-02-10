@@ -128,9 +128,10 @@ class CodeView(ttk.Frame):
         self.tree_frame.pack(side="top", fill="both", expand=True, padx=10)
         
         self.columns = ("path", "size")
-        self.tree = ttk.Treeview(self.tree_frame, columns=self.columns, show="headings", selectmode="extended", style="Treeview")
-        self.tree.heading("path", text="Fichero (Ruta Relativa)")
-        self.tree.heading("size", text="Tamaño")
+        self.tree = ttk.Treeview(self.tree_frame, columns=self.columns, show="", selectmode="extended", style="Treeview")
+        # Headings removed as requested
+        # self.tree.heading("path", text="Fichero (Ruta Relativa)")
+        # self.tree.heading("size", text="Tamaño")
         self.tree.column("path", width=400)
         self.tree.column("size", width=80)
         
@@ -221,8 +222,16 @@ class CodeView(ttk.Frame):
         button_width = 25 # Approximate characters
 
         ttk.Button(btn_frame, text="Nueva Sección", style="Nav.TButton", command=self._on_add_section).pack(fill="x", pady=2)
-        ttk.Button(btn_frame, text="Editar Sección", style="Nav.TButton", command=self._on_edit_section).pack(fill="x", pady=2)
-        ttk.Button(btn_frame, text="Borrar Sección", style="Nav.TButton", command=self._on_delete_section).pack(fill="x", pady=2)
+
+        # Context Menu for Sections
+        self.context_menu = tk.Menu(self, tearoff=0)
+        self.context_menu.add_command(label="Editar", command=self._on_edit_section)
+        self.context_menu.add_command(label="Eliminar", command=self._on_delete_section)
+
+        # Bind Right Click (Mac & Windows/Linux)
+        self.section_list.bind("<Button-2>", self._show_context_menu) # Mac 2-finger click often maps to Button-2 or Button-3 depending on TK setup
+        self.section_list.bind("<Button-3>", self._show_context_menu)
+        self.section_list.bind("<Control-Button-1>", self._show_context_menu) # Mac Ctrl+Click
 
         
         # Custom Large Checkbox "Devolver regiones" 
@@ -512,6 +521,8 @@ class CodeView(ttk.Frame):
             clipboard_content = text
             if return_regions:
                 clipboard_content += "\n\nIMPORTANTE: Primero, lista todas las regiones que necesitan modificación. Después, devuelve SOLO las regiones modificadas COMPLETAS. Solo las regiones que necesitaron modificación, y deben estar completas. No devuelvas código sin cambios."
+            else:
+                clipboard_content += "\n\nIMPORTANTE: Devolver solamente la modificación o modificaciones necesarias."
             
             self.clipboard_clear()
             self.clipboard_append(clipboard_content)
@@ -525,6 +536,41 @@ class CodeView(ttk.Frame):
             
         except Exception as e:
             messagebox.showerror("Error", f"No se pudo guardar el fichero:\n{e}")
+
+    def _show_context_menu(self, event):
+        """Shows the context menu on right click."""
+        try:
+            # Get index at click position
+            index = self.section_list.nearest(event.y)
+            
+            # Check if index is valid
+            if index < 0: return
+
+            # Check if the click is actually inside the bounding box of the item
+            bbox = self.section_list.bbox(index)
+            if not bbox: return
+            
+            # bbox is (x, y, width, height)
+            y_item, height = bbox[1], bbox[3]
+            
+            # If clicked below the last item
+            if event.y > y_item + height:
+                return
+
+            # Select the item
+            self.section_list.selection_clear(0, tk.END)
+            self.section_list.selection_set(index)
+            self.section_list.activate(index)
+            self._on_section_select() # Update filter
+
+            # Show menu
+            try:
+                self.context_menu.tk_popup(event.x_root, event.y_root)
+            finally:
+                # Make sure to release the grab
+                self.context_menu.grab_release()
+        except Exception as e:
+            print(f"Error showing context menu: {e}")
 
     def _on_add_section(self):
         # Open the enhanced section creation popup

@@ -33,7 +33,7 @@ class SectionManager:
                     with open(filepath, 'r', encoding='utf-8') as f:
                         data = json.load(f)
                         if isinstance(data, list):
-                            self.sections[name] = set(data)
+                            self.sections[name] = data # Keep as list
                 except Exception as e:
                     print(f"Error loading section '{name}': {e}")
 
@@ -45,8 +45,8 @@ class SectionManager:
         filepath = os.path.join(self.sections_path, f"{name}.json")
         try:
             with open(filepath, 'w', encoding='utf-8') as f:
-                # Convert set to list for JSON serialization
-                json.dump(list(self.sections[name]), f, indent=4)
+                # Dump list directly
+                json.dump(self.sections[name], f, indent=4)
         except Exception as e:
             print(f"Error saving section '{name}': {e}")
 
@@ -67,14 +67,11 @@ class SectionManager:
         # Validate name for filename usage (basic)
         safe_name = "".join(c for c in name if c.isalnum() or c in (' ', '_', '-')).strip()
         if not safe_name or safe_name != name:
-             # Just a basic check, we can allow more if robust filename sanitization is added, 
-             # but for now let's be safe or just proceed if it matches basics.
-             # Actually, let's simple check empty
              pass
         if not name.strip():
              raise ValueError("Section name cannot be empty.")
 
-        self.sections[name] = set(files) if files else set()
+        self.sections[name] = list(files) if files else []
         self._save_section_to_disk(name)
 
     def update_section(self, old_name, new_name, new_files):
@@ -96,7 +93,7 @@ class SectionManager:
             self._delete_section_from_disk(old_name)
             del self.sections[old_name]
         
-        self.sections[clean_new_name] = set(new_files) if new_files else set()
+        self.sections[clean_new_name] = list(new_files) if new_files else []
         self._save_section_to_disk(clean_new_name)
 
     def delete_section(self, name):
@@ -110,9 +107,10 @@ class SectionManager:
             raise ValueError(f"Section '{section_name}' not found.")
         
         updated = False
+        current_files = self.sections[section_name]
         for path in file_paths:
-            if path not in self.sections[section_name]:
-                self.sections[section_name].add(path)
+            if path not in current_files:
+                current_files.append(path)
                 updated = True
         
         if updated:
@@ -121,9 +119,10 @@ class SectionManager:
     def remove_files_from_section(self, section_name, file_paths):
         if section_name in self.sections:
             updated = False
+            current_files = self.sections[section_name]
             for path in file_paths:
-                if path in self.sections[section_name]:
-                    self.sections[section_name].remove(path)
+                if path in current_files:
+                    current_files.remove(path)
                     updated = True
             
             if updated:
@@ -134,5 +133,5 @@ class SectionManager:
         return list(self.sections.keys())
 
     def get_files_in_section(self, section_name):
-        """Returns the set of file paths in a section."""
-        return self.sections.get(section_name, set())
+        """Returns the list of file paths in a section."""
+        return self.sections.get(section_name, [])

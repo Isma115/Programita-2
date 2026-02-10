@@ -56,33 +56,48 @@ class Controller:
         """
         # Determine scope
         if selected_section:
-            section_files = self.section_manager.get_files_in_section(selected_section)
+            section_files_list = self.section_manager.get_files_in_section(selected_section)
             # Filter all loaded files to just those in the section
             all_files = self.project_manager.get_files()
-            # DIRECTLY use the files in the section, ignoring search relevance
-            relevant_files = [f for f in all_files if f['path'] in section_files]
+            
+            # Create a lookup for all files {path: file_obj} for O(1) access
+            files_map = {f['path']: f for f in all_files}
+            
+            # Build relevant_files list ensuring order from section_files_list
+            relevant_files = []
+            for path in section_files_list:
+                if path in files_map:
+                    relevant_files.append(files_map[path])
         else:
             # Search everything using relevant files finding
             relevant_files = self.project_manager.find_relevant_files(user_text)
         
         # Build Prompt
         prompt = f"Petición del Usuario: {user_text}\n\nArchivos de Contexto:\n"
-        for f in relevant_files[:10]: # Limit to top 10 matches for now
+        for f in relevant_files[:10]: # Limit to top 10 matches for now (or top 10 ordered files in section)
             prompt += f"\n--- Archivo: {f['rel_path']} ---\n"
             prompt += f.get('content', '') + "\n"
             
         if return_regions:
             prompt += "\n\nIMPORTANTE: Primero, lista todas las regiones que necesitan modificación. Después, devuelve SOLO las regiones modificadas COMPLETAS. Solo las regiones que necesitaron modificación, y deben estar completas. No devuelvas código sin cambios."
+        else:
+            prompt += "\n\nIMPORTANTE: Devolver solamente la modificación o modificaciones necesarias."
             
         return prompt
 
     def get_relevant_files_for_ui(self, user_text, selected_section=None):
         """Helper to get relevant files for UI display."""
         if selected_section:
-            section_files = self.section_manager.get_files_in_section(selected_section)
+            section_files_list = self.section_manager.get_files_in_section(selected_section)
             all_files = self.project_manager.get_files()
-            # If a section is selected, return all files in that section, ignoring user_text filtering
-            return [f for f in all_files if f['path'] in section_files]
+            
+            # If a section is selected, return all files in that section, preserving order
+            files_map = {f['path']: f for f in all_files}
+            ordered_files = []
+            for path in section_files_list:
+                 if path in files_map:
+                     ordered_files.append(files_map[path])
+            return ordered_files
 
         if not user_text:
             return self.project_manager.get_files()

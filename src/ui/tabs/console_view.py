@@ -229,24 +229,30 @@ class ConsoleView(ttk.Frame):
 
         # 2. Addons search
         try:
-            # Addons logic
-            module_name = cmd
-            if cmd == "cambiar" and args and args[0] == "colores":
-                module_name = "cambiar_colores"
-                args = args[1:]
-            
             import importlib
             import os
             
-            addon_path = os.path.join("src", "addons", f"{module_name}.py")
+            # Try to find the longest matching addon command
+            # e.g., "copia de codigo arg1" -> tries "copia_de_codigo", then "copia_de", then "copia"
+            module_name = None
+            remaining_args = []
+            all_words = [cmd] + args
             
-            if os.path.exists(addon_path):
+            for i in range(len(all_words), 0, -1):
+                potential_name = "_".join(all_words[:i])
+                addon_path = os.path.join("src", "addons", f"{potential_name}.py")
+                if os.path.exists(addon_path):
+                    module_name = potential_name
+                    remaining_args = all_words[i:]
+                    break
+            
+            if module_name:
                 module = importlib.import_module(f"src.addons.{module_name}")
                 importlib.reload(module)
                 
                 if hasattr(self.master.master, 'controller'):
                     app = self.master.master.controller.app
-                    result = module.run(app, args)
+                    result = module.run(app, remaining_args)
                     if result:
                         self._log(str(result))
                 else:

@@ -114,12 +114,36 @@ class ProjectManager:
     def replace_region(self, region_name, new_content):
         """
         Searches for a region by name across all loaded files and replaces it.
-        Format: #region "name" ... #endregion
+        Supports multiple comment styles:
+        - // #region "name" ... // #endregion (JS/TS/C++/Java)
+        - # #region "name" ... # #endregion (Python/Shell)
+        - -- #region "name" ... -- #endregion (SQL/Lua)
+        - /* #region "name" */ ... /* #endregion */ (CSS/C)
+        - <!-- #region "name" --> ... <!-- #endregion --> (HTML/XML)
         """
         found = False
-        # Regex to find #region "name" ... #endregion
-        # It handles different comment styles (//, #, --) and optional quotes
-        regex_pattern = rf'([ \t]*(?://|#|--|/\*)\s*region\s+["\']?{re.escape(region_name)}["\']?.*?#endregion)'
+        escaped_name = re.escape(region_name)
+        
+        # Pattern that matches region blocks with various comment styles
+        # Supports:
+        # - Line comments: //, #, -- followed by optional #region or just region
+        # - Block comments: /* */ and <!-- -->
+        # The endregion can also use #endregion or just endregion
+        regex_pattern = (
+            rf'([ \t]*'
+            rf'(?:'
+            # Line comment styles: //, #, --
+            rf'(?://|#|--)[ \t]*#?region[ \t]+["\']?{escaped_name}["\']?.*?'
+            rf'(?://|#|--)[ \t]*#?endregion'
+            rf'|'
+            # Block comment style: /* */
+            rf'/\*[ \t]*#?region[ \t]+["\']?{escaped_name}["\']?.*?#?endregion[ \t]*\*/'
+            rf'|'
+            # HTML comment style: <!-- -->
+            rf'<!--[ \t]*#?region[ \t]+["\']?{escaped_name}["\']?.*?#?endregion[ \t]*-->'
+            rf')'
+            rf')'
+        )
         
         for file_data in self.files:
             content = file_data['content']
