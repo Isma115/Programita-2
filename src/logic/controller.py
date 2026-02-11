@@ -80,8 +80,8 @@ class Controller:
             
         if return_regions:
             prompt += "\n\nIMPORTANTE: Primero, lista todas las regiones que necesitan modificación. Después, devuelve SOLO las regiones modificadas COMPLETAS. Solo las regiones que necesitaron modificación, y deben estar completas. No devuelvas código sin cambios."
-        else:
-            prompt += "\n\nIMPORTANTE: Devolver solamente la modificación o modificaciones necesarias."
+        # else:
+        #     prompt += "\n\nIMPORTANTE: Devolver solamente la modificación o modificaciones necesarias."
             
         return prompt
 
@@ -147,3 +147,45 @@ class Controller:
         else:
             print(f"Controller: Region '{region_name}' not found in project.")
             return False
+
+    def get_file_content_by_path(self, path):
+        """Returns the content and relative path of a file given its absolute path."""
+        for f in self.project_manager.get_files():
+            if f['path'] == path:
+                return {
+                    'content': f['content'],
+                    'rel_path': f['rel_path']
+                }
+        return None
+
+    def save_content_to_codigo_txt(self, content, append=False):
+        """Saves or appends content to ~/Documents/codigo.txt."""
+        try:
+            documents_path = os.path.join(os.path.expanduser("~"), "Documents")
+            file_path = os.path.join(documents_path, "codigo.txt")
+            os.makedirs(documents_path, exist_ok=True)
+            
+            mode = "a" if append else "w"
+            with open(file_path, mode, encoding="utf-8") as f:
+                if append and os.path.exists(file_path) and os.path.getsize(file_path) > 0:
+                    f.write("\n\n") # Separator for append
+                f.write(content)
+            return True, file_path
+        except Exception as e:
+            return False, str(e)
+
+    def save_content_to_codigo_txt(self, content, append=False):
+        """Saves or appends content to ~/Documents/codigo.txt."""
+        try:
+            documents_path = os.path.join(os.path.expanduser("~"), "Documents")
+            file_path = os.path.join(documents_path, "codigo.txt")
+            os.makedirs(documents_path, exist_ok=True)
+            
+            mode = "a" if append else "w"
+            with open(file_path, mode, encoding="utf-8") as f:
+                if append and os.path.exists(file_path) and os.path.getsize(file_path) > 0:
+                    f.write("\n\n") # Separator for append
+                f.write(content)
+            return True, file_path
+        except Exception as e:
+            return False, str(e)

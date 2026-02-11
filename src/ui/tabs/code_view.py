@@ -142,6 +142,19 @@ class CodeView(ttk.Frame):
         self.tree.pack(side="left", fill="both", expand=True)
         scrollbar.pack(side="right", fill="y")
         
+        # Context Menu for Files
+        self.file_context_menu = tk.Menu(self, tearoff=0)
+        self.file_context_menu.add_command(label="📋 Copiar al Portapapeles", command=self._on_file_copy)
+        self.file_context_menu.add_command(label="➕ Concatenar al Portapapeles", command=self._on_file_concat_clipboard)
+        self.file_context_menu.add_separator()
+        self.file_context_menu.add_command(label="💾 Guardar en codigo.txt", command=self._on_file_save_txt)
+        self.file_context_menu.add_command(label="📥 Concatenar en codigo.txt", command=self._on_file_concat_txt)
+
+        # Bind Right Click for Files
+        self.tree.bind("<Button-2>", self._show_file_context_menu)
+        self.tree.bind("<Button-3>", self._show_file_context_menu)
+        self.tree.bind("<Control-Button-1>", self._show_file_context_menu)
+        
         # Initialize slider from config if controller available
         if hasattr(self, 'controller') and hasattr(self.controller, 'config_manager'):
             limit = self.controller.config_manager.get_file_limit()
@@ -521,8 +534,8 @@ class CodeView(ttk.Frame):
             clipboard_content = text
             if return_regions:
                 clipboard_content += "\n\nIMPORTANTE: Primero, lista todas las regiones que necesitan modificación. Después, devuelve SOLO las regiones modificadas COMPLETAS. Solo las regiones que necesitaron modificación, y deben estar completas. No devuelvas código sin cambios."
-            else:
-                clipboard_content += "\n\nIMPORTANTE: Devolver solamente la modificación o modificaciones necesarias."
+            # else:
+            #     clipboard_content += "\n\nIMPORTANTE: Devolver solamente la modificación o modificaciones necesarias."
             
             self.clipboard_clear()
             self.clipboard_append(clipboard_content)
@@ -613,4 +626,72 @@ class CodeView(ttk.Frame):
         self.section_list.delete(0, tk.END)
         for s in self.controller.section_manager.get_sections():
             self.section_list.insert(tk.END, s)
+
+    def _show_file_context_menu(self, event):
+        """Shows the context menu on right click for files."""
+        # Select item under cursor
+        iid = self.tree.identify_row(event.y)
+        if iid:
+            self.tree.selection_set(iid)
+            self.file_context_menu.tk_popup(event.x_root, event.y_root)
+        else:
+            self.tree.selection_remove(self.tree.selection())
+
+    def _get_selected_file_content(self):
+        """Helper to get content and metadata of selected file in tree."""
+        selected = self.tree.selection()
+        if not selected:
+            messagebox.showwarning("Aviso", "Selecciona un fichero primero.")
+            return None
+        
+        tags = self.tree.item(selected[0], "tags")
+        if not tags:
+            return None
+            
+        full_path = tags[0]
+        file_data = self.controller.get_file_content_by_path(full_path)
+        if file_data:
+            # Prepend header
+            header = f"--- Archivo: {file_data['rel_path']} ---\n"
+            file_data['full_content'] = header + file_data['content']
+            return file_data
+        return None
+
+    def _on_file_copy(self):
+        file_data = self._get_selected_file_content()
+        if file_data:
+            self.clipboard_clear()
+            self.clipboard_append(file_data['full_content'])
+            print(f"CodeView: Copied {file_data['rel_path']} to clipboard")
+
+    def _on_file_concat_clipboard(self):
+        file_data = self._get_selected_file_content()
+        if file_data:
+            try:
+                current = self.clipboard_get()
+                new_content = current + "\n\n" + file_data['full_content']
+            except:
+                new_content = file_data['full_content']
+            
+            self.clipboard_clear()
+            self.clipboard_append(new_content)
+            print(f"CodeView: Concatenated {file_data['rel_path']} to clipboard")
+
+    def _on_file_save_txt(self):
+        file_data = self._get_selected_file_content()
+        if file_data:
+            success, result = self.controller.save_content_to_codigo_txt(file_data['full_content'], append=False)
+            if success:
+                print(f"CodeView: Saved {file_data['rel_path']} to {result}")
+            else:
+                messagebox.showerror("Error", f"No se pudo guardar: {result}")
+
+    def _on_file_concat_txt(self):
+        file_data = self._get_selected_file_content()
+        if file_data:
+            success, result = self.controller.save_content_to_codigo_txt(file_data['full_content'], append=True)
+            if success:
+                print(f"CodeView: Concatenated {file_data['rel_path']} to {result}")
+            else:
+                messagebox.showerror("Error", f"No se pudo guardar: {result}")
 
