@@ -33,17 +33,36 @@ FONT_UI = ("Segoe UI", 14) # Aumentado tamano base a 14
 def identify_best_file(file_list, search_text):
     """
     Identifica el archivo más probable comparando coincidencia de tokens únicos.
-    Retorna la ruta del archivo ganador.
+    OPTIMIZACIÓN: Usa los tokens más largos y únicos para mayor discriminación y velocidad.
     """
-    # Tokenizar search_text (palabras de 3+ chars)
-    search_tokens = set(re.findall(r'\b\w{3,}\b', search_text.lower()))
+    # Tokenizar y buscar palabras largas (más discriminatorias)
+    # Palabras de 5+ caracteres
+    all_tokens = re.findall(r'\b\w{5,}\b', search_text.lower())
+    
+    # Análisis de frecuencia simple para descartar muy comunes si fuera necesario,
+    # pero por ahora simplemente cogemos las más largas.
+    # Ordenar por longitud descendente
+    all_tokens.sort(key=len, reverse=True)
+    
+    # Nos quedamos con el top 50 de tokens más largos únicos
+    search_tokens = set()
+    for t in all_tokens:
+        if t not in search_tokens:
+            search_tokens.add(t)
+            if len(search_tokens) >= 50:
+                break
+                
+    if not search_tokens:
+        # Fallback a tokens más cortos si no hay largos
+        search_tokens = set(re.findall(r'\b\w{3,}\b', search_text.lower())[:50])
+
     if not search_tokens:
         return None
         
     best_score = 0
     best_file = None
     
-    logging.info(f"🔎 [Arbitrary] Identificando fichero candidato entre {len(file_list)} archivos...")
+    logging.info(f"🔎 [Arbitrary] Identificando fichero con {len(search_tokens)} tokens clave...")
     
     for file_info in file_list:
         if isinstance(file_info, dict):
@@ -59,7 +78,10 @@ def identify_best_file(file_list, search_text):
                 content = f.read().lower()
                 
             # Contar cuántos tokens de búsqueda aparecen en el archivo
-            matches = sum(1 for token in search_tokens if token in content)
+            matches = 0
+            for token in search_tokens:
+                if token in content:
+                    matches += 1
             
             # Score simple: porcentaje de tokens encontrados
             score = matches / len(search_tokens)
@@ -68,25 +90,23 @@ def identify_best_file(file_list, search_text):
                 best_score = score
                 best_file = file_path
                 
-            # Si encontramos todos los tokens, es un match perfecto para candidato
-            if best_score >= 1.0:
+            # Si encontramos casi todos, es un match muy probable
+            if best_score >= 0.9:
                 break
                 
         except Exception:
             pass
             
     logging.info(f"👉 [Arbitrary] Fichero ganador: {os.path.basename(best_file) if best_file else 'Ninguno'} (Score: {best_score:.2f})")
-    
-    # Si el score es muy bajo, quizás no merece la pena, pero probaremos el mejor que haya
-    if best_score < 0.1:
-        logging.warning("⚠️ Score de coincidencia de fichero muy bajo, la búsqueda puede fallar.")
-        
     return best_file
 
 def find_similar_region(file_list, search_text, step=None):
     """
     Busca la región de código más similar.
-    OPTIMIZACIÓN: Primero identifica el fichero candidato y luego busca ventana solo en ese.
+    OPTIMIZACIÓN:
+    1. Identifica fichero candidato.
+    2. Busca Líneas Ancla (Anchor Lines) exactas para posicionamiento instantáneo O(1).
+    3. Fallback a ventana deslizante optimizada si falla el ancla.
     """
     best_match = None
     best_ratio = 0
@@ -102,41 +122,100 @@ def find_similar_region(file_list, search_text, step=None):
     if not candidate_file:
         return None, None, 0, -1
         
-    # Reducimos la lista a solo el candidato
     target_files = [candidate_file]
-
-    search_lines_count = search_text.count('\n') + 1
+    search_lines = search_text.split('\n')
+    search_lines_count = len(search_lines)
     window_size = search_lines_count
     
-    logging.info(f"🔍 [Arbitrary] Iniciando escaneo detallado en: {candidate_file}. Step: {step}")
+    logging.info(f"🔍 [Arbitrary] Escaneando: {candidate_file}")
 
     for file_path in target_files:
         try:
             with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
-                lines = f.readlines()
+                content = f.read()
+                
+            lines = content.split('\n') # Mantener saltos para índices
             
-            if len(lines) < 1:
-                continue
-            
-            # Si es muy pequeño, quizás ajustar
-            if len(lines) < window_size * 0.5:
-                # Permitir búsqueda aunque sea pequeño si es el candidato
-                pass 
+            if len(lines) < 1: continue
 
+            # --- ESTRATEGIA 1: ANCHOR LINES (O(1)) ---
+            # Buscar las cadenas más largas y únicas del clipboard
+            # Filtramos líneas vacías o muy cortas
+            valid_lines = [l.strip() for l in search_lines if len(l.strip()) > 10]
+            # Ordenamos por longitud descendente
+            valid_lines.sort(key=len, reverse=True)
+            
+            anchor_found = False
+            
+            # Probamos con las 3 mejores anclas
+            for anchor in valid_lines[:3]:
+                # Buscar ancla en el contenido
+                anchor_idx = content.find(anchor)
+                if anchor_idx != -1:
+                    # Ancla encontrada!
+                    # Calculamos en qué línea está
+                    pre_content = content[:anchor_idx]
+                    anchor_line_num = pre_content.count('\n') + 1
+                    
+                    # Definimos ventana tentativa alrededor de esa línea
+                    # El anchor en search_text está en la posición X
+                    # En file está en position Y
+                    # Intentamos alinear el inicio
+                    
+                    # Find anchor line index in search_text
+                    search_anchor_idx = -1
+                    for i, sl in enumerate(search_lines):
+                        if anchor in sl:
+                            search_anchor_idx = i
+                            break
+                    
+                    start_line_est = max(0, anchor_line_num - search_anchor_idx - 1)
+                    end_line_est = start_line_est + window_size + 2 # un margen
+                    
+                    window_lines = lines[start_line_est:end_line_est]
+                    window_text = "\n".join(window_lines) # Reconstruir con saltos originales (aprox)
+                    
+                    matcher = difflib.SequenceMatcher(None, search_text, window_text)
+                    ratio = matcher.quick_ratio()
+                    
+                    logging.info(f"⚓ [Arbitrary] Anchor Hit: '{anchor[:30]}...' en línea {anchor_line_num}. Ratio: {ratio:.2f}")
+                    
+                    if ratio > 0.6: # Si es decente, asumimos que es el sitio
+                        return window_text, file_path, matcher.ratio(), start_line_est + 1
+
+            # --- ESTRATEGIA 2: SLIDING WINDOW (Fallback) ---
             if step is not None and step > 0:
                 current_step = step
             else:
-                current_step = 1 if len(lines) < 1000 else 2 
-            
-            for i in range(0, max(1, len(lines) - window_size + 1), current_step):
-                window_lines = lines[i : i + window_size]
-                window_text = "".join(window_lines)
-                
-                # Validación pre-difflib
-                if abs(len(window_text) - len(search_text)) > len(search_text) * 0.5:
-                   ratio = 0
+                if len(lines) < 1000:
+                    current_step = 1
+                elif search_lines_count > 50:
+                    current_step = 5 # Salto agresivo
+                elif search_lines_count > 20:
+                    current_step = 2
                 else:
-                    ratio = difflib.SequenceMatcher(None, search_text, window_text).ratio()
+                    current_step = 2 
+            
+            # Usar índices sobre lista de líneas
+            limit = max(1, len(lines) - window_size + 1)
+            
+            for i in range(0, limit, current_step):
+                # Construcción optimizada: slice list
+                window_slice = lines[i : i + window_size]
+                # Join cuesta, pero es necesario para diff.
+                # Optimization: check length sum first? No, too complex python side.
+                window_text = "\n".join(window_slice)
+                
+                # Validación longitud rapida
+                if abs(len(window_text) - len(search_text)) > len(search_text) * 0.5:
+                   continue
+
+                # Quick Ratio
+                matcher = difflib.SequenceMatcher(None, search_text, window_text)
+                if matcher.quick_ratio() < 0.5: 
+                    continue
+                
+                ratio = matcher.ratio()
                 
                 if ratio > best_ratio:
                     best_ratio = ratio
@@ -144,10 +223,11 @@ def find_similar_region(file_list, search_text, step=None):
                     best_file = file_path
                     best_line_num = i + 1
                     
-                    if ratio >= 0.98:
+                    if ratio >= 0.95: # Early exit
                         return best_match, best_file, best_ratio, best_line_num
                                 
-        except Exception:
+        except Exception as e:
+            logging.error(f"Error en búsqueda: {e}")
             pass
 
     return best_match, best_file, best_ratio, best_line_num
