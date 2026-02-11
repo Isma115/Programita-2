@@ -142,6 +142,9 @@ class CodeView(ttk.Frame):
         self.tree.pack(side="left", fill="both", expand=True)
         scrollbar.pack(side="right", fill="y")
         
+        # Binding para doble click
+        self.tree.bind("<Double-1>", self._on_file_double_click)
+        
         # Context Menu for Files
         self.file_context_menu = tk.Menu(self, tearoff=0)
         self.file_context_menu.add_command(label="📋 Copiar al Portapapeles", command=self._on_file_copy)
@@ -626,6 +629,28 @@ class CodeView(ttk.Frame):
         self.section_list.delete(0, tk.END)
         for s in self.controller.section_manager.get_sections():
             self.section_list.insert(tk.END, s)
+
+    def _on_file_double_click(self, event):
+        """
+        Elimina el fichero seleccionado de la lista al hacer doble click.
+        No elimina el fichero físico del disco, solo lo remueve de la vista.
+        """
+        # Obtener el item seleccionado bajo el cursor
+        iid = self.tree.identify_row(event.y)
+        if iid:
+            # Obtener la información del fichero antes de eliminarlo
+            tags = self.tree.item(iid, 'tags')
+            if tags:
+                file_path = tags[0] if isinstance(tags, (list, tuple)) else tags
+                
+                # Obtener el nombre del fichero para mostrarlo en el log
+                filename = os.path.basename(file_path)
+                
+                # Eliminar el item del treeview
+                self.tree.delete(iid)
+                
+                # Log de la acción
+                print(f"CodeView: Fichero '{filename}' eliminado de la lista.")
 
     def _show_file_context_menu(self, event):
         """Shows the context menu on right click for files."""
