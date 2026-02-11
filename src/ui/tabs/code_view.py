@@ -13,32 +13,45 @@ class CodeView(ttk.Frame):
     """
     
     
-    # 1. Claude
-    # 2. Gemini
-    # 3. DeepSeek
-    # 4. ChatGPT
-    # 5. GLM
-    # 6. Grok
-    # 7. Kimi2
-    AI_ORDER = [
-        "Claude", "Gemini", "DeepSeek",  # Green
-        "ChatGPT", "GLM",                # Yellow
-        "Grok", "Kimi2"                  # Red
+    # AI List sorted by estimated coding/reasoning quality (Mixed Western & Chinese)
+    AI_MODELS = [
+        "DeepSeek (R1/V3)", 
+        "Claude (Sonnet 3.5)", 
+        "ChatGPT (o1/4o)", 
+        "Gemini (1.5 Pro)", 
+        "Qwen (Max/2.5)", 
+        "Kimi (Moonshot)", 
+        "GLM (Zhipu)", 
+        "Mistral (Le Chat)",
+        "Perplexity",
+        "Grok"
     ]
 
+    # Combobox values: Auto mode first, then individual models
+    AI_ORDER = ["⚡ Automático"] + AI_MODELS
+
+    # Max consecutive uses of the same AI before rotating
+    MAX_CONSECUTIVE = 3
+
     AI_URLS = {
-        "Claude": "https://claude.ai",
-        "Gemini": "https://gemini.google.com",
-        "DeepSeek": "https://chat.deepseek.com",
-        "ChatGPT": "https://chat.openai.com",
-        "GLM": "https://chatglm.cn",
-        "Grok": "https://x.com/i/grok",
-        "Kimi2": "https://kimi.moonshot.cn"
+        "DeepSeek (R1/V3)": "https://chat.deepseek.com",
+        "Claude (Sonnet 3.5)": "https://claude.ai",
+        "ChatGPT (o1/4o)": "https://chat.openai.com",
+        "Gemini (1.5 Pro)": "https://gemini.google.com",
+        "Qwen (Max/2.5)": "https://tongyi.aliyun.com",
+        "Kimi (Moonshot)": "https://kimi.moonshot.cn",
+        "GLM (Zhipu)": "https://chatglm.cn",
+        "Mistral (Le Chat)": "https://chat.mistral.ai",
+        "Perplexity": "https://www.perplexity.ai",
+        "Grok": "https://x.com/i/grok"
     }
 
     def __init__(self, parent):
         super().__init__(parent, style="Main.TFrame")
         self.controller = parent.master.controller 
+        
+        # In-memory AI usage history (resets on restart)
+        self._ai_usage_history = []
         
         # Access safety check
         try:
@@ -104,19 +117,11 @@ class CodeView(ttk.Frame):
             textvariable=self.ai_var, 
             values=self.AI_ORDER,
             state="readonly",
-            width=15,
+            width=20,
             style="TCombobox"
         )
-        self.cmb_ai.set("Claude") # Default to Best
+        self.cmb_ai.current(0) # Default to first item (Best Quality)
         self.cmb_ai.pack(side="left", padx=(20, 0))
-        
-        # Hook to colorize the listbox items when dropdown opens
-        self.cmb_ai.bind("<<ComboboxSelected>>", self._on_ai_selected)
-        self.cmb_ai.bind("<Button-1>", self._on_combo_click)
-        
-        # Attempt to colorize immediately? No, popdown doesn't exist yet.
-        # We can use postcommand if available or just bind Button-1 to configure after a delay.
-        self.cmb_ai['postcommand'] = self._colorize_combo_items
 
 
 
@@ -297,56 +302,30 @@ class CodeView(ttk.Frame):
         # Initial sections load
         self._refresh_sections()
 
-    def _colorize_combo_items(self):
-        """Attempts to colorize the items in the dropdown listbox."""
-        # Delay slightly to allow listbox list to populate
-        self.after(100, self._apply_colors)
-
-    def _apply_colors(self):
-        try:
-            # Get the popdown window
-            popdown = self.cmb_ai.tk.call('ttk::combobox::PopdownWindow', self.cmb_ai)
-            listbox_path = f"{popdown}.f.l"
-            
-            if not self.tk.call('winfo', 'exists', listbox_path):
-                return
-            
-            # Colors
-            c_green = getattr(Styles, 'COLOR_AI_GREEN', '#57F287') 
-            c_yellow = getattr(Styles, 'COLOR_AI_YELLOW', '#FEE75C')
-            c_red = getattr(Styles, 'COLOR_AI_RED', '#ED4245')
-            c_bg = getattr(Styles, 'COLOR_INPUT_BG', '#313338')
-            
-            # Helper to set color
-            def set_color(idx, color):
-                try:
-                    self.tk.call(listbox_path, 'itemconfigure', idx, '-foreground', color)
-                    self.tk.call(listbox_path, 'itemconfigure', idx, '-background', c_bg)
-                    self.tk.call(listbox_path, 'itemconfigure', idx, '-selectbackground', Styles.COLOR_ACCENT)
-                    self.tk.call(listbox_path, 'itemconfigure', idx, '-selectforeground', '#ffffff')
-                except:
-                    pass
-
-            # Claude, Gemini, DeepSeek (0, 1, 2) -> Green
-            for i in range(3):
-                set_color(i, c_green)
-                
-            # ChatGPT, GLM (3, 4) -> Yellow
-            for i in range(3, 5):
-                set_color(i, c_yellow)
-                
-            # Grok, Kimi2 (5, 6) -> Red
-            for i in range(5, 7):
-                set_color(i, c_red)
-                
-        except Exception as e:
-            print(f"Error coloring combobox: {e}")
-
     def _on_ai_selected(self, event=None):
         pass
 
-    def _on_combo_click(self, event=None):
-        pass
+    def _get_auto_ai(self):
+        """
+        Selects the best available AI automatically.
+        If the same AI has been used MAX_CONSECUTIVE times in a row,
+        it moves to the next one in the quality-sorted list.
+        """
+        for ai in self.AI_MODELS:
+            # Count consecutive recent uses of this AI
+            consecutive = 0
+            for past_ai in reversed(self._ai_usage_history):
+                if past_ai == ai:
+                    consecutive += 1
+                else:
+                    break  # Stop counting at first different AI
+            
+            if consecutive < self.MAX_CONSECUTIVE:
+                return ai
+        
+        # Fallback: all AIs exhausted (very unlikely), reset and start over
+        self._ai_usage_history.clear()
+        return self.AI_MODELS[0]
 
     def _draw_checkbox(self):
         """Draws the current state on the canvas."""
@@ -543,11 +522,19 @@ class CodeView(ttk.Frame):
             self.clipboard_clear()
             self.clipboard_append(clipboard_content)
             
-            # Open AI URL
+            # Resolve AI selection (auto mode or manual)
             selected_ai = self.cmb_ai.get()
+            if selected_ai == "⚡ Automático":
+                selected_ai = self._get_auto_ai()
+            
+            # Record usage
+            self._ai_usage_history.append(selected_ai)
+            
+            # Open AI URL
             if selected_ai in self.AI_URLS:
                 url = self.AI_URLS[selected_ai]
                 webbrowser.open_new_tab(url)
+                print(f"AutoAI: Abriendo {selected_ai} (usos recientes: {self._ai_usage_history[-5:]})")
 
             
         except Exception as e:

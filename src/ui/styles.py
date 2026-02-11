@@ -211,10 +211,7 @@ class Styles:
             foreground=[("active", Styles.COLOR_ACCENT)]
         )
 
-        # AI Grading Colors
-        Styles.COLOR_AI_GREEN = "#57F287"   # High Quality (Green)
-        Styles.COLOR_AI_YELLOW = "#FEE75C"  # Mid Quality (Yellow)
-        Styles.COLOR_AI_RED = "#ED4245"     # Basic (Red)
+
 
         # Combobox Styles (Matching the Theme)
         style.configure(
