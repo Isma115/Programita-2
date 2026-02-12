@@ -34,6 +34,7 @@ class Application:
         
         # 2. Initialize Logic
         self.controller = Controller(self)
+        self.arbitrary_step = self.controller.config_manager.get_arbitrary_step()
 
         # 3. Initialize UI (Layout)
         # Pass the controller to the layout so buttons can trigger actions

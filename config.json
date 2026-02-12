@@ -6,5 +6,6 @@
     "theme_colors": {
         "COLOR_ACCENT": "#5865F2",
         "COLOR_ACCENT_HOVER": "#4752c4"
-    }
+    },
+    "arbitrary_step": 50
 }

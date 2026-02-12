@@ -91,3 +91,12 @@ class ConfigManager:
             "COLOR_ACCENT_HOVER": hover
         }
         self.save_config()
+
+    def get_arbitrary_step(self):
+        """Returns the arbitrary search step, defaulting to 1."""
+        return self.config.get("arbitrary_step", 1)
+
+    def set_arbitrary_step(self, step):
+        """Sets the arbitrary search step and saves config."""
+        self.config["arbitrary_step"] = int(step)
+        self.save_config()

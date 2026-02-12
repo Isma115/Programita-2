@@ -6,6 +6,11 @@ import logging
 import difflib
 import re
 
+# --- PYGMENTS (Syntax Highlighting profesional) ---
+from pygments import lex
+from pygments.lexers import get_lexer_for_filename, TextLexer
+from pygments.token import Token
+
 # --- CONFIGURACIÓN DE ESTILOS VS CODE ---
 THEME = {
     "bg": "#1e1e1e",
@@ -14,17 +19,98 @@ THEME = {
     "select_bg": "#264f78",
     "line_num_fg": "#858585",
     "sidebar_bg": "#252526",
+}
+
+# --- MAPEO DE TOKENS PYGMENTS → COLORES VS CODE ---
+# Replica exacta de los colores de Visual Studio Code Dark+
+VSCODE_TOKEN_COLORS = {
+    # Keywords (azul)
+    Token.Keyword:              {"fg": "#569cd6"},
+    Token.Keyword.Declaration:  {"fg": "#569cd6"},
+    Token.Keyword.Namespace:    {"fg": "#c586c0"},  # import/from/export → purple
+    Token.Keyword.Constant:     {"fg": "#569cd6"},  # true/false/null
+    Token.Keyword.Type:         {"fg": "#4ec9b0"},  # int, float, string types → teal
+    Token.Keyword.Pseudo:       {"fg": "#569cd6"},  # self, this
+    Token.Keyword.Reserved:     {"fg": "#569cd6"},
     
-    # Sintaxis
-    "keyword": "#569cd6",      # blue
-    "control": "#c586c0",      # purple
-    "string": "#ce9178",       # orange
-    "comment": "#6a9955",      # green
-    "number": "#b5cea8",       # light green
-    "function": "#dcdcaa",     # yellow
-    "class": "#4ec9b0",        # teal
-    "operator": "#d4d4d4",     # white/grey
-    "bracket": "#ffd700",      # gold (custom visibility)
+    # Control flow (purple)
+    Token.Keyword:              {"fg": "#569cd6"},
+    
+    # Nombres
+    Token.Name:                 {"fg": "#9cdcfe"},  # variables → light blue
+    Token.Name.Function:        {"fg": "#dcdcaa"},  # funciones → yellow
+    Token.Name.Function.Magic:  {"fg": "#dcdcaa"},  # __init__ etc
+    Token.Name.Class:           {"fg": "#4ec9b0"},  # clases → teal
+    Token.Name.Decorator:       {"fg": "#dcdcaa"},  # @decorator → yellow
+    Token.Name.Builtin:         {"fg": "#4ec9b0"},  # print, len, etc → teal
+    Token.Name.Builtin.Pseudo:  {"fg": "#569cd6"},  # self, cls
+    Token.Name.Variable:        {"fg": "#9cdcfe"},  # variables → light blue
+    Token.Name.Variable.Instance: {"fg": "#9cdcfe"},
+    Token.Name.Variable.Class:  {"fg": "#9cdcfe"},
+    Token.Name.Variable.Global: {"fg": "#9cdcfe"},
+    Token.Name.Variable.Magic:  {"fg": "#9cdcfe"},
+    Token.Name.Attribute:       {"fg": "#9cdcfe"},  # obj.attr
+    Token.Name.Tag:             {"fg": "#569cd6"},  # HTML/JSX tags → blue
+    Token.Name.Entity:          {"fg": "#569cd6"},
+    Token.Name.Label:           {"fg": "#9cdcfe"},
+    Token.Name.Exception:       {"fg": "#4ec9b0"},  # Exception classes → teal
+    Token.Name.Other:           {"fg": "#9cdcfe"},  # JSX component names, etc
+    Token.Name.Property:        {"fg": "#9cdcfe"},  # CSS properties → light blue
+    Token.Name.Namespace:       {"fg": "#4ec9b0"},
+    
+    # Strings (naranja)
+    Token.Literal.String:           {"fg": "#ce9178"},
+    Token.Literal.String.Single:    {"fg": "#ce9178"},
+    Token.Literal.String.Double:    {"fg": "#ce9178"},
+    Token.Literal.String.Backtick:  {"fg": "#ce9178"},  # Template literals
+    Token.Literal.String.Doc:       {"fg": "#6a9955"},  # Docstrings → green
+    Token.Literal.String.Escape:    {"fg": "#d7ba7d"},  # \n, \t → gold
+    Token.Literal.String.Interpol:  {"fg": "#569cd6"},  # ${} → blue
+    Token.Literal.String.Regex:     {"fg": "#d16969"},  # Regex → red
+    Token.Literal.String.Other:     {"fg": "#ce9178"},
+    Token.Literal.String.Affix:     {"fg": "#569cd6"},  # f"", b"" prefix
+    Token.String:                   {"fg": "#ce9178"},
+    
+    # Numbers (light green)
+    Token.Literal.Number:           {"fg": "#b5cea8"},
+    Token.Literal.Number.Integer:   {"fg": "#b5cea8"},
+    Token.Literal.Number.Float:     {"fg": "#b5cea8"},
+    Token.Literal.Number.Hex:       {"fg": "#b5cea8"},
+    Token.Literal.Number.Oct:       {"fg": "#b5cea8"},
+    Token.Literal.Number.Bin:       {"fg": "#b5cea8"},
+    Token.Number:                   {"fg": "#b5cea8"},
+    
+    # Comments (green)
+    Token.Comment:                  {"fg": "#6a9955", "italic": True},
+    Token.Comment.Single:           {"fg": "#6a9955", "italic": True},
+    Token.Comment.Multiline:        {"fg": "#6a9955", "italic": True},
+    Token.Comment.Special:          {"fg": "#6a9955", "italic": True},
+    Token.Comment.Preproc:          {"fg": "#c586c0"},  # Preprocessor
+    Token.Comment.PreprocFile:      {"fg": "#ce9178"},
+    Token.Comment.Hashbang:         {"fg": "#6a9955", "italic": True},
+    
+    # Operators
+    Token.Operator:                 {"fg": "#d4d4d4"},
+    Token.Operator.Word:            {"fg": "#569cd6"},  # and, or, not → blue
+    
+    # Punctuation
+    Token.Punctuation:              {"fg": "#d4d4d4"},
+    Token.Punctuation.Marker:       {"fg": "#d4d4d4"},
+    
+    # CSS-specific
+    Token.Name.Builtin:             {"fg": "#4ec9b0"},
+    
+    # Generic (diff, etc)
+    Token.Generic.Inserted:         {"fg": "#b5cea8"},
+    Token.Generic.Deleted:          {"fg": "#ce9178"},
+    Token.Generic.Heading:          {"fg": "#569cd6", "bold": True},
+    Token.Generic.Subheading:       {"fg": "#569cd6"},
+    Token.Generic.Emph:             {"italic": True},
+    Token.Generic.Strong:           {"bold": True},
+    
+    # Fallback
+    Token.Text:                     {"fg": "#d4d4d4"},
+    Token.Error:                    {"fg": "#f44747"},
 }
 
 FONT_CODE = ("Consolas", 14) 
@@ -299,100 +385,121 @@ def apply_replacement(file_path, start_idx, end_idx, new_content):
         messagebox.showerror("Error", f"No se pudo guardar el archivo: {e}")
         return False
 
-# === HIGHILIGHTING LOGIC ===
+# === HIGHLIGHTING LOGIC (PYGMENTS) ===
+
+def _get_token_tag_name(token_type):
+    """Convierte un tipo de token Pygments en un nombre de tag Tkinter."""
+    return "PYG_" + str(token_type).replace(".", "_")
+
+def _resolve_token_style(token_type):
+    """
+    Busca el estilo para un token, subiendo por la jerarquía si no hay match directo.
+    Ej: Token.Keyword.Pseudo → Token.Keyword → Token → fallback
+    """
+    t = token_type
+    while t:
+        if t in VSCODE_TOKEN_COLORS:
+            return VSCODE_TOKEN_COLORS[t]
+        t = t.parent
+    return {"fg": "#d4d4d4"}
+
+def _get_lexer_for_file(file_path):
+    """
+    Obtiene el lexer Pygments adecuado para un archivo.
+    Fallback a TextLexer si no se reconoce la extensión.
+    """
+    if not file_path:
+        return TextLexer()
+    try:
+        return get_lexer_for_filename(file_path, stripnl=False, stripall=False)
+    except Exception:
+        return TextLexer()
+
 def configure_tags(text_widget):
-    """Configura los tags de colores estilo VS Code en el widget de texto"""
-    text_widget.tag_configure("TOKEN_KEYWORD", foreground=THEME["keyword"])
-    text_widget.tag_configure("TOKEN_CONTROL", foreground=THEME["control"])
-    text_widget.tag_configure("TOKEN_STRING", foreground=THEME["string"])
-    text_widget.tag_configure("TOKEN_COMMENT", foreground=THEME["comment"])
-    text_widget.tag_configure("TOKEN_NUMBER", foreground=THEME["number"])
-    text_widget.tag_configure("TOKEN_FUNCTION", foreground=THEME["function"])
-    text_widget.tag_configure("TOKEN_CLASS", foreground=THEME["class"])
-    text_widget.tag_configure("TOKEN_OPERATOR", foreground=THEME["operator"])
+    """
+    Configura los tags de colores estilo VS Code en el widget de texto.
+    Crea un tag Tkinter para cada tipo de token definido en VSCODE_TOKEN_COLORS.
+    """
+    for token_type, style_dict in VSCODE_TOKEN_COLORS.items():
+        tag_name = _get_token_tag_name(token_type)
+        config = {}
+        if "fg" in style_dict:
+            config["foreground"] = style_dict["fg"]
+        if style_dict.get("bold"):
+            # Crear font con bold
+            config["font"] = (FONT_CODE[0], FONT_CODE[1], "bold")
+        if style_dict.get("italic"):
+            config["font"] = (FONT_CODE[0], FONT_CODE[1], "italic")
+        if style_dict.get("bold") and style_dict.get("italic"):
+            config["font"] = (FONT_CODE[0], FONT_CODE[1], "bold italic")
+        text_widget.tag_configure(tag_name, **config)
 
-def highlight_syntax(text_widget):
-    """Aplica resaltado de sintaxis usando regex simple"""
-    content = text_widget.get("1.0", tk.END)
+def highlight_syntax(text_widget, file_path=None):
+    """
+    Aplica resaltado de sintaxis usando Pygments.
+    Detecta automáticamente el lenguaje a partir de la extensión del archivo.
+    Soporta: JS, JSX, CSS, Python, HTML, TS, TSX, JSON, y 500+ lenguajes más.
+    """
+    content = text_widget.get("1.0", "end-1c")
+    if not content.strip():
+        return
     
-    # Limpiar tags previos
+    # Limpiar tags previos de Pygments
     for tag in text_widget.tag_names():
-        if tag.startswith("TOKEN_"):
+        if tag.startswith("PYG_"):
             text_widget.tag_remove(tag, "1.0", tk.END)
-            
-    # PATRONES REGEX
     
-    # 1. Comentarios (Alta prioridad)
-    # Soporte para # (python), // (js/cpp), /*...*/ (c-style), <!-- (html)
-    patterns_comments = [
-        r'(#.*)', 
-        r'(//.*)',
-        r'(/\*[\s\S]*?\*/)',
-        r'(<!--[\s\S]*?-->)'
-    ]
-    for pat in patterns_comments:
-        for match in re.finditer(pat, content):
-            text_widget.tag_add("TOKEN_COMMENT", f"1.0+{match.start()}c", f"1.0+{match.end()}c")
-            
-    # 2. Strings
-    patterns_strings = [
-        r'(".*?")',
-        r"('.*?')",
-        r'("""[\s\S]*?""")',
-        r"('''[\s\S]*?''')"
-    ]
-    for pat in patterns_strings:
-        for match in re.finditer(pat, content):
-             # Evitar sobrescribir comentarios si ya se marcaron
-             # (Este método es simple, lo ideal es un lexer real)
-             # Chequeo simple: si el inicio no tiene ya tag de comment
-             is_comment = False
-             tags = text_widget.tag_names(f"1.0+{match.start()}c")
-             if "TOKEN_COMMENT" in tags:
-                 continue
-                 
-             text_widget.tag_add("TOKEN_STRING", f"1.0+{match.start()}c", f"1.0+{match.end()}c")
-
-    # 3. Keywords & Control
-    # Lista combinada multi-lenguaje
-    keywords = r'\b(def|class|import|from|return|pass|lambda|with|as|global|nonlocal|assert|del|yield|raise|try|except|finally|if|elif|else|for|while|break|continue|in|is|not|and|or|True|False|None|self|var|let|const|function|async|await|new|this|extends|super|interface|implements|public|private|protected|static|void|int|float|string|bool)\b'
+    # Obtener lexer adecuado
+    lexer = _get_lexer_for_file(file_path)
     
-    for match in re.finditer(keywords, content):
-        # Chequear conflictos
-        start_idx = f"1.0+{match.start()}c"
-        tags = text_widget.tag_names(start_idx)
-        if "TOKEN_COMMENT" in tags or "TOKEN_STRING" in tags:
+    # Tokenizar y aplicar tags
+    # Rastreamos posición como (línea, columna) para eficiencia con Tkinter indices
+    line = 1
+    col = 0
+    
+    for token_type, token_value in lex(content, lexer):
+        if not token_value:
             continue
-            
-        word = match.group(0)
-        # Separar control flow de keywords normales (visual)
-        if word in ["if", "else", "elif", "for", "while", "break", "continue", "try", "except", "return"]:
-            text_widget.tag_add("TOKEN_CONTROL", start_idx, f"1.0+{match.end()}c")
-        else:
-            text_widget.tag_add("TOKEN_KEYWORD", start_idx, f"1.0+{match.end()}c")
-
-    # 4. Funciones (palabra seguida de paren abierto)
-    # Exluimos keywords
-    func_pattern = r'\b([a-zA-Z_][a-zA-Z0-9_]*)\s*\('
-    for match in re.finditer(func_pattern, content):
-        start_pos = match.start(1)
-        end_pos = match.end(1)
         
-        start_idx = f"1.0+{start_pos}c"
-        tags = text_widget.tag_names(start_idx)
-        if "TOKEN_COMMENT" in tags or "TOKEN_STRING" in tags or "TOKEN_KEYWORD" in tags or "TOKEN_CONTROL" in tags:
-            continue
-            
-        text_widget.tag_add("TOKEN_FUNCTION", start_idx, f"1.0+{end_pos}c")
-
-    # 5. Números
-    num_pattern = r'\b\d+\b'
-    for match in re.finditer(num_pattern, content):
-        start_idx = f"1.0+{match.start()}c"
-        tags = text_widget.tag_names(start_idx)
-        if "TOKEN_COMMENT" in tags or "TOKEN_STRING" in tags:
-            continue
-        text_widget.tag_add("TOKEN_NUMBER", start_idx, f"1.0+{match.end()}c")
+        # Calcular posición inicio
+        start_index = f"{line}.{col}"
+        
+        # Calcular posición final contando newlines dentro del token
+        lines_in_token = token_value.split('\n')
+        if len(lines_in_token) > 1:
+            # Token multi-línea (ej: comentario de bloque, string multilínea)
+            end_line = line + len(lines_in_token) - 1
+            end_col = len(lines_in_token[-1])
+        else:
+            end_line = line
+            end_col = col + len(token_value)
+        
+        end_index = f"{end_line}.{end_col}"
+        
+        # Solo aplicar tag si no es texto plano (Token.Text)
+        if token_type != Token.Text and token_type != Token.Text.Whitespace:
+            # Resolver estilo (subiendo jerarquía si es necesario)
+            style = _resolve_token_style(token_type)
+            if style.get("fg") and style["fg"] != "#d4d4d4":
+                tag_name = _get_token_tag_name(token_type)
+                # Asegurar que el tag existe
+                if tag_name not in text_widget.tag_names():
+                    config = {}
+                    if "fg" in style:
+                        config["foreground"] = style["fg"]
+                    if style.get("bold"):
+                        config["font"] = (FONT_CODE[0], FONT_CODE[1], "bold")
+                    if style.get("italic"):
+                        config["font"] = (FONT_CODE[0], FONT_CODE[1], "italic")
+                    text_widget.tag_configure(tag_name, **config)
+                text_widget.tag_add(tag_name, start_index, end_index)
+        
+        # Actualizar posición
+        if len(lines_in_token) > 1:
+            line = end_line
+            col = end_col
+        else:
+            col = end_col
 
 
 def create_styled_text_widget(parent, editable=True):
@@ -446,7 +553,7 @@ def show_popup(clipboard_text, match_text, file_path, ratio, line_num):
     # Label: Archivo
     tk.Label(
         info_frame, text="📂 Archivo:", 
-        font=("Segoe UI", 16, "bold"), fg=THEME["keyword"], bg=THEME["bg"]
+        font=("Segoe UI", 16, "bold"), fg="#569cd6", bg=THEME["bg"]
     ).pack(side="left")
     
     # Value: Path (Label)
@@ -460,33 +567,33 @@ def show_popup(clipboard_text, match_text, file_path, ratio, line_num):
 
     lbl_path = tk.Label(
         info_frame, text=short_path, 
-        font=("Segoe UI", 16), fg=THEME["string"], bg=THEME["bg"]
+        font=("Segoe UI", 16), fg="#ce9178", bg=THEME["bg"]
     )
     lbl_path.pack(side="left", padx=5)
 
     # Label: Line
     tk.Label(
         info_frame, text="| 🔢 Línea aprox:", 
-        font=("Segoe UI", 16, "bold"), fg=THEME["keyword"], bg=THEME["bg"]
+        font=("Segoe UI", 16, "bold"), fg="#569cd6", bg=THEME["bg"]
     ).pack(side="left", padx=(15, 0))
     
     tk.Label(
         info_frame, text=str(line_num), 
-        font=("Segoe UI", 16), fg=THEME["number"], bg=THEME["bg"]
+        font=("Segoe UI", 16), fg="#b5cea8", bg=THEME["bg"]
     ).pack(side="left", padx=5)
 
     # Header Controls
     control_frame = tk.Frame(popup, bg=THEME["bg"])
     control_frame.pack(fill="x", padx=10, pady=5)
     
-    lbl_scale = tk.Label(control_frame, text="Margen de Contexto:", bg=THEME["bg"], fg=THEME["keyword"], font=FONT_UI)
+    lbl_scale = tk.Label(control_frame, text="Margen de Contexto:", bg=THEME["bg"], fg="#569cd6", font=FONT_UI)
     lbl_scale.pack(side="left", padx=(0, 10))
     
     margin_var = tk.IntVar(value=500)
     scale_margin = tk.Scale(
         control_frame, from_=0, to=5000, orient="horizontal", variable=margin_var,
         bg=THEME["bg"], fg=THEME["fg"], highlightthickness=0, length=400,
-        sliderrelief="flat", activebackground=THEME["keyword"], troughcolor="#333333"
+        sliderrelief="flat", activebackground="#569cd6", troughcolor="#333333"
     )
     scale_margin.pack(side="left")
 
@@ -509,7 +616,7 @@ def show_popup(clipboard_text, match_text, file_path, ratio, line_num):
     # Accept button (Left of Cancel)
     tk.Button(
         control_frame, text="✅ Aceptar y Sustituir", command=on_accept, 
-        bg=THEME["comment"], fg="black", font=FONT_UI, padx=10, pady=2
+        bg="#6a9955", fg="black", font=FONT_UI, padx=10, pady=2
     ).pack(side="right", padx=5)
 
     # Content Grid
@@ -523,17 +630,17 @@ def show_popup(clipboard_text, match_text, file_path, ratio, line_num):
     # --- PANELES ---
     
     # 1. Clipboard
-    lbl_clip = tk.Label(content_frame, text="📋 Portapapeles", bg=THEME["bg"], fg=THEME["string"], font=FONT_UI)
+    lbl_clip = tk.Label(content_frame, text="📋 Portapapeles", bg=THEME["bg"], fg="#ce9178", font=FONT_UI)
     lbl_clip.grid(row=0, column=0, sticky="w", padx=5, pady=(5,0))
     
     txt_clip = create_styled_text_widget(content_frame, editable=False)
     txt_clip.insert("1.0", clipboard_text)
-    highlight_syntax(txt_clip) # Highlight once
+    highlight_syntax(txt_clip, file_path)  # Highlight con detección de lenguaje
     txt_clip.config(state="disabled")
     txt_clip.grid(row=1, column=0, sticky="nsew", padx=5, pady=5)
     
     # 2. Editor
-    lbl_edit = tk.Label(content_frame, text="✏️ Editor (VS Code Style)", bg=THEME["bg"], fg=THEME["function"], font=FONT_UI)
+    lbl_edit = tk.Label(content_frame, text="✏️ Editor (VS Code Style)", bg=THEME["bg"], fg="#dcdcaa", font=FONT_UI)
     lbl_edit.grid(row=0, column=1, sticky="w", padx=5, pady=(5,0))
     
     txt_edit = create_styled_text_widget(content_frame, editable=True)
@@ -550,7 +657,7 @@ def show_popup(clipboard_text, match_text, file_path, ratio, line_num):
         if state["editor_job"]:
             popup.after_cancel(state["editor_job"])
         # Esperar 300ms de inactividad para colorear (performance)
-        state["editor_job"] = popup.after(300, lambda: highlight_syntax(txt_edit))
+        state["editor_job"] = popup.after(300, lambda: highlight_syntax(txt_edit, file_path))
 
     txt_edit.bind("<KeyRelease>", on_edit_change)
 
@@ -567,7 +674,7 @@ def show_popup(clipboard_text, match_text, file_path, ratio, line_num):
         # Update Editor
         txt_edit.delete("1.0", "end")
         txt_edit.insert("1.0", full_block)
-        highlight_syntax(txt_edit)
+        highlight_syntax(txt_edit, file_path)
         
 
         # Scroll to match logic

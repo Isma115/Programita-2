@@ -40,7 +40,7 @@ class ConsoleView(ttk.Frame):
         self.lbl_prompt.pack(side="left")
         
         # Command Suggestions
-        self.builtin_commands = ["help", "clear", "status", "version", "exit"]
+        self.builtin_commands = ["help", "clear", "status", "version", "exit", "set_step"]
         self.commands = self.builtin_commands.copy()
         
         # Scan for addons initially
@@ -216,7 +216,7 @@ class ConsoleView(ttk.Frame):
         
         # 1. Built-in Commands
         if cmd == "help":
-            self._log("Comandos disponibles: help, clear, exit, cambiar colores [rojo|azul|verde|amarillo]")
+            self._log("Comandos disponibles: help, clear, exit, cambiar colores [rojo|azul|verde|amarillo], set_step [numero]")
             return
         elif cmd == "clear":
             self.output_text.config(state="normal")
@@ -225,6 +225,23 @@ class ConsoleView(ttk.Frame):
             return
         elif cmd == "exit":
             self.quit()
+            return
+        elif cmd == "set_step":
+            if not args:
+                self._log("Uso: set_step [numero entero]")
+                return
+            try:
+                new_step = int(args[0])
+                # Access app instance through controller hierarchy
+                if hasattr(self.master.master, 'controller'):
+                    app = self.master.master.controller.app
+                    app.arbitrary_step = new_step
+                    app.controller.config_manager.set_arbitrary_step(new_step)
+                    self._log(f"Step de Arbitrary_sus actualizado a: {new_step}")
+                else:
+                    self._log("Error: No se pudo acceder a la configuración.")
+            except ValueError:
+                self._log("Error: El valor debe ser un número entero.")
             return
 
         # 2. Addons search
