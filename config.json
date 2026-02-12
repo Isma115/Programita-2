@@ -7,5 +7,10 @@
         "COLOR_ACCENT": "#5865F2",
         "COLOR_ACCENT_HOVER": "#4752c4"
     },
-    "arbitrary_step": 50
+    "arbitrary_step": 50,
+    "project_directories": [
+        "/Users/ismaelmoraledalopez/Documents/Azure-Irrigation-Web/HidraSmart-Irrigation-System",
+        "/Users/ismaelmoraledalopez/Desktop/Programita 2"
+    ],
+    "current_project_index": 0
 }

@@ -40,12 +40,17 @@ class Application:
         # Pass the controller to the layout so buttons can trigger actions
         self.layout = MainLayout(self.root, self.controller)
 
-        # 4. Auto-load last project
-        last_project = self.controller.config_manager.get_last_project()
-        if last_project and os.path.exists(last_project):
-            # Using after to let UI render first (optional but good practice)
-            # or just call directly. Direct call is fine for now.
-            self.controller.load_project_folder(last_project)
+        # 4. Auto-load project
+        dirs = self.controller.config_manager.get_project_directories()
+        if dirs:
+            idx = self.controller.config_manager.get_current_project_index()
+            idx = idx % len(dirs)
+            if os.path.exists(dirs[idx]):
+                self.controller.switch_to_project(idx)
+        else:
+            last_project = self.controller.config_manager.get_last_project()
+            if last_project and os.path.exists(last_project):
+                self.controller.load_project_folder(last_project)
 
     def run(self):
         """

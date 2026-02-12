@@ -28,7 +28,7 @@ class CodeView(ttk.Frame):
     ]
 
     # Combobox values: Auto mode first, then individual models
-    AI_ORDER = ["⚡ Automático"] + AI_MODELS
+    AI_ORDER = ["⚡ Automático", "🤖 Agente"] + AI_MODELS
 
     # Max consecutive uses of the same AI before rotating
     MAX_CONSECUTIVE = 3
@@ -76,9 +76,52 @@ class CodeView(ttk.Frame):
         self.left_frame = ttk.Frame(self.paned_window, style="Main.TFrame")
         self.paned_window.add(self.left_frame, minsize=400, stretch="always")
 
+        # === Project Switcher Bar (compact, above everything) ===
+        self.project_bar = ttk.Frame(self.left_frame, style="Main.TFrame")
+        self.project_bar.pack(side="top", fill="x", padx=10, pady=(6, 2))
+
+        self.btn_prev_project = ttk.Button(
+            self.project_bar,
+            text="◀",
+            style="Nav.TButton",
+            width=1,
+            command=lambda: self.controller.prev_project()
+        )
+        self.btn_prev_project.pack(side="left")
+
+        self.lbl_project_name = ttk.Label(
+            self.project_bar,
+            text="Sin proyecto",
+            style="TLabel",
+            anchor="center",
+            font=("Segoe UI", 13)
+        )
+        self.lbl_project_name.pack(side="left", fill="x", expand=True, padx=3)
+
+        self.btn_next_project = ttk.Button(
+            self.project_bar,
+            text="▶",
+            style="Nav.TButton",
+            width=1,
+            command=lambda: self.controller.next_project()
+        )
+        self.btn_next_project.pack(side="left")
+
+        self.btn_add_project = ttk.Button(
+            self.project_bar,
+            text="＋",
+            style="Action.TButton",
+            width=1,
+            command=self._on_add_project
+        )
+        self.btn_add_project.pack(side="left", padx=(6, 0))
+
+        # Initialize project label
+        self._update_project_label()
+
         # 1. Top Bar (Load Button)
         self.top_bar = ttk.Frame(self.left_frame, style="Main.TFrame")
-        self.top_bar.pack(side="top", fill="x", padx=10, pady=10)
+        self.top_bar.pack(side="top", fill="x", padx=10, pady=(2, 8))
 
         self.btn_load = ttk.Button(
             self.top_bar, 
@@ -122,10 +165,6 @@ class CodeView(ttk.Frame):
         )
         self.cmb_ai.current(0) # Default to first item (Best Quality)
         self.cmb_ai.pack(side="left", padx=(20, 0))
-
-
-
-
 
         # 2. File List (Treeview)
         # "Occupies 3/4 width" -> We'll handle this with sash positioning initially
@@ -390,7 +429,24 @@ class CodeView(ttk.Frame):
     def _on_load_project(self):
         path = filedialog.askdirectory()
         if path:
-            self.controller.load_project_folder(path)
+            self.controller.add_project_directory(path)
+
+    def _on_add_project(self):
+        """Opens folder dialog and adds a new project directory."""
+        path = filedialog.askdirectory()
+        if path:
+            self.controller.add_project_directory(path)
+
+    def _update_project_label(self):
+        """Updates the project name label and arrow button states."""
+        dirs = self.controller.get_project_directories()
+        if not dirs:
+            self.lbl_project_name.config(text="Sin proyecto")
+            return
+        idx = self.controller.get_current_project_index()
+        idx = idx % len(dirs) if dirs else 0
+        project_name = os.path.basename(dirs[idx])
+        self.lbl_project_name.config(text=f"📁 {project_name}  ({idx + 1}/{len(dirs)})")
 
     def refresh_file_list(self, files=None):
         """Updates the treeview with files. If None, fetches from project manager."""
@@ -512,29 +568,46 @@ class CodeView(ttk.Frame):
             with open(file_path, "w", encoding="utf-8") as f:
                 f.write(prompt)
                 
-            # Copy user message + generation instructions (if enabled) to clipboard
-            clipboard_content = text
-            if return_regions:
-                clipboard_content += "\n\nIMPORTANTE: Primero, lista todas las regiones que necesitan modificación. Después, devuelve SOLO las regiones modificadas COMPLETAS. Solo las regiones que necesitaron modificación, y deben estar completas. No devuelvas código sin cambios."
-            # else:
-            #     clipboard_content += "\n\nIMPORTANTE: Devolver solamente la modificación o modificaciones necesarias."
-            
-            self.clipboard_clear()
-            self.clipboard_append(clipboard_content)
-            
             # Resolve AI selection (auto mode or manual)
             selected_ai = self.cmb_ai.get()
             if selected_ai == "⚡ Automático":
                 selected_ai = self._get_auto_ai()
             
-            # Record usage
-            self._ai_usage_history.append(selected_ai)
-            
-            # Open AI URL
-            if selected_ai in self.AI_URLS:
-                url = self.AI_URLS[selected_ai]
-                webbrowser.open_new_tab(url)
-                print(f"AutoAI: Abriendo {selected_ai} (usos recientes: {self._ai_usage_history[-5:]})")
+            if selected_ai == "🤖 Agente":
+                # --- Modo Agente: mensaje + instrucciones agente + @fichero refs ---
+                file_refs = []
+                for item in self.tree.get_children():
+                    tags = self.tree.item(item, 'tags')
+                    if tags:
+                        file_path = tags[0] if isinstance(tags, (list, tuple)) else tags
+                        filename = os.path.basename(file_path)
+                        file_refs.append(f"@{filename}")
+                
+                clipboard_content = text
+                if return_regions:
+                    clipboard_content += "\n\nIMPORTANTE: Primero, lista todas las regiones que necesitan modificación. Después, devuelve SOLO las regiones modificadas COMPLETAS. Solo las regiones que necesitaron modificación, y deben estar completas. No devuelvas código sin cambios."
+                if file_refs:
+                    clipboard_content += "\n\nFicheros que podrían estar relacionados: " + " ".join(file_refs)
+                
+                self.clipboard_clear()
+                self.clipboard_append(clipboard_content)
+                print(f"Agente: Prompt copiado con {len(file_refs)} referencias de ficheros")
+            else:
+                # --- Modo normal: mensaje + instrucciones regiones ---
+                clipboard_content = text
+                if return_regions:
+                    clipboard_content += "\n\nIMPORTANTE: Primero, lista todas las regiones que necesitan modificación. Después, devuelve SOLO las regiones modificadas COMPLETAS. Solo las regiones que necesitaron modificación, y deben estar completas. No devuelvas código sin cambios."
+                
+                self.clipboard_clear()
+                self.clipboard_append(clipboard_content)
+                
+                # Record usage & open AI URL
+                self._ai_usage_history.append(selected_ai)
+                
+                if selected_ai in self.AI_URLS:
+                    url = self.AI_URLS[selected_ai]
+                    webbrowser.open_new_tab(url)
+                    print(f"AutoAI: Abriendo {selected_ai} (usos recientes: {self._ai_usage_history[-5:]})")
 
             
         except Exception as e:

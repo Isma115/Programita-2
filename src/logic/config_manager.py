@@ -42,6 +42,29 @@ class ConfigManager:
     def set_last_project(self, path):
         """Sets the last opened project path and saves config."""
         self.config["last_project"] = path
+        # Also register in project_directories if not already present
+        dirs = self.get_project_directories()
+        if path not in dirs:
+            dirs.append(path)
+            self.config["project_directories"] = dirs
+        self.save_config()
+
+    def get_project_directories(self):
+        """Returns the list of registered project directories."""
+        return self.config.get("project_directories", [])
+
+    def set_project_directories(self, dirs):
+        """Sets the list of project directories and saves config."""
+        self.config["project_directories"] = list(dirs)
+        self.save_config()
+
+    def get_current_project_index(self):
+        """Returns the index of the currently selected project."""
+        return self.config.get("current_project_index", 0)
+
+    def set_current_project_index(self, idx):
+        """Sets the current project index and saves config."""
+        self.config["current_project_index"] = int(idx)
         self.save_config()
 
     def get_doc_path(self):

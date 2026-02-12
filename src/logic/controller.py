@@ -46,9 +46,58 @@ class Controller:
             # Refresh UI File List if the view is active
             if hasattr(self.app.layout, 'code_view'):
                 self.app.layout.code_view.refresh_file_list()
+                self.app.layout.code_view._update_project_label()
                 
         except Exception as e:
             print(f"Error loading project: {e}")
+
+    def get_project_directories(self):
+        """Returns the list of registered project directories."""
+        return self.config_manager.get_project_directories()
+
+    def get_current_project_index(self):
+        """Returns the index of the currently selected project."""
+        return self.config_manager.get_current_project_index()
+
+    def switch_to_project(self, index):
+        """Switch to the project at the given index."""
+        dirs = self.config_manager.get_project_directories()
+        if not dirs:
+            return
+        # Clamp index
+        index = index % len(dirs)
+        path = dirs[index]
+        if os.path.exists(path):
+            self.config_manager.set_current_project_index(index)
+            self.load_project_folder(path)
+        else:
+            print(f"Controller: Project path no longer exists: {path}")
+
+    def next_project(self):
+        """Navigate to the next project (cyclic)."""
+        dirs = self.config_manager.get_project_directories()
+        if len(dirs) <= 1:
+            return
+        idx = (self.config_manager.get_current_project_index() + 1) % len(dirs)
+        self.switch_to_project(idx)
+
+    def prev_project(self):
+        """Navigate to the previous project (cyclic)."""
+        dirs = self.config_manager.get_project_directories()
+        if len(dirs) <= 1:
+            return
+        idx = (self.config_manager.get_current_project_index() - 1) % len(dirs)
+        self.switch_to_project(idx)
+
+    def add_project_directory(self, path):
+        """Add a new project directory and switch to it."""
+        dirs = self.config_manager.get_project_directories()
+        if path not in dirs:
+            dirs.append(path)
+            self.config_manager.set_project_directories(dirs)
+        new_idx = dirs.index(path)
+        self.config_manager.set_current_project_index(new_idx)
+        self.load_project_folder(path)
 
     def generate_prompt(self, user_text, selected_section=None, return_regions=False):
         """

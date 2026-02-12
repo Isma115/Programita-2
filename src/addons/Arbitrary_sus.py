@@ -512,7 +512,10 @@ def create_styled_text_widget(parent, editable=True):
         relief="flat", 
         wrap="none",
         insertbackground=THEME["cursor"], # Color del cursor
-        selectbackground=THEME["select_bg"]
+        selectbackground=THEME["select_bg"],
+        undo=True,              # Habilitar pila de undo/redo
+        maxundo=-1,             # Historial ilimitado
+        autoseparators=True     # Separadores automáticos entre acciones
     )
     # Configurar tags inicialmente
     configure_tags(txt)
@@ -537,12 +540,16 @@ def show_popup(clipboard_text, match_text, file_path, ratio, line_num):
     popup.title(f"✨ Comparación y Edición - {os.path.basename(file_path)}")
     
     # Centrar ventana
-    w, h = 1200, 800
+    # Maximizar ventana (modo ventana ocupando toda la pantalla)
     ws = popup.winfo_screenwidth()
     hs = popup.winfo_screenheight()
-    x = (ws - w) // 2
-    y = (hs - h) // 2
-    popup.geometry(f"{w}x{h}+{x}+{y}")
+    popup.geometry(f"{ws}x{hs}+0+0")
+    
+    # Intentar estado 'zoomed' si el SO lo soporta (Windows/Linux)
+    try:
+        popup.state('zoomed')
+    except:
+        pass
     
     popup.configure(bg=THEME["bg"])
 
@@ -659,7 +666,35 @@ def show_popup(clipboard_text, match_text, file_path, ratio, line_num):
         # Esperar 300ms de inactividad para colorear (performance)
         state["editor_job"] = popup.after(300, lambda: highlight_syntax(txt_edit, file_path))
 
+    # --- UNDO / REDO (Ctrl+Z / Ctrl+Y) ---
+    def on_undo(event=None):
+        try:
+            txt_edit.edit_undo()
+            on_edit_change()  # Re-highlight tras deshacer
+        except tk.TclError:
+            pass  # Pila de undo vacía
+        return "break"  # Evitar comportamiento por defecto
+
+    def on_redo(event=None):
+        try:
+            txt_edit.edit_redo()
+            on_edit_change()  # Re-highlight tras rehacer
+        except tk.TclError:
+            pass  # Pila de redo vacía
+        return "break"
+
     txt_edit.bind("<KeyRelease>", on_edit_change)
+    txt_edit.bind("<Control-z>", on_undo)
+    txt_edit.bind("<Control-Z>", on_undo)  # Con Shift/CapsLock
+    txt_edit.bind("<Control-y>", on_redo)
+    txt_edit.bind("<Control-Y>", on_redo)
+    # macOS support (Command key)
+    txt_edit.bind("<Command-z>", on_undo)
+    txt_edit.bind("<Command-Z>", on_undo)
+    txt_edit.bind("<Command-y>", on_redo)
+    txt_edit.bind("<Command-Y>", on_redo)
+    txt_edit.bind("<Command-Shift-z>", on_redo)  # macOS usa Cmd+Shift+Z para redo
+    txt_edit.bind("<Command-Shift-Z>", on_redo)
 
     def update_view(val=None):
         margin = margin_var.get()
@@ -675,6 +710,9 @@ def show_popup(clipboard_text, match_text, file_path, ratio, line_num):
         txt_edit.delete("1.0", "end")
         txt_edit.insert("1.0", full_block)
         highlight_syntax(txt_edit, file_path)
+        # Resetear pila de undo para que la carga inicial no sea deshacible
+        txt_edit.edit_reset()
+        txt_edit.edit_separator()  # Separador para que la primera edición del usuario sea un bloque limpio
         
 
         # Scroll to match logic
