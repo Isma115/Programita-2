@@ -423,8 +423,8 @@ class CodeView(ttk.Frame):
         if hasattr(self.controller, 'config_manager'):
              self.controller.config_manager.set_file_limit(limit)
              
-        # Refresh list to apply limit
-        self.refresh_file_list()
+        # Refresh list to apply limit (re-run search so filter is preserved)
+        self._on_prompt_change()
 
     def _on_load_project(self):
         path = filedialog.askdirectory()
@@ -555,7 +555,13 @@ class CodeView(ttk.Frame):
         # Check return regions
         return_regions = self.var_return_regions.get()
 
-        prompt = self.controller.generate_prompt(text, selected_section=section, return_regions=return_regions)
+        # Get file limit from slider
+        try:
+            file_limit = int(self.limit_var.get())
+        except:
+            file_limit = 10
+
+        prompt = self.controller.generate_prompt(text, selected_section=section, return_regions=return_regions, file_limit=file_limit)
         
         # Save prompt to file in Documents
         try:

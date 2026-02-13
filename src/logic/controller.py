@@ -99,7 +99,7 @@ class Controller:
         self.config_manager.set_current_project_index(new_idx)
         self.load_project_folder(path)
 
-    def generate_prompt(self, user_text, selected_section=None, return_regions=False):
+    def generate_prompt(self, user_text, selected_section=None, return_regions=False, file_limit=10):
         """
         Generates a prompt based on user text and selected files.
         """
@@ -123,7 +123,7 @@ class Controller:
         
         # Build Prompt
         prompt = f"Petición del Usuario: {user_text}\n\nArchivos de Contexto:\n"
-        for f in relevant_files[:10]: # Limit to top 10 matches for now (or top 10 ordered files in section)
+        for f in relevant_files[:file_limit]: # Limit to slider value
             prompt += f"\n--- Archivo: {f['rel_path']} ---\n"
             prompt += f.get('content', '') + "\n"
             
