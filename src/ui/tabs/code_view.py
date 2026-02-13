@@ -123,13 +123,7 @@ class CodeView(ttk.Frame):
         self.top_bar = ttk.Frame(self.left_frame, style="Main.TFrame")
         self.top_bar.pack(side="top", fill="x", padx=10, pady=(2, 8))
 
-        self.btn_load = ttk.Button(
-            self.top_bar, 
-            text="📂 Cargar Proyecto", 
-            style="Action.TButton",
-            command=self._on_load_project
-        )
-        self.btn_load.pack(side="left")
+
 
         # Slider for File Limit
         self.limit_var = tk.DoubleVar(value=100) # Default, will update from config
@@ -169,7 +163,8 @@ class CodeView(ttk.Frame):
         # 2. File List (Treeview)
         # "Occupies 3/4 width" -> We'll handle this with sash positioning initially
         self.tree_frame = ttk.Frame(self.left_frame, style="Main.TFrame")
-        self.tree_frame.pack(side="top", fill="both", expand=True, padx=10)
+        # Pack this LATER, after prompt_frame is packed to the bottom
+        # self.tree_frame.pack(side="top", fill="both", expand=True, padx=10)
         
         self.columns = ("path", "size")
         self.tree = ttk.Treeview(self.tree_frame, columns=self.columns, show="", selectmode="extended", style="Treeview")
@@ -217,7 +212,7 @@ class CodeView(ttk.Frame):
 
         self.txt_prompt = tk.Text(
             self.prompt_frame, 
-            height=5, 
+            height=8, 
             font=Styles.FONT_MAIN, 
             bg=Styles.COLOR_INPUT_BG, 
             fg=Styles.COLOR_INPUT_FG, 
@@ -239,6 +234,9 @@ class CodeView(ttk.Frame):
             command=self._on_copy_prompt
         )
         self.btn_copy.pack(side="right", padx=(10, 0), anchor="n")
+
+        # NOW pack the tree frame to fill the REMAINING space
+        self.tree_frame.pack(side="top", fill="both", expand=True, padx=10)
 
 
         # --- Right Pane (Sections) ---
