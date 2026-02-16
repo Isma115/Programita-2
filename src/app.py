@@ -35,6 +35,9 @@ class Application:
         # 2. Initialize Logic
         self.controller = Controller(self)
         self.arbitrary_step = self.controller.config_manager.get_arbitrary_step()
+        
+        # Attach controller to root for easy access by views via winfo_toplevel()
+        self.root.controller = self.controller
 
         # 3. Initialize UI (Layout)
         # Pass the controller to the layout so buttons can trigger actions

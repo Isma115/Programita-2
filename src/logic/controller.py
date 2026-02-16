@@ -126,13 +126,106 @@ class Controller:
         for f in relevant_files[:file_limit]: # Limit to slider value
             prompt += f"\n--- Archivo: {f['rel_path']} ---\n"
             prompt += f.get('content', '') + "\n"
+        
+        # Include table samples if section has tables
+        if selected_section:
+            section_tables = self.section_manager.get_tables_in_section(selected_section)
+            if section_tables:
+                table_samples = self._get_table_samples_for_prompt(section_tables)
+                if table_samples:
+                    prompt += f"\n\nMuestras de Base de Datos:\n{table_samples}"
             
         if return_regions:
             prompt += "\n\nIMPORTANTE: Primero, lista todas las regiones que necesitan modificación. Después, devuelve SOLO las regiones modificadas COMPLETAS. Solo las regiones que necesitaron modificación, y deben estar completas. No devuelvas código sin cambios."
-        # else:
-        #     prompt += "\n\nIMPORTANTE: Devolver solamente la modificación o modificaciones necesarias."
             
         return prompt
+
+    def _get_table_samples_for_prompt(self, table_names, limit=5):
+        """Connects to DB (if needed) and gets sample data for given tables."""
+        connection = None
+        created_connection = False
+        
+        try:
+            # Try to reuse existing connection from database_view
+            if hasattr(self.app, 'layout') and hasattr(self.app.layout, 'database_view'):
+                db_view = self.app.layout.database_view
+                if db_view.connection and db_view.connection.is_connected():
+                    connection = db_view.connection
+            
+            # If no existing connection, create one from config
+            if not connection:
+                db_config = self.config_manager.get_db_config()
+                if not db_config or not db_config.get('host'):
+                    print("Controller: No DB config available for table samples")
+                    return ""
+                
+                try:
+                    import mysql.connector
+                    connection = mysql.connector.connect(
+                        host=db_config.get('host', 'localhost'),
+                        port=int(db_config.get('port', 3306)),
+                        user=db_config.get('user', ''),
+                        password=db_config.get('password', ''),
+                        database=db_config.get('database', '')
+                    )
+                    created_connection = True
+                except ImportError:
+                    print("Controller: mysql-connector-python not installed")
+                    return ""
+                except Exception as e:
+                    print(f"Controller: DB connection error: {e}")
+                    return ""
+            
+            # Fetch samples
+            results = []
+            cursor = connection.cursor()
+            
+            for table in table_names:
+                results.append(f"\n{'='*60}")
+                results.append(f"TABLA: {table}")
+                results.append(f"{'='*60}\n")
+                
+                try:
+                    # Get columns
+                    cursor.execute(f"DESCRIBE `{table}`")
+                    columns = [col[0] for col in cursor.fetchall()]
+                    results.append("Columnas: " + ", ".join(columns))
+                    results.append("-" * 40)
+                    
+                    # Get sample data
+                    cursor.execute(f"SELECT * FROM `{table}` LIMIT {limit}")
+                    rows = cursor.fetchall()
+                    
+                    if rows:
+                        for row in rows:
+                            formatted_row = []
+                            for i, val in enumerate(row):
+                                # Format binary/long data representation
+                                if isinstance(val, (bytes, bytearray)):
+                                    val_str = "<DATOS BINARIOS / GEOMETRÍA>"
+                                else:
+                                    val_str = str(val)
+                                formatted_row.append(f"{columns[i]}: {val_str}")
+                            results.append(" | ".join(formatted_row))
+                    else:
+                        results.append("(Sin datos)")
+                except Exception as e:
+                    results.append(f"Error: {e}")
+                
+                results.append("")
+            
+            cursor.close()
+            return "\n".join(results)
+            
+        except Exception as e:
+            print(f"Controller: Error getting table samples: {e}")
+            return ""
+        finally:
+            if created_connection and connection:
+                try:
+                    connection.close()
+                except:
+                    pass
 
     def get_relevant_files_for_ui(self, user_text, selected_section=None):
         """Helper to get relevant files for UI display."""

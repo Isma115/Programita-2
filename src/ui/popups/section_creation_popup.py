@@ -1,14 +1,17 @@
 import tkinter as tk
 from tkinter import ttk
 import tkinter.messagebox as messagebox
+import os
+import difflib
 from src.ui.styles import Styles
 
 class SectionCreationPopup(tk.Toplevel):
-    def __init__(self, parent, controller, section_name=None, initial_files=None):
+    def __init__(self, parent, controller, section_name=None, initial_files=None, initial_tables=None):
         super().__init__(parent)
         self.controller = controller
         self.original_section_name = section_name
-        self.initial_files_data = initial_files 
+        self.initial_files_data = initial_files
+        self.initial_tables_data = initial_tables
         self.title("Editar Sección" if section_name else "Crear Nueva Sección")
         # Center the window
         window_width = 800
@@ -22,6 +25,9 @@ class SectionCreationPopup(tk.Toplevel):
         
         self.transient(parent)
         self.grab_set()
+        
+        self.valid_files = []
+        self.valid_tables = []
         
         self._create_widgets()
         
@@ -42,7 +48,7 @@ class SectionCreationPopup(tk.Toplevel):
         split_frame.pack(fill="both", expand=True, padx=10, pady=(0, 10))
         
         # Left Pane: Relative Paths Input
-        left_pane = ttk.LabelFrame(split_frame, text="Archivos (Rutas relativas o nombres)", style="Main.TFrame")
+        left_pane = ttk.LabelFrame(split_frame, text="Archivos y tablas (una por línea)", style="Main.TFrame")
         left_pane.pack(side="left", fill="both", expand=True, padx=(0, 5))
         
         self.txt_relative = tk.Text(
@@ -53,25 +59,25 @@ class SectionCreationPopup(tk.Toplevel):
             insertbackground="white",
             font=Styles.FONT_CODE,
             borderwidth=0,
-            width=35, # Make list narrower to fit better
+            width=35,
             padx=10, pady=10
         )
         self.txt_relative.pack(fill="both", expand=True, padx=5, pady=5)
         self.txt_relative.bind("<KeyRelease>", self._on_text_change)
         
-        # Right Pane: Resolved Absolute Paths (Read Only)
-        right_pane = ttk.LabelFrame(split_frame, text="Archivos Detectados", style="TLabelframe")
+        # Right Pane: Resolved Paths/Tables (Read Only)
+        right_pane = ttk.LabelFrame(split_frame, text="Elementos Detectados", style="TLabelframe")
         right_pane.pack(side="right", fill="both", expand=True, padx=(5, 0))
         
         self.txt_absolute = tk.Text(
             right_pane,
             wrap="none",
-            bg=Styles.COLOR_INPUT_BG, # Same background for consistency
-            fg=Styles.COLOR_DIM,      # Dim color to indicate output
+            bg=Styles.COLOR_INPUT_BG,
+            fg=Styles.COLOR_DIM,
             state="disabled",
             font=Styles.FONT_CODE,
             borderwidth=0,
-            width=35, # Make list narrower to fit better
+            width=35,
             padx=10, pady=10
         )
         self.txt_absolute.pack(fill="both", expand=True, padx=5, pady=5)
@@ -83,78 +89,60 @@ class SectionCreationPopup(tk.Toplevel):
         ttk.Button(footer, text="Cancelar", style="Secondary.TButton", command=self.destroy).pack(side="right", padx=5)
         btn_text = "Guardar Cambios" if self.original_section_name else "Crear Sección"
         ttk.Button(footer, text=btn_text, style="Action.TButton", command=self._on_save).pack(side="right", padx=5)
-        
-        # Sync scrolling
-        self._sync_scrolling()
 
-        # If editing, populate files
-        if self.original_section_name and self.initial_files_data:
-             self._populate_initial_files(self.initial_files_data)
+        # If editing, populate files and tables
+        if self.original_section_name:
+            self._populate_initial_data()
 
-    def _populate_initial_files(self, files):
-        # We need to find the relative paths for these absolute paths
+    def _get_available_tables(self):
+        """Gets list of table names from the database view if connected."""
+        try:
+            db_view = self.controller.app.layout.database_view
+            if db_view and db_view.connection:
+                return list(db_view.table_vars.keys())
+        except Exception as e:
+            print(f"SectionPopup: Could not get tables: {e}")
+        return []
+
+    def _populate_initial_data(self):
+        """Populate text area with existing files and tables when editing."""
         all_files = self.controller.project_manager.get_files()
-        # Map abs -> rel
         abs_to_rel = {f['path']: f['rel_path'] for f in all_files}
         
-        rel_paths = []
-        for abs_path in files:
-            if abs_path in abs_to_rel:
-                rel_paths.append(abs_to_rel[abs_path])
-            else:
-                # If file not found in project map (maybe deleted?), show only filename or ignore
-                # Let's show it anyway to be safe, user can delete it
-                rel_paths.append(os.path.basename(abs_path))
+        lines = []
         
-        self.txt_relative.insert("1.0", "\n".join(rel_paths))
+        # Add file relative paths
+        if self.initial_files_data:
+            for abs_path in self.initial_files_data:
+                if abs_path in abs_to_rel:
+                    lines.append(abs_to_rel[abs_path])
+                else:
+                    lines.append(os.path.basename(abs_path))
+        
+        # Add table names (prefixed with 🗄️ to visually distinguish them in input)
+        if self.initial_tables_data:
+            for table_name in self.initial_tables_data:
+                lines.append(table_name)
+        
+        self.txt_relative.insert("1.0", "\n".join(lines))
         # Trigger update
         self._on_text_change()
-
-
-
-    def _populate_initial_files(self, files):
-        # We need to find the relative paths for these absolute paths
-        all_files = self.controller.project_manager.get_files()
-        # Map abs -> rel
-        abs_to_rel = {f['path']: f['rel_path'] for f in all_files}
-        
-        rel_paths = []
-        for abs_path in files:
-            if abs_path in abs_to_rel:
-                rel_paths.append(abs_to_rel[abs_path])
-            else:
-                # If file not found in project map (maybe deleted?), show only filename or ignore
-                # Let's show it anyway to be safe, user can delete it
-                rel_paths.append(os.path.basename(abs_path))
-        
-        self.txt_relative.insert("1.0", "\n".join(rel_paths))
-        # Trigger update
-        self._on_text_change()
-
-    def _sync_scrolling(self):
-        # We can implement basic sync scroll if needed, but for MVP standard scrolling is fine.
-        # Let's keep it simple first.
-        pass
 
     def _on_text_change(self, event=None):
-        """Resolves paths in real-time."""
-        import difflib
-        import os
-        
+        """Resolves paths and table names in real-time."""
         content = self.txt_relative.get("1.0", "end-1c")
         lines = content.split('\n')
         
         resolved_lines = []
-        self.valid_files = [] # Store valid absolute paths
+        self.valid_files = []
+        self.valid_tables = []
         
         # Get all available files once
         all_files = self.controller.project_manager.get_files()
         
-        # Create lookup maps
-        # 1. Full Relative Path -> Absolute Path
+        # Create lookup maps for files
         file_map = {f['rel_path']: f['path'] for f in all_files}
         
-        # 2. Filename -> List of Relative Paths (handle duplicates)
         filename_map = {}
         for rel_path in file_map.keys():
             fname = os.path.basename(rel_path)
@@ -165,48 +153,84 @@ class SectionCreationPopup(tk.Toplevel):
         all_rel_paths = list(file_map.keys())
         all_filenames = list(filename_map.keys())
         
+        # Get available table names from DB connection
+        available_tables = self._get_available_tables()
+        
         for line in lines:
             query = line.strip()
             if not query:
                 resolved_lines.append("")
                 continue
             
+            # --- PRIORITY 1: Exact Table Match (Case-insensitive) ---
+            # We check tables FIRST to avoid files "stealing" exact table names
+            found_table = None
+            if available_tables:
+                for t in available_tables:
+                    if query.lower() == t.lower():
+                        found_table = t
+                        break
+            
+            if found_table:
+                resolved_lines.append(f"🗄️ {found_table}")
+                self.valid_tables.append(found_table)
+                continue
+
+            # --- PRIORITY 2: Exact File Match ---
             found_rel_path = None
             
-            # --- Tier 1: Exact Relative Path ---
+            # Exact Relative Path
             if query in file_map:
                 found_rel_path = query
             
-            # --- Tier 2: Exact Filename ---
+            # Exact Filename
             elif query in filename_map:
-                # If multiple files have the same name, pick the shortest path (shallowest)
                 candidates = filename_map[query]
                 found_rel_path = sorted(candidates, key=len)[0]
             
-            else:
-                # --- Tier 3: Fuzzy Filename ---
-                # Prioritize matching the filename itself
-                matches_fn = difflib.get_close_matches(query, all_filenames, n=1, cutoff=0.5)
-                if matches_fn:
-                    best_fn = matches_fn[0]
-                    candidates = filename_map[best_fn]
-                    found_rel_path = sorted(candidates, key=len)[0]
-                else:
-                    # --- Tier 4: Fuzzy Full Path (Fallback) ---
-                    matches_rp = difflib.get_close_matches(query, all_rel_paths, n=1, cutoff=0.3)
-                    if matches_rp:
-                        found_rel_path = matches_rp[0]
-
             if found_rel_path:
                 abs_path = file_map[found_rel_path]
-                # Format: parent_dir/filename
                 parent_dir = os.path.basename(os.path.dirname(found_rel_path))
                 filename = os.path.basename(found_rel_path)
                 display_path = f"{parent_dir}/{filename}" if parent_dir else filename
-                resolved_lines.append(display_path) 
+                resolved_lines.append(f"📄 {display_path}") 
                 self.valid_files.append(abs_path)
+                continue
+
+            # --- PRIORITY 3: Fuzzy File Match ---
+            # Try fuzzy filename matches first
+            matches_fn = difflib.get_close_matches(query, all_filenames, n=1, cutoff=0.5)
+            if matches_fn:
+                best_fn = matches_fn[0]
+                candidates = filename_map[best_fn]
+                found_rel_path = sorted(candidates, key=len)[0]
             else:
-                resolved_lines.append("--- No encontrado ---")
+                # Fallback to fuzzy full path
+                matches_rp = difflib.get_close_matches(query, all_rel_paths, n=1, cutoff=0.3)
+                if matches_rp:
+                    found_rel_path = matches_rp[0]
+            
+            if found_rel_path:
+                abs_path = file_map[found_rel_path]
+                parent_dir = os.path.basename(os.path.dirname(found_rel_path))
+                filename = os.path.basename(found_rel_path)
+                display_path = f"{parent_dir}/{filename}" if parent_dir else filename
+                resolved_lines.append(f"📄 {display_path}") 
+                self.valid_files.append(abs_path)
+                continue
+
+            # --- PRIORITY 4: Fuzzy Table Match (Strict) ---
+            if available_tables:
+                # Cutoff 0.8 as requested for "almost perfect" match
+                matches_t = difflib.get_close_matches(query, available_tables, n=1, cutoff=0.8)
+                if matches_t:
+                    found_table = matches_t[0]
+                    resolved_lines.append(f"🗄️ {found_table}")
+                    self.valid_tables.append(found_table)
+                    continue
+            
+            # --- Not found ---
+            resolved_lines.append("--- No encontrado ---")
         
         # Update Right Pane
         self.txt_absolute.config(state="normal")
@@ -220,19 +244,19 @@ class SectionCreationPopup(tk.Toplevel):
             messagebox.showwarning("Error", "Debes escribir un nombre para la sección.")
             return
             
-        if not self.valid_files:
-             # It's allowed to create empty section? User asked for "create sections ... writing list of files".
-             # Let's warn but allow if that was the intent, but usually we want files.
-             # confirm = messagebox.askyesno("Confirmar", "No se han encontrado ficheros válidos. ¿Crear sección vacía?")
-             # Assuming YES as per request to remove confirmation popups
-             pass
+        if not self.valid_files and not self.valid_tables:
+             pass  # Allow empty sections
 
         try:
             if self.original_section_name:
-                self.controller.section_manager.update_section(self.original_section_name, name, self.valid_files)
+                self.controller.section_manager.update_section(
+                    self.original_section_name, name, 
+                    self.valid_files, self.valid_tables
+                )
             else:
-                self.controller.section_manager.create_section(name, self.valid_files)
+                self.controller.section_manager.create_section(
+                    name, self.valid_files, self.valid_tables
+                )
             self.destroy()
         except ValueError as e:
             messagebox.showerror("Error", str(e))
-

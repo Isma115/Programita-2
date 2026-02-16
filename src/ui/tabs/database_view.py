@@ -52,13 +52,18 @@ class DatabaseView(ttk.Frame):
         )
         conn_frame.grid(row=0, column=0, sticky="nsew", padx=(0, 10), pady=(0, 10))
         
+        # Load saved config
+        db_config = {}
+        if self.controller:
+            db_config = self.controller.config_manager.get_db_config()
+
         # Form fields
         fields = [
-            ("Host:", "host", "localhost"),
-            ("Puerto:", "port", "3306"),
-            ("Usuario:", "user", ""),
-            ("Contraseña:", "password", ""),
-            ("Base de Datos:", "database", ""),
+            ("Host:", "host", db_config.get("host", "localhost")),
+            ("Puerto:", "port", db_config.get("port", "3306")),
+            ("Usuario:", "user", db_config.get("user", "")),
+            ("Contraseña:", "password", db_config.get("password", "")),
+            ("Base de Datos:", "database", db_config.get("database", "")),
         ]
         
         self.conn_entries = {}
@@ -302,6 +307,16 @@ class DatabaseView(ttk.Frame):
             messagebox.showwarning("Aviso", "Rellena al menos host, usuario y base de datos.")
             return
         
+        # Save config immediately (before attempting connection)
+        if self.controller:
+            self.controller.config_manager.set_db_config({
+                "host": host,
+                "port": port,
+                "user": user,
+                "password": password,
+                "database": database
+            })
+        
         try:
             self.connection = mysql.connector.connect(
                 host=host,
@@ -322,6 +337,7 @@ class DatabaseView(ttk.Frame):
             
             # Load tables
             self._load_tables()
+
             
         except Exception as e:
             messagebox.showerror("Error de Conexión", str(e))
@@ -434,7 +450,12 @@ class DatabaseView(ttk.Frame):
                     for row in rows:
                         formatted_row = []
                         for i, val in enumerate(row):
-                            formatted_row.append(f"{columns[i]}: {val}")
+                            # Format binary/long data representation
+                            if isinstance(val, (bytes, bytearray)):
+                                val_str = "<DATOS BINARIOS / GEOMETRÍA>"
+                            else:
+                                val_str = str(val)
+                            formatted_row.append(f"{columns[i]}: {val_str}")
                         results.append(" | ".join(formatted_row))
                 else:
                     results.append("(Sin datos)")

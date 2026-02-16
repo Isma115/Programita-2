@@ -671,10 +671,11 @@ class CodeView(ttk.Frame):
             
         section_name = self.section_list.get(selected_indices[0])
         files = self.controller.section_manager.get_files_in_section(section_name)
+        tables = self.controller.section_manager.get_tables_in_section(section_name)
         
         from src.ui.popups.section_creation_popup import SectionCreationPopup
         try:
-            popup = SectionCreationPopup(self, self.controller, section_name=section_name, initial_files=files)
+            popup = SectionCreationPopup(self, self.controller, section_name=section_name, initial_files=files, initial_tables=tables)
             self.wait_window(popup)
             self._refresh_sections()
         except Exception as e:

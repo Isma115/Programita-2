@@ -123,3 +123,12 @@ class ConfigManager:
         """Sets the arbitrary search step and saves config."""
         self.config["arbitrary_step"] = int(step)
         self.save_config()
+
+    def get_db_config(self):
+        """Returns the saved database configuration or an empty dict."""
+        return self.config.get("db_config", {})
+
+    def set_db_config(self, db_config):
+        """Sets the database configuration and saves config."""
+        self.config["db_config"] = db_config
+        self.save_config()

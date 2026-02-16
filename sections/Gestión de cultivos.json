@@ -1,13 +1,16 @@
-[
-    "/Users/ismaelmoraledalopez/Documents/Azure-Irrigation-Web/HidraSmart-Irrigation-System/public/scripts/gestor-cultivos.js",
-    "/Users/ismaelmoraledalopez/Documents/Azure-Irrigation-Web/HidraSmart-Irrigation-System/frontend/public/styles/gestor-riego/DeclaracionCultivos.css",
-    "/Users/ismaelmoraledalopez/Documents/Azure-Irrigation-Web/HidraSmart-Irrigation-System/controllers/gestor-cultivos.controller.js",
-    "/Users/ismaelmoraledalopez/Documents/Azure-Irrigation-Web/HidraSmart-Irrigation-System/routes/gestor-cultivos.routes.js",
-    "/Users/ismaelmoraledalopez/Documents/Azure-Irrigation-Web/HidraSmart-Irrigation-System/models/poligonos-cultivo.model.js",
-    "/Users/ismaelmoraledalopez/Documents/Azure-Irrigation-Web/HidraSmart-Irrigation-System/models/tipos-cultivo.model.js",
-    "/Users/ismaelmoraledalopez/Documents/Azure-Irrigation-Web/HidraSmart-Irrigation-System/public/styles/gestor-cultivos.css",
-    "/Users/ismaelmoraledalopez/Documents/Azure-Irrigation-Web/HidraSmart-Irrigation-System/frontend/src/components/gestor-cultivos/DeclaracionCultivos.jsx",
-    "/Users/ismaelmoraledalopez/Documents/Azure-Irrigation-Web/HidraSmart-Irrigation-System/models/cultivo.model.js",
-    "/Users/ismaelmoraledalopez/Documents/Azure-Irrigation-Web/HidraSmart-Irrigation-System/frontend/src/api/gestor-cultivos-api.js",
-    "/Users/ismaelmoraledalopez/Documents/Azure-Irrigation-Web/HidraSmart-Irrigation-System/frontend/src/pages/GestorCultivos.jsx"
-]
+{
+    "files": [
+        "/Users/ismaelmoraledalopez/Documents/Azure-Irrigation-Web/HidraSmart-Irrigation-System/public/scripts/gestor-cultivos.js",
+        "/Users/ismaelmoraledalopez/Documents/Azure-Irrigation-Web/HidraSmart-Irrigation-System/frontend/public/styles/gestor-riego/DeclaracionCultivos.css",
+        "/Users/ismaelmoraledalopez/Documents/Azure-Irrigation-Web/HidraSmart-Irrigation-System/controllers/gestor-cultivos.controller.js",
+        "/Users/ismaelmoraledalopez/Documents/Azure-Irrigation-Web/HidraSmart-Irrigation-System/routes/gestor-cultivos.routes.js",
+        "/Users/ismaelmoraledalopez/Documents/Azure-Irrigation-Web/HidraSmart-Irrigation-System/models/poligonos-cultivo.model.js",
+        "/Users/ismaelmoraledalopez/Documents/Azure-Irrigation-Web/HidraSmart-Irrigation-System/models/tipos-cultivo.model.js",
+        "/Users/ismaelmoraledalopez/Documents/Azure-Irrigation-Web/HidraSmart-Irrigation-System/public/styles/gestor-cultivos.css",
+        "/Users/ismaelmoraledalopez/Documents/Azure-Irrigation-Web/HidraSmart-Irrigation-System/frontend/src/components/gestor-cultivos/DeclaracionCultivos.jsx",
+        "/Users/ismaelmoraledalopez/Documents/Azure-Irrigation-Web/HidraSmart-Irrigation-System/models/cultivo.model.js",
+        "/Users/ismaelmoraledalopez/Documents/Azure-Irrigation-Web/HidraSmart-Irrigation-System/frontend/src/api/gestor-cultivos-api.js",
+        "/Users/ismaelmoraledalopez/Documents/Azure-Irrigation-Web/HidraSmart-Irrigation-System/frontend/src/pages/GestorCultivos.jsx"
+    ],
+    "tables": []
+}
