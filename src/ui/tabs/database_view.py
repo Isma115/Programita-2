@@ -20,6 +20,7 @@ class DatabaseView(ttk.Frame):
         
         self.connection = None
         self.table_vars = {}  # Store BooleanVars for checkboxes
+        self.auto_refresh_job = None  # To store the 'after' job ID
         
         self._create_layout()
     
@@ -338,6 +339,9 @@ class DatabaseView(ttk.Frame):
             # Load tables
             self._load_tables()
 
+            # Start auto-refresh loop
+            self._start_auto_refresh_loop()
+
             
         except Exception as e:
             messagebox.showerror("Error de Conexión", str(e))
@@ -363,6 +367,9 @@ class DatabaseView(ttk.Frame):
         
         # Clear tables
         self._clear_tables()
+        
+        # Stop auto-refresh loop
+        self._stop_auto_refresh_loop()
     
     def _load_tables(self):
         """Loads the list of tables from the database."""
@@ -439,8 +446,7 @@ class DatabaseView(ttk.Frame):
                 # Get columns
                 cursor.execute(f"DESCRIBE `{table}`")
                 columns = [col[0] for col in cursor.fetchall()]
-                results.append("Columnas: " + ", ".join(columns))
-                results.append("-" * 40)
+                results.append(",".join(columns))
                 
                 # Get sample data
                 cursor.execute(f"SELECT * FROM `{table}` LIMIT {limit}")
@@ -454,22 +460,83 @@ class DatabaseView(ttk.Frame):
                             if isinstance(val, (bytes, bytearray)):
                                 val_str = "<DATOS BINARIOS / GEOMETRÍA>"
                             else:
-                                val_str = str(val)
-                            formatted_row.append(f"{columns[i]}: {val_str}")
-                        results.append(" | ".join(formatted_row))
+                                val_str = str(val) if val is not None else ""
+                            formatted_row.append(val_str)
+                        results.append(",".join(formatted_row))
                 else:
                     results.append("(Sin datos)")
-                
-                results.append("")
             
             cursor.close()
-            
-            # Display results
-            self.txt_results.delete("1.0", tk.END)
-            self.txt_results.insert("1.0", "\n".join(results))
+            self.txt_results.insert("end", "\n".join(results) + "\n")
+            self.txt_results.see("end")
             
         except Exception as e:
             messagebox.showerror("Error", f"Error obteniendo muestras: {e}")
+
+    def _start_auto_refresh_loop(self):
+        """Starts the 2-minute auto-refresh cycle."""
+        self._stop_auto_refresh_loop() # Ensure no duplicate loops
+        print("DatabaseView: Iniciando ciclo de re-conexión automática (2 min)")
+        self.auto_refresh_job = self.after(120000, self._auto_refresh_connection)
+
+    def _stop_auto_refresh_loop(self):
+        """Stops the auto-refresh cycle."""
+        if self.auto_refresh_job:
+            self.after_cancel(self.auto_refresh_job)
+            self.auto_refresh_job = None
+
+    def _auto_refresh_connection(self):
+        """Attempts to keep the connection alive or reconnects."""
+        if self.connection:
+            try:
+                print("DatabaseView: Ejecutando re-conexión automática (Keep-alive)...")
+                # ping() with reconnect=True tries to re-establish the connection if it dropped
+                self.connection.ping(reconnect=True, attempts=3, delay=2)
+                
+                if self.connection.is_connected():
+                    print("DatabaseView: Conexión mantenida con éxito.")
+                    # Optionally refresh labels or something very subtle
+                    self.lbl_status.config(text="🟢 Conectado (Refrescado)")
+                else:
+                    print("DatabaseView: La conexión se perdió, intentando re-conectar...")
+                    self._silent_reconnect()
+            except Exception as e:
+                print(f"DatabaseView: Error en auto-refresco: {e}")
+                self._silent_reconnect()
+        
+        # Schedule next refresh
+        self.auto_refresh_job = self.after(120000, self._auto_refresh_connection)
+
+    def _silent_reconnect(self):
+        """Helper to reconnect without showing message boxes (unless critical)."""
+        host = self.conn_entries["host"].get()
+        port = self.conn_entries["port"].get()
+        user = self.conn_entries["user"].get()
+        password = self.conn_entries["password"].get()
+        database = self.conn_entries["database"].get()
+        
+        if not all([host, user, database]):
+            return
+
+        try:
+            import mysql.connector
+            if self.connection:
+                try: self.connection.close()
+                except: pass
+                
+            self.connection = mysql.connector.connect(
+                host=host,
+                port=int(port),
+                user=user,
+                password=password,
+                database=database
+            )
+            print("DatabaseView: Re-conexión silenciosa exitosa.")
+            self.lbl_status.config(text="🟢 Conectado (Auto)")
+        except Exception as e:
+            print(f"DatabaseView: Error en re-conexión silenciosa: {e}")
+            self.lbl_status.config(text="🔴 Error de auto-conexión")
+            self._on_disconnect() # Revert to disconnected state if failed
     
     def _on_copy_and_save(self):
         """Copies to clipboard and appends to codigo.txt."""

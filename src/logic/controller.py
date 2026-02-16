@@ -189,8 +189,7 @@ class Controller:
                     # Get columns
                     cursor.execute(f"DESCRIBE `{table}`")
                     columns = [col[0] for col in cursor.fetchall()]
-                    results.append("Columnas: " + ", ".join(columns))
-                    results.append("-" * 40)
+                    results.append(",".join(columns))
                     
                     # Get sample data
                     cursor.execute(f"SELECT * FROM `{table}` LIMIT {limit}")
@@ -204,9 +203,9 @@ class Controller:
                                 if isinstance(val, (bytes, bytearray)):
                                     val_str = "<DATOS BINARIOS / GEOMETRÍA>"
                                 else:
-                                    val_str = str(val)
-                                formatted_row.append(f"{columns[i]}: {val_str}")
-                            results.append(" | ".join(formatted_row))
+                                    val_str = str(val) if val is not None else ""
+                                formatted_row.append(val_str)
+                            results.append(",".join(formatted_row))
                     else:
                         results.append("(Sin datos)")
                 except Exception as e:

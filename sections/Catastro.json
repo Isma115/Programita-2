@@ -8,7 +8,5 @@
         "/Users/ismaelmoraledalopez/Documents/Azure-Irrigation-Web/HidraSmart-Irrigation-System/frontend/public/styles/catastro/catastro.module.css",
         "/Users/ismaelmoraledalopez/Documents/Azure-Irrigation-Web/HidraSmart-Irrigation-System/frontend/src/components/catastro/UpdateParcela.jsx"
     ],
-    "tables": [
-        "ge_parcelas"
-    ]
+    "tables": []
 }
