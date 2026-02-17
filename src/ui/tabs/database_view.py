@@ -144,7 +144,7 @@ class DatabaseView(ttk.Frame):
         self.tables_frame.grid(row=1, column=0, sticky="nsew", padx=(0, 10), pady=(0, 0))
         
         # Scrollable frame for checkboxes
-        canvas = tk.Canvas(
+        self.canvas = tk.Canvas(
             self.tables_frame,
             bg=Styles.COLOR_BG_MAIN,
             highlightthickness=0
@@ -152,71 +152,37 @@ class DatabaseView(ttk.Frame):
         scrollbar = ttk.Scrollbar(
             self.tables_frame,
             orient="vertical",
-            command=canvas.yview,
+            command=self.canvas.yview,
             style="Vertical.TScrollbar"
         )
         
-        self.tables_inner_frame = ttk.Frame(canvas, style="Main.TFrame")
+        self.tables_inner_frame = ttk.Frame(self.canvas, style="Main.TFrame")
         
         self.tables_inner_frame.bind(
             "<Configure>",
-            lambda e: canvas.configure(scrollregion=canvas.bbox("all"))
+            lambda e: self.canvas.configure(scrollregion=self.canvas.bbox("all"))
         )
         
-        canvas.create_window((0, 0), window=self.tables_inner_frame, anchor="nw")
-        canvas.configure(yscrollcommand=scrollbar.set)
+        self.canvas.create_window((0, 0), window=self.tables_inner_frame, anchor="nw")
+        self.canvas.configure(yscrollcommand=scrollbar.set)
         
-        canvas.pack(side="left", fill="both", expand=True, padx=5, pady=5)
+        self.canvas.pack(side="left", fill="both", expand=True, padx=5, pady=5)
         scrollbar.pack(side="right", fill="y")
-        
-        # Limit input and sample button
-        controls_frame = ttk.Frame(self.tables_frame, style="Main.TFrame")
-        controls_frame.pack(side="bottom", fill="x", padx=10, pady=10)
-        
-        ttk.Label(controls_frame, text="Límite filas:", style="TLabel").pack(side="left")
-        
-        self.limit_var = tk.StringVar(value="5")
-        self.limit_entry = tk.Entry(
-            controls_frame,
-            textvariable=self.limit_var,
-            width=5,
-            font=Styles.FONT_MAIN,
-            bg=Styles.COLOR_INPUT_BG,
-            fg=Styles.COLOR_INPUT_FG,
-            insertbackground="white",
-            borderwidth=0,
-            highlightthickness=1,
-            highlightbackground=Styles.COLOR_BORDER,
-            highlightcolor=Styles.COLOR_ACCENT
-        )
-        self.limit_entry.pack(side="left", padx=10)
-        
-        self.btn_sample = ttk.Button(
-            controls_frame,
-            text="📊 Obtener Muestras",
-            style="Action.TButton",
-            command=self._on_get_samples,
-            state="disabled"
-        )
-        self.btn_sample.pack(side="right")
-        
-        # Select all / Deselect all buttons
-        select_frame = ttk.Frame(self.tables_frame, style="Main.TFrame")
-        select_frame.pack(side="bottom", fill="x", padx=10, pady=(0, 5))
-        
-        ttk.Button(
-            select_frame,
-            text="Seleccionar Todo",
-            style="Nav.TButton",
-            command=self._select_all_tables
-        ).pack(side="left", padx=2)
-        
-        ttk.Button(
-            select_frame,
-            text="Deseleccionar Todo",
-            style="Nav.TButton",
-            command=self._deselect_all_tables
-        ).pack(side="left", padx=2)
+
+        # Bind mousewheel scrolling
+        self.tables_inner_frame.bind('<Enter>', self._bound_to_mousewheel)
+        self.tables_inner_frame.bind('<Leave>', self._unbound_to_mousewheel)
+        self.canvas.bind('<Enter>', self._bound_to_mousewheel)
+        self.canvas.bind('<Leave>', self._unbound_to_mousewheel)
+    
+    def _bound_to_mousewheel(self, event):
+        self.canvas.bind_all("<MouseWheel>", self._on_mousewheel)
+
+    def _unbound_to_mousewheel(self, event):
+        self.canvas.unbind_all("<MouseWheel>")
+
+    def _on_mousewheel(self, event):
+        self.canvas.yview_scroll(int(-1*(event.delta)), "units")
     
     def _create_results_frame(self):
         """Creates the results display area."""
@@ -269,6 +235,15 @@ class DatabaseView(ttk.Frame):
         # Export buttons
         export_frame = ttk.Frame(results_frame, style="Main.TFrame")
         export_frame.pack(fill="x", padx=10, pady=10)
+        
+        self.btn_sample = ttk.Button(
+            export_frame,
+            text="📊 Obtener Muestras",
+            style="Action.TButton",
+            command=self._on_get_samples,
+            state="disabled"
+        )
+        self.btn_sample.pack(side="left", padx=5)
         
         self.btn_export = ttk.Button(
             export_frame,
@@ -406,15 +381,7 @@ class DatabaseView(ttk.Frame):
         for widget in self.tables_inner_frame.winfo_children():
             widget.destroy()
     
-    def _select_all_tables(self):
-        """Selects all tables."""
-        for var in self.table_vars.values():
-            var.set(True)
-    
-    def _deselect_all_tables(self):
-        """Deselects all tables."""
-        for var in self.table_vars.values():
-            var.set(False)
+
     
     def _on_get_samples(self):
         """Gets sample data from selected tables."""
@@ -428,10 +395,7 @@ class DatabaseView(ttk.Frame):
             messagebox.showwarning("Aviso", "Selecciona al menos una tabla.")
             return
         
-        try:
-            limit = int(self.limit_var.get())
-        except ValueError:
-            limit = 5
+        limit = 5
         
         results = []
         

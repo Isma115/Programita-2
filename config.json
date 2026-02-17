@@ -19,5 +19,9 @@
         "user": "telemedida_alcazar",
         "password": "Hidra2023Alcazar",
         "database": "hidrasmart_is_b2"
+    },
+    "doc_view_settings": {
+        "is_dark_mode": true,
+        "is_editor_mode": false
     }
 }

@@ -132,3 +132,18 @@ class ConfigManager:
         """Sets the database configuration and saves config."""
         self.config["db_config"] = db_config
         self.save_config()
+
+    def get_doc_view_settings(self):
+        """Returns the saved DocView settings or default values."""
+        return self.config.get("doc_view_settings", {
+            "is_dark_mode": False,
+            "is_editor_mode": False
+        })
+
+    def set_doc_view_settings(self, is_dark_mode, is_editor_mode):
+        """Sets the DocView settings and saves config."""
+        self.config["doc_view_settings"] = {
+            "is_dark_mode": bool(is_dark_mode),
+            "is_editor_mode": bool(is_editor_mode)
+        }
+        self.save_config()
