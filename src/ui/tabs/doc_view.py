@@ -110,9 +110,12 @@ class DocView(ttk.Frame):
         self.lbl_file_count = ttk.Label(self.selector_row, text="Documentos:", style="TLabel")
         self.lbl_file_count.pack(side="left", padx=(0, 10))
 
-        self.cmb_files = ttk.Combobox(self.selector_row, state="readonly", width=40)
+        self.cmb_files = ttk.Combobox(self.selector_row, state="readonly", width=40, font=("Segoe UI", 14))
         self.cmb_files.pack(side="left", fill="x", expand=True)
         self.cmb_files.bind("<<ComboboxSelected>>", self._on_file_selected_via_combo)
+        
+        # Increase dropdown list font size
+        self.master.option_add('*TCombobox*Listbox.font', ("Segoe UI", 14))
 
 
 
@@ -186,11 +189,14 @@ class DocView(ttk.Frame):
         btn_frame = ttk.Frame(self.right_top_frame, style="Sidebar.TFrame")
         btn_frame.pack(fill="x", padx=5, pady=5)
         
-        ttk.Button(btn_frame, text="Nueva Sección", style="Nav.TButton", command=self._on_add_section).pack(fill="x", pady=2)
+        
+        # Nueva Sección moved to context menu
         ttk.Button(btn_frame, text="📄 Generar Prompt Docs", style="Action.TButton", command=self._on_generate_docs).pack(fill="x", pady=(10, 2))
         
         # Context Menu for Sections (same as CodeView)
         self.context_menu = tk.Menu(self, tearoff=0)
+        self.context_menu.add_command(label="Nueva Sección", command=self._on_add_section)
+        self.context_menu.add_separator()
         self.context_menu.add_command(label="Editar", command=self._on_edit_section)
         self.context_menu.add_command(label="Eliminar", command=self._on_delete_section)
 
@@ -377,20 +383,27 @@ class DocView(ttk.Frame):
             # Get index at click position
             index = self.section_list.nearest(event.y)
             
-            # Check if index is valid
-            if index < 0: return
+            # If clicked on empty space, show menu without selection (for adding new)
+            if index < 0:
+                self.section_list.selection_clear(0, tk.END)
+                try:
+                    self.context_menu.tk_popup(event.x_root, event.y_root)
+                finally:
+                    self.context_menu.grab_release()
+                return
 
             # Check if the click is actually inside the bounding box of the item
             bbox = self.section_list.bbox(index)
-            if not bbox: return
             
-            # bbox is (x, y, width, height)
-            y_item, height = bbox[1], bbox[3]
+            # If clicked below items (bbox is None or y > item_end)
+            if not bbox or event.y > bbox[1] + bbox[3]:
+                 self.section_list.selection_clear(0, tk.END)
+                 try:
+                    self.context_menu.tk_popup(event.x_root, event.y_root)
+                 finally:
+                    self.context_menu.grab_release()
+                 return
             
-            # If clicked below the last item
-            if event.y > y_item + height:
-                return
-
             # Select the item
             self.section_list.selection_clear(0, tk.END)
             self.section_list.selection_set(index)

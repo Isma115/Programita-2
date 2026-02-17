@@ -165,3 +165,12 @@ class ConfigManager:
         """Sets the last selected section in Doc View and saves config."""
         self.config["last_doc_section"] = section_name
         self.save_config()
+
+    def get_implementation_mode(self):
+        """Returns whether implementation mode is enabled, defaulting to False."""
+        return self.config.get("implementation_mode", False)
+
+    def set_implementation_mode(self, value):
+        """Sets whether implementation mode is enabled and saves config."""
+        self.config["implementation_mode"] = bool(value)
+        self.save_config()

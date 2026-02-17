@@ -4,8 +4,8 @@
     "return_regions": false,
     "doc_path": "/Users/ismaelmoraledalopez/Documents/Documentacion Irrigation",
     "theme_colors": {
-        "COLOR_ACCENT": "#5865F2",
-        "COLOR_ACCENT_HOVER": "#4752c4"
+        "COLOR_ACCENT": "#1E90FF",
+        "COLOR_ACCENT_HOVER": "#1873cc"
     },
     "arbitrary_step": 50,
     "project_directories": [
@@ -25,5 +25,6 @@
         "is_editor_mode": false
     },
     "last_doc_section": "Catastro",
-    "last_code_section": "Plan hidra\u00falo"
+    "last_code_section": "Gesti\u00f3n de cultivos",
+    "implementation_mode": true
 }

@@ -278,11 +278,14 @@ class CodeView(ttk.Frame):
         btn_frame.pack(fill="x", padx=5, pady=5)
         
         button_width = 25 # Approximate characters
+        
+        # Nueva Sección moved to context menu as requested
 
-        ttk.Button(btn_frame, text="Nueva Sección", style="Nav.TButton", command=self._on_add_section).pack(fill="x", pady=2)
 
         # Context Menu for Sections
         self.context_menu = tk.Menu(self, tearoff=0)
+        self.context_menu.add_command(label="Nueva Sección", command=self._on_add_section)
+        self.context_menu.add_separator()
         self.context_menu.add_command(label="Editar", command=self._on_edit_section)
         self.context_menu.add_command(label="Eliminar", command=self._on_delete_section)
 
@@ -301,7 +304,7 @@ class CodeView(ttk.Frame):
         
         # Container frame for the custom checkbox
         self.chk_container = ttk.Frame(self.right_bottom_frame, style="Sidebar.TFrame", cursor="hand2")
-        self.chk_container.pack(fill="x", padx=15, pady=20)
+        self.chk_container.pack(fill="x", padx=15, pady=(20, 5))
         
         # Indicator Canvas (The square) - Fixed size for consistency
         self.chk_canvas = tk.Canvas(
@@ -335,6 +338,50 @@ class CodeView(ttk.Frame):
         # Hover effects
         self.chk_container.bind("<Enter>", self._on_chk_hover_enter)
         self.chk_container.bind("<Leave>", self._on_chk_hover_leave)
+
+        # Custom Large Checkbox "Implementación"
+        val_impl = False
+        if hasattr(self.controller, 'config_manager'):
+            val_impl = self.controller.config_manager.get_implementation_mode()
+            
+        self.var_implementation_mode = tk.BooleanVar(value=val_impl)
+        
+        # Container frame for the implementation checkbox
+        self.impl_container = ttk.Frame(self.right_bottom_frame, style="Sidebar.TFrame", cursor="hand2")
+        self.impl_container.pack(fill="x", padx=15, pady=(5, 20))
+        
+        # Indicator Canvas
+        self.impl_canvas = tk.Canvas(
+            self.impl_container,
+            width=30,
+            height=30,
+            bg=Styles.COLOR_BG_SIDEBAR,
+            highlightthickness=0,
+            bd=0
+        )
+        self.impl_canvas.pack(side="left")
+        
+        # Draw initial state
+        self._draw_impl_checkbox()
+        
+        # Text Label
+        self.lbl_impl_text = ttk.Label(
+            self.impl_container, 
+            text="Implementación", 
+            style="TLabel",
+            font=("Segoe UI", 18, "bold")
+        )
+        self.lbl_impl_text.configure(background=Styles.COLOR_BG_SIDEBAR)
+        self.lbl_impl_text.pack(side="left", padx=(10, 0))
+        
+        # Bindings for click events
+        self.impl_container.bind("<Button-1>", self._toggle_implementation)
+        self.impl_canvas.bind("<Button-1>", self._toggle_implementation)
+        self.lbl_impl_text.bind("<Button-1>", self._toggle_implementation)
+        
+        # Hover effects
+        self.impl_container.bind("<Enter>", self._on_impl_hover_enter)
+        self.impl_container.bind("<Leave>", self._on_impl_hover_leave)
 
         # Initial sections load
         self._refresh_sections()
@@ -410,6 +457,49 @@ class CodeView(ttk.Frame):
 
         # Initial Refresh
         self._refresh_sections()
+
+    def _draw_impl_checkbox(self):
+        """Draws the current state on the implementation checkbox canvas."""
+        self.impl_canvas.delete("all")
+        
+        is_checked = self.var_implementation_mode.get()
+        color = Styles.COLOR_ACCENT if is_checked else Styles.COLOR_DIM
+        outline_color = Styles.COLOR_ACCENT if is_checked else Styles.COLOR_DIM
+        
+        # Draw Border Square
+        self.impl_canvas.create_rectangle(
+            4, 4, 26, 26, 
+            outline=outline_color, 
+            width=2,
+            fill=Styles.COLOR_INPUT_BG if not is_checked else Styles.COLOR_ACCENT
+        )
+        
+        if is_checked:
+            # Draw Checkmark
+            self.impl_canvas.create_line(
+                8, 15, 13, 20, 
+                fill="white", width=3, capstyle=tk.ROUND
+            )
+            self.impl_canvas.create_line(
+                13, 20, 22, 10, 
+                fill="white", width=3, capstyle=tk.ROUND
+            )
+
+    def _on_impl_hover_enter(self, event):
+        self.lbl_impl_text.configure(foreground=Styles.COLOR_ACCENT)
+
+    def _on_impl_hover_leave(self, event):
+        self.lbl_impl_text.configure(foreground=Styles.COLOR_FG_TEXT)
+
+    def _toggle_implementation(self, event=None):
+        """Toggles the implementation mode checkbox state."""
+        new_val = not self.var_implementation_mode.get()
+        self.var_implementation_mode.set(new_val)
+        self._draw_impl_checkbox()
+
+        # Update Config
+        if hasattr(self.controller, 'config_manager'):
+             self.controller.config_manager.set_implementation_mode(new_val)
 
 
     def _on_limit_change(self, val):
@@ -560,13 +650,16 @@ class CodeView(ttk.Frame):
         # Check return regions
         return_regions = self.var_return_regions.get()
 
+        # Check implementation mode
+        implementation_mode = self.var_implementation_mode.get()
+
         # Get file limit from slider
         try:
             file_limit = int(self.limit_var.get())
         except:
             file_limit = 10
 
-        prompt = self.controller.generate_prompt(text, selected_section=section, return_regions=return_regions, file_limit=file_limit)
+        prompt = self.controller.generate_prompt(text, selected_section=section, return_regions=return_regions, file_limit=file_limit, implementation_mode=implementation_mode)
         
         # Save prompt to file in Documents
         try:
@@ -597,6 +690,11 @@ class CodeView(ttk.Frame):
                 clipboard_content = text
                 if return_regions:
                     clipboard_content += "\n\nIMPORTANTE: Primero, lista todas las regiones que necesitan modificación. Después, devuelve SOLO las regiones modificadas COMPLETAS. Solo las regiones que necesitaron modificación, y deben estar completas. No devuelvas código sin cambios."
+                if implementation_mode:
+                    clipboard_content += "\n\nINSTRUCCIONES DE IMPLEMENTACIÓN:"
+                    clipboard_content += "\n1. Realiza TODAS las modificaciones necesarias en el código."
+                    clipboard_content += "\n2. Si es necesario crear, mover o eliminar ficheros o carpetas, proporciona los COMANDOS DE CONSOLA exactos a ejecutar."
+                    clipboard_content += "\n3. Todos los comandos deben ejecutarse desde la RAÍZ del proyecto."
                 if file_refs:
                     clipboard_content += "\n\nFicheros que podrían estar relacionados: " + " ".join(file_refs)
                 
@@ -608,6 +706,11 @@ class CodeView(ttk.Frame):
                 clipboard_content = text
                 if return_regions:
                     clipboard_content += "\n\nIMPORTANTE: Primero, lista todas las regiones que necesitan modificación. Después, devuelve SOLO las regiones modificadas COMPLETAS. Solo las regiones que necesitaron modificación, y deben estar completas. No devuelvas código sin cambios."
+                if implementation_mode:
+                    clipboard_content += "\n\nINSTRUCCIONES DE IMPLEMENTACIÓN:"
+                    clipboard_content += "\n1. Realiza TODAS las modificaciones necesarias en el código."
+                    clipboard_content += "\n2. Si es necesario crear, mover o eliminar ficheros o carpetas, proporciona los COMANDOS DE CONSOLA exactos a ejecutar."
+                    clipboard_content += "\n3. Todos los comandos deben ejecutarse desde la RAÍZ del proyecto."
                 
                 self.clipboard_clear()
                 self.clipboard_append(clipboard_content)
@@ -630,20 +733,27 @@ class CodeView(ttk.Frame):
             # Get index at click position
             index = self.section_list.nearest(event.y)
             
-            # Check if index is valid
-            if index < 0: return
+            # If clicked on empty space, show menu without selection (for adding new)
+            if index < 0:
+                self.section_list.selection_clear(0, tk.END)
+                try:
+                    self.context_menu.tk_popup(event.x_root, event.y_root)
+                finally:
+                    self.context_menu.grab_release()
+                return
 
             # Check if the click is actually inside the bounding box of the item
             bbox = self.section_list.bbox(index)
-            if not bbox: return
             
-            # bbox is (x, y, width, height)
-            y_item, height = bbox[1], bbox[3]
+            # If clicked below items (bbox is None or y > item_end)
+            if not bbox or event.y > bbox[1] + bbox[3]:
+                 self.section_list.selection_clear(0, tk.END)
+                 try:
+                    self.context_menu.tk_popup(event.x_root, event.y_root)
+                 finally:
+                    self.context_menu.grab_release()
+                 return
             
-            # If clicked below the last item
-            if event.y > y_item + height:
-                return
-
             # Select the item
             self.section_list.selection_clear(0, tk.END)
             self.section_list.selection_set(index)

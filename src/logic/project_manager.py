@@ -63,6 +63,52 @@ class ProjectManager:
         """Returns the list of loaded files."""
         return self.files
 
+    def get_directory_tree(self):
+        """
+        Generates a text representation of the project's directory tree.
+        Respects the same ignore rules as _scan_directory.
+        """
+        if not self.current_project_path:
+            return ""
+        
+        IGNORE_DIRS = {'.git', '__pycache__', 'node_modules', 'venv', 'env', '.idea', '.vscode', '.next', 'dist', 'build'}
+        lines = [os.path.basename(self.current_project_path) + "/"]
+        
+        def _build_tree(dir_path, prefix=""):
+            try:
+                entries = sorted(os.listdir(dir_path))
+            except PermissionError:
+                return
+            
+            # Filter out hidden and ignored directories/files
+            dirs = []
+            files = []
+            for entry in entries:
+                if entry.startswith('.') and entry not in ('.env',):
+                    continue
+                full_path = os.path.join(dir_path, entry)
+                if os.path.isdir(full_path):
+                    if entry not in IGNORE_DIRS:
+                        dirs.append(entry)
+                else:
+                    files.append(entry)
+            
+            all_entries = dirs + files
+            for i, entry in enumerate(all_entries):
+                is_last = (i == len(all_entries) - 1)
+                connector = "└── " if is_last else "├── "
+                full_path = os.path.join(dir_path, entry)
+                
+                if os.path.isdir(full_path):
+                    lines.append(f"{prefix}{connector}{entry}/")
+                    extension = "    " if is_last else "│   "
+                    _build_tree(full_path, prefix + extension)
+                else:
+                    lines.append(f"{prefix}{connector}{entry}")
+        
+        _build_tree(self.current_project_path)
+        return "\n".join(lines)
+
     def find_relevant_files(self, user_query, relevant_files_subset=None):
         """
         Finds files that are most relevant to the user_query.

@@ -18,7 +18,15 @@ class Application:
         self.root.geometry("800x600")
         self.root.minsize(600, 400)
 
-        # 1. Configure Styles
+        # Initialize Logic (Controller loads config and updates Style constants)
+        self.controller = Controller(self)
+        self.arbitrary_step = self.controller.config_manager.get_arbitrary_step()
+
+        # Attach controller to root for easy access by views via winfo_toplevel()
+        if not hasattr(self.root, 'controller'):
+            self.root.controller = self.controller
+
+        # Configure Styles AFTER loading config (so theme colors are correct)
         Styles.configure_styles(self.root)
 
         # Fullscreen / Maximized
@@ -31,19 +39,12 @@ class Application:
         except tk.TclError:
             # Fallback for other systems
             self.root.state('zoomed')
-        
-        # 2. Initialize Logic
-        self.controller = Controller(self)
-        self.arbitrary_step = self.controller.config_manager.get_arbitrary_step()
-        
-        # Attach controller to root for easy access by views via winfo_toplevel()
-        self.root.controller = self.controller
 
-        # 3. Initialize UI (Layout)
+        # Initialize UI (Layout)
         # Pass the controller to the layout so buttons can trigger actions
         self.layout = MainLayout(self.root, self.controller)
 
-        # 4. Auto-load project
+        # Auto-load project
         dirs = self.controller.config_manager.get_project_directories()
         if dirs:
             idx = self.controller.config_manager.get_current_project_index()

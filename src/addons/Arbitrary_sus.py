@@ -5,6 +5,9 @@ import pyperclip
 import logging
 import difflib
 import re
+import subprocess
+import shlex
+import threading
 
 # --- PYGMENTS (Syntax Highlighting profesional) ---
 from pygments import lex
@@ -710,18 +713,40 @@ def show_popup(clipboard_text, match_text, file_path, ratio, line_num):
         txt_edit.delete("1.0", "end")
         txt_edit.insert("1.0", full_block)
         highlight_syntax(txt_edit, file_path)
+        
+        # Highlight matched region with subtle gray background
+        txt_edit.tag_remove("match_highlight", "1.0", tk.END)
+        rel_pos = match_abs_start - start_idx
+        if rel_pos >= 0 and match_text:
+            # Calculate start line/col from rel_pos
+            text_before_match = full_block[:rel_pos]
+            match_start_line = text_before_match.count('\n') + 1
+            last_newline = text_before_match.rfind('\n')
+            match_start_col = rel_pos - last_newline - 1 if last_newline != -1 else rel_pos
+            
+            # Calculate end line/col
+            match_end_pos = rel_pos + len(match_text)
+            text_before_end = full_block[:match_end_pos]
+            match_end_line = text_before_end.count('\n') + 1
+            last_newline_end = text_before_end.rfind('\n')
+            match_end_col = match_end_pos - last_newline_end - 1 if last_newline_end != -1 else match_end_pos
+            
+            start_index = f"{match_start_line}.{match_start_col}"
+            end_index = f"{match_end_line}.{match_end_col}"
+            
+            txt_edit.tag_configure("match_highlight", background="#2d2d2d")
+            txt_edit.tag_add("match_highlight", start_index, end_index)
+            # Ensure match_highlight is below syntax tags so colors are preserved
+            txt_edit.tag_lower("match_highlight")
+        
         # Resetear pila de undo para que la carga inicial no sea deshacible
         txt_edit.edit_reset()
         txt_edit.edit_separator()  # Separador para que la primera edición del usuario sea un bloque limpio
         
 
         # Scroll to match logic
-        # Calculate line offset
-        rel_pos = match_abs_start - start_idx
-        # Text before match in the block
-        text_before = full_block[:rel_pos]
-        # Number of newlines + 1 = line number (1-based)
-        match_line = text_before.count('\n') + 1
+        # match_start_line was already computed above for highlighting
+        match_line = text_before_match.count('\n') + 1 if rel_pos >= 0 and match_text else 1
         
         # Center the view on this line
         # see() makes it visible, usually at bottom or top if scrolling needed.
@@ -833,6 +858,13 @@ def process_smart_paste(app_instance):
             logging.info("Smart Paste: Portapapeles vacío.")
             return
 
+        # 0. Chequeo de Comando de Consola
+        if is_console_command(content):
+            # Preguntar al usuario con ventana topmost
+            if show_global_confirmation_dialog("Ejecutar Comando", f"¿Quieres ejecutar este comando en la raíz del proyecto?\n\n{content}"):
+                execute_clipboard_command(app_instance, content)
+                return
+
         # 1. Chequeo de Región
         # Regex para detectar región con múltiples estilos de comentarios
         # Captura el nombre de la región independientemente del estilo de comentario
@@ -871,3 +903,176 @@ def process_smart_paste(app_instance):
         logging.error(f"❌ Error en Smart Paste: {e}")
         tk.messagebox.showerror("Error", f"Error procesando portapapeles: {e}")
 
+def is_console_command(text):
+    """
+    Determina si el texto en el portapapeles es probablemente un comando de consola.
+    """
+    text = text.strip()
+    if not text:
+        return False
+        
+    # No considerar si tiene múltiples líneas (salvo que sean comandos encadenados con && o similar, 
+    # pero por seguridad mejor limitarlo a una línea o pocas muy claras)
+    if len(text.split('\n')) > 3: 
+        return False
+
+    # Lista de comandos comunes iniciales
+    COMMON_COMMANDS = {
+        "git", "npm", "pip", "pip3", "python", "python3", "node", "docker", 
+        "cd", "ls", "mkdir", "rm", "mv", "cp", "touch", "echo", "cat", 
+        "npx", "yarn", "bun", "uv", "virtualenv", "source", "./"
+    }
+    
+    first_word = text.split(' ')[0]
+    
+    # Check 1: Empieza por comando común
+    if first_word in COMMON_COMMANDS:
+        return True
+        
+    # Check 2: Empieza por ./ (script local)
+    if text.startswith("./"):
+        return True
+        
+    return False
+
+def show_global_confirmation_dialog(title, message):
+    """
+    Shows a custom Toplevel dialog that is topmost and forces focus.
+    Returns True if user clicked Yes, False otherwise.
+    """
+    result = {"value": False}
+    
+    dialog = tk.Toplevel()
+    dialog.title(title)
+    
+    # Configure window
+    dialog.configure(bg=THEME["bg"])
+    dialog.resizable(False, False)
+    
+    # Make it topmost and grab focus
+    dialog.attributes('-topmost', True)
+    dialog.focus_force()
+    
+    # Center on screen
+    w = 600
+    h = 250
+    ws = dialog.winfo_screenwidth()
+    hs = dialog.winfo_screenheight()
+    x = (ws/2) - (w/2)
+    y = (hs/2) - (h/2)
+    dialog.geometry('%dx%d+%d+%d' % (w, h, x, y))
+    
+    # UI Elements
+    frame = tk.Frame(dialog, bg=THEME["bg"], padx=20, pady=20)
+    frame.pack(fill="both", expand=True)
+    
+    lbl_msg = tk.Label(
+        frame, 
+        text=message, 
+        bg=THEME["bg"], 
+        fg=THEME["fg"],
+        font=("Segoe UI", 12),
+        wraplength=550,
+        justify="left"
+    )
+    lbl_msg.pack(pady=(0, 20), anchor="w")
+    
+    btn_frame = tk.Frame(frame, bg=THEME["bg"])
+    btn_frame.pack(side="bottom", fill="x")
+    
+    def on_yes():
+        result["value"] = True
+        dialog.destroy()
+        
+    def on_no():
+        result["value"] = False
+        dialog.destroy()
+        
+    btn_yes = tk.Button(
+        btn_frame, 
+        text="Sí, Ejecutar", 
+        command=on_yes,
+        bg="#6a9955", 
+        fg="black", 
+        font=("Segoe UI", 11, "bold"),
+        padx=15, pady=5,
+        relief="raised",
+        cursor="hand2"
+    )
+    btn_yes.pack(side="right", padx=10)
+    
+    btn_no = tk.Button(
+        btn_frame, 
+        text="Cancelar", 
+        command=on_no,
+        bg="#f44336", 
+        fg="black", 
+        font=("Segoe UI", 11),
+        padx=15, pady=5,
+        relief="raised",
+        cursor="hand2"
+    )
+    btn_no.pack(side="right")
+    
+    # Handle window close button (X)
+    dialog.protocol("WM_DELETE_WINDOW", on_no)
+    
+    # Modal wait
+    dialog.grab_set()
+    dialog.wait_window()
+    
+    return result["value"]
+
+def execute_clipboard_command(app_instance, command):
+    """
+    Ejecuta el comando en un hilo separado para no congelar la UI.
+    """
+    def _run():
+        try:
+            # Obtener raíz del proyecto
+            cwd = None
+            if hasattr(app_instance, 'controller') and hasattr(app_instance.controller, 'project_manager'):
+                cwd = app_instance.controller.project_manager.current_project_path
+            
+            if not cwd:
+                cwd = os.getcwd()
+
+            logging.info(f"🚀 Ejecutando comando en {cwd}: {command}")
+            
+            # Ejecutar
+            # Usamos shell=True para permitir pipes y &&, aunque sea menos seguro, 
+            # el usuario ya confirmó la ejecución.
+            result = subprocess.run(
+                command, 
+                shell=True, 
+                cwd=cwd, 
+                capture_output=True, 
+                text=True
+            )
+            
+            output = result.stdout
+            error = result.stderr
+            
+            msg = f"Resultado del comando:\n\n{output}"
+            if error:
+                msg += f"\n\nErrores/Warnings:\n{error}"
+                
+            logging.info(f"✅ Comando terminado. Return code: {result.returncode}")
+            
+            # Mostrar resultado en UI (thread-safe ish con tkinter message box, 
+            # a veces da problemas desde threads, pero messagebox suele bloquear 
+            # o requerir after. Probemos invocando via after)
+            
+            def show_result():
+                if result.returncode == 0:
+                    tk.messagebox.showinfo("Comando Ejecutado", msg)
+                else:
+                    tk.messagebox.showerror("Error en Comando", msg)
+            
+            app_instance.root.after(0, show_result)
+            
+        except Exception as e:
+            logging.error(f"Error ejecutando comando: {e}")
+            app_instance.root.after(0, lambda: tk.messagebox.showerror("Error", f"Error ejecutando comando: {e}"))
+
+    threading.Thread(target=_run, daemon=True).start()

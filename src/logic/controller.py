@@ -99,7 +99,7 @@ class Controller:
         self.config_manager.set_current_project_index(new_idx)
         self.load_project_folder(path)
 
-    def generate_prompt(self, user_text, selected_section=None, return_regions=False, file_limit=10):
+    def generate_prompt(self, user_text, selected_section=None, return_regions=False, file_limit=10, implementation_mode=False):
         """
         Generates a prompt based on user text and selected files.
         """
@@ -134,6 +134,19 @@ class Controller:
                 table_samples = self._get_table_samples_for_prompt(section_tables)
                 if table_samples:
                     prompt += f"\n\nMuestras de Base de Datos:\n{table_samples}"
+        
+        # Implementation mode: include directory tree and implementation instructions
+        if implementation_mode:
+            dir_tree = self.project_manager.get_directory_tree()
+            if dir_tree:
+                prompt += f"\n\n--- Árbol de Directorios del Proyecto ---\n{dir_tree}\n"
+            
+            prompt += "\n\nINSTRUCCIONES DE IMPLEMENTACIÓN:"
+            prompt += "\n1. Realiza TODAS las modificaciones necesarias en el código."
+            prompt += "\n2. Si es necesario crear, mover o eliminar ficheros o carpetas, proporciona los COMANDOS DE CONSOLA exactos a ejecutar."
+            prompt += "\n3. Todos los comandos deben ejecutarse desde la RAÍZ del proyecto."
+            prompt += "\n4. Formato de comandos: agrúpalos en un bloque al final con el título '## Comandos de Consola'."
+            prompt += "\n5. Usa comandos compatibles con el sistema operativo del usuario (macOS/Linux: mkdir, rm, mv, cp, touch)."
             
         if return_regions:
             prompt += "\n\nIMPORTANTE: Primero, lista todas las regiones que necesitan modificación. Después, devuelve SOLO las regiones modificadas COMPLETAS. Solo las regiones que necesitaron modificación, y deben estar completas. No devuelvas código sin cambios."
