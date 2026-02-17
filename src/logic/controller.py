@@ -328,18 +328,102 @@ class Controller:
         except Exception as e:
             return False, str(e)
 
-    def save_content_to_codigo_txt(self, content, append=False):
-        """Saves or appends content to ~/Documents/codigo.txt."""
+    def get_all_searchable_assets(self):
+        """
+        Returns a flat list of all searchable project assets.
+        Each item: {'name': str, 'type': str, 'path': str}
+        Types: 'code', 'table', 'doc', 'file'
+        """
+        assets = []
+
+        # 1. Code files
+        for f in self.project_manager.get_files():
+            assets.append({
+                'name': f['rel_path'],
+                'type': 'code',
+                'path': f['path']
+            })
+
+        # 2. Database tables (if connected)
         try:
-            documents_path = os.path.join(os.path.expanduser("~"), "Documents")
-            file_path = os.path.join(documents_path, "codigo.txt")
-            os.makedirs(documents_path, exist_ok=True)
-            
-            mode = "a" if append else "w"
-            with open(file_path, mode, encoding="utf-8") as f:
-                if append and os.path.exists(file_path) and os.path.getsize(file_path) > 0:
-                    f.write("\n\n") # Separator for append
-                f.write(content)
-            return True, file_path
-        except Exception as e:
-            return False, str(e)
+            if hasattr(self.app, 'layout') and hasattr(self.app.layout, 'database_view'):
+                db_view = self.app.layout.database_view
+                for table_name in db_view.table_vars.keys():
+                    assets.append({
+                        'name': table_name,
+                        'type': 'table',
+                        'path': table_name
+                    })
+        except Exception:
+            pass
+
+        # 3. Documentation sections
+        for section_name in self.section_manager.get_sections():
+            assets.append({
+                'name': section_name,
+                'type': 'doc',
+                'path': section_name
+            })
+
+        # 4. Non-code files
+        for f in self.project_manager.get_non_code_files():
+            assets.append({
+                'name': f['rel_path'],
+                'type': 'file',
+                'path': f['path']
+            })
+
+        return assets
+
+    def get_asset_content(self, asset):
+        """
+        Returns the string content for a given asset dict.
+        """
+        asset_type = asset['type']
+        path = asset['path']
+
+        if asset_type == 'code':
+            # Read from cached files or disk
+            for f in self.project_manager.get_files():
+                if f['path'] == path:
+                    return f"--- Archivo: {f['rel_path']} ---\n{f['content']}"
+            # Fallback: read from disk
+            try:
+                with open(path, 'r', encoding='utf-8', errors='ignore') as fh:
+                    content = fh.read()
+                rel = os.path.relpath(path, self.project_manager.current_project_path or '')
+                return f"--- Archivo: {rel} ---\n{content}"
+            except Exception:
+                return ""
+
+        elif asset_type == 'table':
+            # Get table description + sample
+            table_name = path
+            result = self._get_table_samples_for_prompt([table_name], limit=5)
+            return result if result else f"--- Tabla: {table_name} ---\n(Sin datos disponibles)"
+
+        elif asset_type == 'doc':
+            # Read documentation section content
+            section_name = path
+            section_files = self.section_manager.get_files_in_section(section_name)
+            parts = [f"--- Sección Doc: {section_name} ---"]
+            for fpath in section_files:
+                try:
+                    with open(fpath, 'r', encoding='utf-8', errors='ignore') as fh:
+                        parts.append(f"\n--- {os.path.basename(fpath)} ---\n{fh.read()}")
+                except Exception:
+                    pass
+            return "\n".join(parts) if len(parts) > 1 else f"--- Sección Doc: {section_name} ---\n(Sin archivos)"
+
+        elif asset_type == 'file':
+            # Read non-code file
+            try:
+                with open(path, 'r', encoding='utf-8', errors='ignore') as fh:
+                    content = fh.read()
+                rel = os.path.relpath(path, self.project_manager.current_project_path or '')
+                return f"--- Archivo: {rel} ---\n{content}"
+            except Exception:
+                return f"--- Archivo: {os.path.basename(path)} ---\n(No se pudo leer)"
+
+        return ""
+

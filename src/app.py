@@ -3,6 +3,7 @@ import os
 from src.ui.styles import Styles
 from src.ui.layout import MainLayout
 from src.logic.controller import Controller
+from src.ui.search_overlay import SearchOverlay
 
 class Application:
     """
@@ -44,6 +45,13 @@ class Application:
         # Pass the controller to the layout so buttons can trigger actions
         self.layout = MainLayout(self.root, self.controller)
 
+        # --- Global Hotkey: Ctrl+F / Cmd+F → Search Overlay ---
+        self._search_overlay = None
+        self.root.bind("<Control-f>", self._open_search_overlay)
+        self.root.bind("<Control-F>", self._open_search_overlay)
+        self.root.bind("<Command-f>", self._open_search_overlay)
+        self.root.bind("<Command-F>", self._open_search_overlay)
+
         # Auto-load project
         dirs = self.controller.config_manager.get_project_directories()
         if dirs:
@@ -55,6 +63,15 @@ class Application:
             last_project = self.controller.config_manager.get_last_project()
             if last_project and os.path.exists(last_project):
                 self.controller.load_project_folder(last_project)
+
+    def _open_search_overlay(self, event=None):
+        """Opens the global search overlay if not already open."""
+        # Check if overlay exists and is still alive
+        if self._search_overlay and self._search_overlay.winfo_exists():
+            self._search_overlay.entry.focus_force()
+            return "break"
+        self._search_overlay = SearchOverlay(self.root, self.controller)
+        return "break"
 
     def run(self):
         """

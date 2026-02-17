@@ -210,3 +210,32 @@ class ProjectManager:
                     print(f"ProjectManager: Error saving file {file_data['path']}: {e}")
                     
         return found
+
+    def get_non_code_files(self):
+        """
+        Scans the project directory for files NOT in CODE_EXTENSIONS.
+        Returns list of dicts: {'path': abs_path, 'rel_path': relative_path}
+        """
+        if not self.current_project_path:
+            return []
+
+        non_code = []
+        IGNORE_DIRS = {'.git', '__pycache__', 'node_modules', 'venv', 'env',
+                       '.idea', '.vscode', '.next', 'dist', 'build'}
+
+        for root, dirs, filenames in os.walk(self.current_project_path):
+            # Filter dirs in-place to skip ignored
+            dirs[:] = [d for d in dirs if d not in IGNORE_DIRS and not d.startswith('.')]
+
+            for filename in filenames:
+                if filename.startswith('.'):
+                    continue
+                ext = os.path.splitext(filename)[1].lower()
+                if ext not in self.CODE_EXTENSIONS:
+                    full_path = os.path.join(root, filename)
+                    non_code.append({
+                        'path': full_path,
+                        'rel_path': os.path.relpath(full_path, self.current_project_path)
+                    })
+
+        return non_code

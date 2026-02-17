@@ -146,7 +146,7 @@ def identify_best_file(file_list, search_text):
         search_tokens = set(re.findall(r'\b\w{3,}\b', search_text.lower())[:50])
 
     if not search_tokens:
-        return None
+        return None, 0
         
     best_score = 0
     best_file = None
@@ -187,15 +187,17 @@ def identify_best_file(file_list, search_text):
             pass
             
     logging.info(f"👉 [Arbitrary] Fichero ganador: {os.path.basename(best_file) if best_file else 'Ninguno'} (Score: {best_score:.2f})")
-    return best_file
+    return best_file, best_score
 
-def find_similar_region(file_list, search_text, step=None):
+def find_similar_region(file_list, search_text, step=None, forced_file=None):
     """
     Busca la región de código más similar.
     OPTIMIZACIÓN:
     1. Identifica fichero candidato.
     2. Busca Líneas Ancla (Anchor Lines) exactas para posicionamiento instantáneo O(1).
     3. Fallback a ventana deslizante optimizada si falla el ancla.
+    
+    Si forced_file se proporciona, se salta la identificación automática.
     """
     best_match = None
     best_ratio = 0
@@ -205,8 +207,13 @@ def find_similar_region(file_list, search_text, step=None):
     if not file_list:
         return None, None, 0, -1
 
-    # PASO 1: Identificar el fichero único
-    candidate_file = identify_best_file(file_list, search_text)
+    if forced_file:
+        # El usuario eligió manualmente el fichero
+        candidate_file = forced_file
+        logging.info(f"🎯 [Arbitrary] Fichero forzado por usuario: {os.path.basename(forced_file)}")
+    else:
+        # PASO 1: Identificar el fichero único
+        candidate_file, _ = identify_best_file(file_list, search_text)
     
     if not candidate_file:
         return None, None, 0, -1
@@ -686,11 +693,109 @@ def show_popup(clipboard_text, match_text, file_path, ratio, line_num):
             pass  # Pila de redo vacía
         return "break"
 
+    # --- PASTE con indentado preservado ---
+    def on_paste(event=None):
+        """Pega texto del portapapeles preservando indentación original."""
+        try:
+            # Obtener texto raw del portapapeles (preserva espacios/tabs)
+            try:
+                raw_text = txt_edit.clipboard_get()
+            except tk.TclError:
+                return "break"
+            
+            if not raw_text:
+                return "break"
+            
+            # Si hay selección, eliminarla primero
+            try:
+                sel_start = txt_edit.index("sel.first")
+                sel_end = txt_edit.index("sel.last")
+                txt_edit.delete(sel_start, sel_end)
+            except tk.TclError:
+                pass  # No hay selección, OK
+            
+            # Insertar texto en posición actual del cursor
+            txt_edit.insert("insert", raw_text)
+            
+            # Re-highlight
+            on_edit_change()
+            
+        except Exception as e:
+            logging.error(f"Error en paste personalizado: {e}")
+        
+        return "break"  # Evitar el paste por defecto de Tkinter
+
+    # --- TAB / SHIFT+TAB (Indent / Dedent) ---
+    def on_tab(event=None):
+        """Añade 4 espacios de indentación a las líneas seleccionadas."""
+        try:
+            sel_start = txt_edit.index("sel.first")
+            sel_end = txt_edit.index("sel.last")
+        except tk.TclError:
+            # Sin selección: insertar 4 espacios en cursor
+            txt_edit.insert("insert", "    ")
+            on_edit_change()
+            return "break"
+
+        # Obtener rango de líneas
+        start_line = int(sel_start.split(".")[0])
+        end_line = int(sel_end.split(".")[0])
+        # Si el cursor está al inicio de la última línea, no incluirla
+        if sel_end.endswith(".0") and end_line > start_line:
+            end_line -= 1
+
+        for line in range(start_line, end_line + 1):
+            txt_edit.insert(f"{line}.0", "    ")
+
+        # Restaurar selección
+        txt_edit.tag_remove("sel", "1.0", tk.END)
+        txt_edit.tag_add("sel", f"{start_line}.0", f"{end_line + 1}.0")
+        on_edit_change()
+        return "break"
+
+    def on_shift_tab(event=None):
+        """Quita hasta 4 espacios de indentación de las líneas seleccionadas."""
+        try:
+            sel_start = txt_edit.index("sel.first")
+            sel_end = txt_edit.index("sel.last")
+        except tk.TclError:
+            # Sin selección: quitar espacios de la línea actual
+            line_num = int(txt_edit.index("insert").split(".")[0])
+            line_text = txt_edit.get(f"{line_num}.0", f"{line_num}.end")
+            spaces = len(line_text) - len(line_text.lstrip(" "))
+            remove = min(spaces, 4)
+            if remove > 0:
+                txt_edit.delete(f"{line_num}.0", f"{line_num}.{remove}")
+                on_edit_change()
+            return "break"
+
+        start_line = int(sel_start.split(".")[0])
+        end_line = int(sel_end.split(".")[0])
+        if sel_end.endswith(".0") and end_line > start_line:
+            end_line -= 1
+
+        for line in range(start_line, end_line + 1):
+            line_text = txt_edit.get(f"{line}.0", f"{line}.end")
+            spaces = len(line_text) - len(line_text.lstrip(" "))
+            remove = min(spaces, 4)
+            if remove > 0:
+                txt_edit.delete(f"{line}.0", f"{line}.{remove}")
+
+        # Restaurar selección
+        txt_edit.tag_remove("sel", "1.0", tk.END)
+        txt_edit.tag_add("sel", f"{start_line}.0", f"{end_line + 1}.0")
+        on_edit_change()
+        return "break"
+
     txt_edit.bind("<KeyRelease>", on_edit_change)
     txt_edit.bind("<Control-z>", on_undo)
     txt_edit.bind("<Control-Z>", on_undo)  # Con Shift/CapsLock
     txt_edit.bind("<Control-y>", on_redo)
     txt_edit.bind("<Control-Y>", on_redo)
+    txt_edit.bind("<Control-v>", on_paste)
+    txt_edit.bind("<Control-V>", on_paste)
+    txt_edit.bind("<Tab>", on_tab)
+    txt_edit.bind("<Shift-Tab>", on_shift_tab)
     # macOS support (Command key)
     txt_edit.bind("<Command-z>", on_undo)
     txt_edit.bind("<Command-Z>", on_undo)
@@ -698,6 +803,8 @@ def show_popup(clipboard_text, match_text, file_path, ratio, line_num):
     txt_edit.bind("<Command-Y>", on_redo)
     txt_edit.bind("<Command-Shift-z>", on_redo)  # macOS usa Cmd+Shift+Z para redo
     txt_edit.bind("<Command-Shift-Z>", on_redo)
+    txt_edit.bind("<Command-v>", on_paste)
+    txt_edit.bind("<Command-V>", on_paste)
 
     def update_view(val=None):
         margin = margin_var.get()
@@ -784,6 +891,107 @@ def show_popup(clipboard_text, match_text, file_path, ratio, line_num):
 
 
 
+def show_file_picker_dialog(file_list):
+    """
+    Muestra un diálogo global con un botón por cada fichero de la sección.
+    Devuelve el path del fichero seleccionado o None si se cancela.
+    """
+    result = {"value": None}
+    
+    dialog = tk.Toplevel()
+    dialog.title("🔍 Seleccionar Fichero")
+    dialog.configure(bg=THEME["bg"])
+    dialog.resizable(True, True)
+    dialog.attributes('-topmost', True)
+    dialog.focus_force()
+    
+    # Tamaño y posición centrada
+    w = 500
+    h = min(60 + len(file_list) * 42, 700)  # Altura dinámica según nº ficheros
+    ws = dialog.winfo_screenwidth()
+    hs = dialog.winfo_screenheight()
+    x = int((ws / 2) - (w / 2))
+    y = int((hs / 2) - (h / 2))
+    dialog.geometry(f"{w}x{h}+{x}+{y}")
+    
+    # Header
+    tk.Label(
+        dialog,
+        text="No se pudo identificar el fichero con certeza.\nSelecciona el fichero donde buscar:",
+        bg=THEME["bg"], fg="#569cd6",
+        font=("Segoe UI", 13),
+        justify="left"
+    ).pack(padx=15, pady=(12, 8), anchor="w")
+    
+    # Frame scrollable para los botones
+    canvas = tk.Canvas(dialog, bg=THEME["bg"], highlightthickness=0)
+    scrollbar = ttk.Scrollbar(dialog, orient="vertical", command=canvas.yview)
+    btn_frame = tk.Frame(canvas, bg=THEME["bg"])
+    
+    btn_frame.bind("<Configure>", lambda e: canvas.configure(scrollregion=canvas.bbox("all")))
+    canvas.create_window((0, 0), window=btn_frame, anchor="nw")
+    canvas.configure(yscrollcommand=scrollbar.set)
+    
+    canvas.pack(side="left", fill="both", expand=True, padx=(15, 0), pady=5)
+    scrollbar.pack(side="right", fill="y", padx=(0, 5), pady=5)
+    
+    # Crear un "botón" (Label clicable) por cada fichero
+    # macOS ignora bg/fg en tk.Button, así que usamos Labels con binds
+    for fpath in file_list:
+        try:
+            parent_dir = os.path.basename(os.path.dirname(fpath))
+            filename = os.path.basename(fpath)
+            display_name = f"{parent_dir}/{filename}"
+        except Exception:
+            display_name = fpath
+        
+        def make_callback(p=fpath):
+            def cb(event=None):
+                result["value"] = p
+                dialog.destroy()
+            return cb
+        
+        lbl = tk.Label(
+            btn_frame,
+            text=f"📄 {display_name}",
+            bg="#333333", fg="#d4d4d4",
+            font=("Segoe UI", 12),
+            anchor="w",
+            padx=10, pady=6,
+            cursor="hand2"
+        )
+        lbl.pack(fill="x", padx=5, pady=2)
+        
+        cb = make_callback(fpath)
+        lbl.bind("<Button-1>", cb)
+        # Hover effect
+        lbl.bind("<Enter>", lambda e, l=lbl: l.configure(bg="#264f78", fg="white"))
+        lbl.bind("<Leave>", lambda e, l=lbl: l.configure(bg="#333333", fg="#d4d4d4"))
+    
+    # Botón Cancelar al final (Label clicable)
+    cancel_lbl = tk.Label(
+        dialog,
+        text="❌ Cancelar",
+        bg="#5a1d1d", fg="#ff6b6b",
+        font=("Segoe UI", 11, "bold"),
+        padx=15, pady=6,
+        cursor="hand2"
+    )
+    cancel_lbl.pack(pady=(5, 12))
+    cancel_lbl.bind("<Button-1>", lambda e: dialog.destroy())
+    cancel_lbl.bind("<Enter>", lambda e: cancel_lbl.configure(bg="#7a2d2d"))
+    cancel_lbl.bind("<Leave>", lambda e: cancel_lbl.configure(bg="#5a1d1d"))
+    
+    # Handle window close
+    dialog.protocol("WM_DELETE_WINDOW", dialog.destroy)
+    
+    # Modal
+    dialog.grab_set()
+    dialog.wait_window()
+    
+    return result["value"]
+
+
 def run_arbitrary_search(app_instance):
     try:
         clipboard_text = pyperclip.paste().strip()
@@ -821,11 +1029,26 @@ def run_arbitrary_search(app_instance):
         logging.info(f"Arbitrary: Buscando en {len(code_files)} ficheros listados.")
         arbitrary_step = getattr(app_instance, 'arbitrary_step', 1)
 
+        # PASO 1: Evaluar confianza en identificación de fichero
+        best_file, best_score = identify_best_file(code_files, clipboard_text)
+        
+        forced_file = None
+        
+        if best_score < 0.5:
+            # Baja confianza → mostrar picker para que el usuario elija
+            logging.info(f"Arbitrary: Confianza baja ({best_score:.2f}). Mostrando selector de ficheros.")
+            chosen_file = show_file_picker_dialog(code_files)
+            if not chosen_file:
+                logging.info("Arbitrary: Usuario canceló la selección de fichero.")
+                return
+            forced_file = chosen_file
+
         app_instance.root.config(cursor="watch")
         app_instance.root.update()
 
-        
-        match, file_path, ratio, line_num = find_similar_region(code_files, clipboard_text, step=arbitrary_step)
+        match, file_path, ratio, line_num = find_similar_region(
+            code_files, clipboard_text, step=arbitrary_step, forced_file=forced_file
+        )
         
         app_instance.root.config(cursor="")
 
