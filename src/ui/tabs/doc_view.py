@@ -6,6 +6,7 @@ import logging
 import re
 from markdown_it import MarkdownIt
 from tkinterweb import HtmlFrame
+from PIL import Image, ImageTk
 from src.ui.styles import Styles
 
 class DocView(ttk.Frame):
@@ -38,7 +39,25 @@ class DocView(ttk.Frame):
             self.is_dark_mode = settings.get("is_dark_mode", False)
             self.is_editor_mode = settings.get("is_editor_mode", False)
 
+        self._load_icons()
         self._create_layout()
+
+    def _load_icons(self):
+        """Loads icons from assets directory."""
+        self.icons = {}
+        icon_names = ["folder_open", "file_plus", "save", "delete", "edit", "view", "moon", "sun"]
+        try:
+            # Assuming assets is at project root
+            base_path = os.path.join(os.getcwd(), "assets", "icons")
+            for name in icon_names:
+                path = os.path.join(base_path, f"{name}.png")
+                if os.path.exists(path):
+                    img = Image.open(path).resize((20, 20), Image.Resampling.LANCZOS)
+                    self.icons[name] = ImageTk.PhotoImage(img)
+                else:
+                    self.icons[name] = None
+        except Exception as e:
+            logging.error(f"Error loading icons: {e}")
 
     def set_controller(self, controller):
         """Explicitly set controller if not available via hierarchy."""
@@ -59,19 +78,29 @@ class DocView(ttk.Frame):
         self.header_frame.pack(side="top", fill="x", padx=10, pady=10)
         
         # Action Buttons Row
+        # Action Buttons Row
         self.actions_row = ttk.Frame(self.header_frame, style="Main.TFrame")
         self.actions_row.pack(side="top", fill="x")
 
-        ttk.Button(self.actions_row, text="📂 Cargar Carpeta", style="Action.TButton", command=self._on_load_docs).pack(side="left", padx=(0, 10))
-        ttk.Button(self.actions_row, text="➕ Nuevo Doc", style="Action.TButton", command=self._on_new_doc).pack(side="left", padx=5)
-        ttk.Button(self.actions_row, text="💾 Guardar", style="Action.TButton", command=self._on_save_doc).pack(side="left", padx=5)
-        ttk.Button(self.actions_row, text="🗑️ Borrar", style="Secondary.TButton", command=self._on_delete_doc).pack(side="left", padx=5)
+        self.btn_load = ttk.Button(self.actions_row, image=self.icons.get("folder_open"), width=3, style="Action.TButton", command=self._on_load_docs)
+        self.btn_load.pack(side="left", padx=(0, 10))
+        
+        self.btn_new = ttk.Button(self.actions_row, image=self.icons.get("file_plus"), width=3, style="Action.TButton", command=self._on_new_doc)
+        self.btn_new.pack(side="left", padx=5)
+        
+        self.btn_save = ttk.Button(self.actions_row, image=self.icons.get("save"), width=3, style="Action.TButton", command=self._on_save_doc)
+        self.btn_save.pack(side="left", padx=5)
+        
+        self.btn_delete = ttk.Button(self.actions_row, image=self.icons.get("delete"), width=3, style="Secondary.TButton", command=self._on_delete_doc)
+        self.btn_delete.pack(side="left", padx=5)
 
         # View Toggles
-        self.btn_mode = ttk.Button(self.actions_row, text="✏️ Editar", style="Nav.TButton", command=self._toggle_mode)
+        mode_icon = self.icons.get("edit") if not self.is_editor_mode else self.icons.get("view")
+        self.btn_mode = ttk.Button(self.actions_row, image=mode_icon, width=3, style="Nav.TButton", command=self._toggle_mode)
         self.btn_mode.pack(side="right", padx=5)
 
-        self.btn_theme = ttk.Button(self.actions_row, text="🌙 Oscuro", style="Nav.TButton", command=self._toggle_theme)
+        theme_icon = self.icons.get("moon") if not self.is_dark_mode else self.icons.get("sun")
+        self.btn_theme = ttk.Button(self.actions_row, image=theme_icon, width=3, style="Nav.TButton", command=self._toggle_theme)
         self.btn_theme.pack(side="right", padx=5)
 
         # File Selector for Multiple Matches
@@ -189,6 +218,11 @@ class DocView(ttk.Frame):
             return
             
         section_name = self.section_list.get(selected_indices[0])
+        
+        # Save selection
+        if self.controller and hasattr(self.controller, 'config_manager'):
+            self.controller.config_manager.set_last_doc_section(section_name)
+            
         self._find_markdown_files(section_name)
 
     def _find_markdown_files(self, section_name):
@@ -485,8 +519,23 @@ class DocView(ttk.Frame):
     def _refresh_sections(self):
         self.section_list.delete(0, tk.END)
         if self.controller and hasattr(self.controller, 'section_manager'):
-            for s in self.controller.section_manager.get_sections():
+            sections = self.controller.section_manager.get_sections()
+            for s in sections:
                 self.section_list.insert(tk.END, s)
+                
+            # Restore last selection
+            if hasattr(self.controller, 'config_manager'):
+                last_section = self.controller.config_manager.get_last_doc_section()
+                if last_section:
+                    try:
+                        idx = sections.index(last_section)
+                        self.section_list.selection_set(idx)
+                        self.section_list.activate(idx)
+                        # We don't auto-load files to avoid heavy startup, 
+                        # or we can if desired. Let's auto-load for better UX.
+                        self._on_section_select() 
+                    except ValueError:
+                        pass
 
     def _toggle_mode(self):
         """Toggles between Editor and Viewer modes."""
@@ -500,14 +549,14 @@ class DocView(ttk.Frame):
             # Show Editor
             self.preview_frame.pack_forget()
             self.editor_frame.pack(fill="both", expand=True)
-            self.btn_mode.config(text="👁️ Ver")
+            self.btn_mode.config(image=self.icons.get("view"))
             # If switching to editor, we might want to ensure content is fresh? 
             # Usually txt_content is the source of truth, so it's fine.
         else:
             # Show Viewer
             self.editor_frame.pack_forget()
             self.preview_frame.pack(fill="both", expand=True)
-            self.btn_mode.config(text="✏️ Editar")
+            self.btn_mode.config(image=self.icons.get("edit"))
             # Refresh render when entering view mode
             self._apply_markdown_rendering()
 
@@ -515,7 +564,7 @@ class DocView(ttk.Frame):
         """Toggles between Dark and Light theme for the Viewer."""
         self.is_dark_mode = not self.is_dark_mode
         self._save_settings()
-        self.btn_theme.config(text="☀️ Claro" if self.is_dark_mode else "🌙 Oscuro")
+        self.btn_theme.config(image=self.icons.get("sun") if self.is_dark_mode else self.icons.get("moon"))
         self._apply_markdown_rendering()
 
     def _save_settings(self):

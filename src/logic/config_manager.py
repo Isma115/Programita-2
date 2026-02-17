@@ -147,3 +147,21 @@ class ConfigManager:
             "is_editor_mode": bool(is_editor_mode)
         }
         self.save_config()
+
+    def get_last_code_section(self):
+        """Returns the last selected section in Code View."""
+        return self.config.get("last_code_section")
+
+    def set_last_code_section(self, section_name):
+        """Sets the last selected section in Code View and saves config."""
+        self.config["last_code_section"] = section_name
+        self.save_config()
+
+    def get_last_doc_section(self):
+        """Returns the last selected section in Doc View."""
+        return self.config.get("last_doc_section")
+
+    def set_last_doc_section(self, section_name):
+        """Sets the last selected section in Doc View and saves config."""
+        self.config["last_doc_section"] = section_name
+        self.save_config()

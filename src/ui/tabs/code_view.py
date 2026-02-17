@@ -512,6 +512,13 @@ class CodeView(ttk.Frame):
 
     def _on_section_select(self, event=None):
         """Trigger update when section selection changes."""
+        # Save selection
+        selected_indices = self.section_list.curselection()
+        if selected_indices:
+            section_name = self.section_list.get(selected_indices[0])
+            if hasattr(self.controller, 'config_manager'):
+                self.controller.config_manager.set_last_code_section(section_name)
+        
         self._on_prompt_change()
 
     def _on_section_click(self, event):
@@ -692,8 +699,22 @@ class CodeView(ttk.Frame):
 
     def _refresh_sections(self):
         self.section_list.delete(0, tk.END)
-        for s in self.controller.section_manager.get_sections():
+        sections = self.controller.section_manager.get_sections()
+        for s in sections:
             self.section_list.insert(tk.END, s)
+            
+        # Restore last selection
+        if hasattr(self.controller, 'config_manager'):
+            last_section = self.controller.config_manager.get_last_code_section()
+            if last_section:
+                try:
+                    # Find index
+                    idx = sections.index(last_section)
+                    self.section_list.selection_set(idx)
+                    self.section_list.activate(idx)
+                    self._on_section_select() # Trigger update
+                except ValueError:
+                    pass # Section no longer exists
 
     def _on_file_double_click(self, event):
         """
