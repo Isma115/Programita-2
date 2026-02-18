@@ -119,214 +119,190 @@ VSCODE_TOKEN_COLORS = {
 FONT_CODE = ("Consolas", 14) 
 FONT_UI = ("Segoe UI", 14) # Aumentado tamano base a 14
 
-def identify_best_file(file_list, search_text):
+def _load_file_contents(file_list):
     """
-    Identifica el archivo más probable comparando coincidencia de tokens únicos.
-    OPTIMIZACIÓN: Usa los tokens más largos y únicos para mayor discriminación y velocidad.
+    Carga el contenido de todos los ficheros en memoria.
+    Devuelve una lista de tuplas (file_path, content).
     """
-    # Tokenizar y buscar palabras largas (más discriminatorias)
-    # Palabras de 5+ caracteres
-    all_tokens = re.findall(r'\b\w{5,}\b', search_text.lower())
-    
-    # Análisis de frecuencia simple para descartar muy comunes si fuera necesario,
-    # pero por ahora simplemente cogemos las más largas.
-    # Ordenar por longitud descendente
-    all_tokens.sort(key=len, reverse=True)
-    
-    # Nos quedamos con el top 50 de tokens más largos únicos
-    search_tokens = set()
-    for t in all_tokens:
-        if t not in search_tokens:
-            search_tokens.add(t)
-            if len(search_tokens) >= 50:
-                break
-                
-    if not search_tokens:
-        # Fallback a tokens más cortos si no hay largos
-        search_tokens = set(re.findall(r'\b\w{3,}\b', search_text.lower())[:50])
-
-    if not search_tokens:
-        return None, 0
-        
-    best_score = 0
-    best_file = None
-    
-    logging.info(f"🔎 [Arbitrary] Identificando fichero con {len(search_tokens)} tokens clave...")
-    
+    loaded = []
     for file_info in file_list:
         if isinstance(file_info, dict):
             file_path = file_info.get('full_path')
         else:
             file_path = file_info
-
         if not file_path or not os.path.exists(file_path):
             continue
-            
-        try:
-            with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
-                content = f.read().lower()
-                
-            # Contar cuántos tokens de búsqueda aparecen en el archivo
-            matches = 0
-            for token in search_tokens:
-                if token in content:
-                    matches += 1
-            
-            # Score simple: porcentaje de tokens encontrados
-            score = matches / len(search_tokens)
-            
-            if score > best_score:
-                best_score = score
-                best_file = file_path
-                
-            # Si encontramos casi todos, es un match muy probable
-            if best_score >= 0.9:
-                break
-                
-        except Exception:
-            pass
-            
-    logging.info(f"👉 [Arbitrary] Fichero ganador: {os.path.basename(best_file) if best_file else 'Ninguno'} (Score: {best_score:.2f})")
-    return best_file, best_score
-
-def find_similar_region(file_list, search_text, step=None, forced_file=None):
-    """
-    Busca la región de código más similar.
-    OPTIMIZACIÓN:
-    1. Identifica fichero candidato.
-    2. Busca Líneas Ancla (Anchor Lines) exactas para posicionamiento instantáneo O(1).
-    3. Fallback a ventana deslizante optimizada si falla el ancla.
-    
-    Si forced_file se proporciona, se salta la identificación automática.
-    """
-    best_match = None
-    best_ratio = 0
-    best_file = None
-    best_line_num = -1
-
-    if not file_list:
-        return None, None, 0, -1
-
-    if forced_file:
-        # El usuario eligió manualmente el fichero
-        candidate_file = forced_file
-        logging.info(f"🎯 [Arbitrary] Fichero forzado por usuario: {os.path.basename(forced_file)}")
-    else:
-        # PASO 1: Identificar el fichero único
-        candidate_file, _ = identify_best_file(file_list, search_text)
-    
-    if not candidate_file:
-        return None, None, 0, -1
-        
-    target_files = [candidate_file]
-    search_lines = search_text.split('\n')
-    search_lines_count = len(search_lines)
-    window_size = search_lines_count
-    
-    logging.info(f"🔍 [Arbitrary] Escaneando: {candidate_file}")
-
-    for file_path in target_files:
         try:
             with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
                 content = f.read()
-                
-            lines = content.split('\n') # Mantener saltos para índices
-            
-            if len(lines) < 1: continue
-
-            # --- ESTRATEGIA 1: ANCHOR LINES (O(1)) ---
-            # Buscar las cadenas más largas y únicas del clipboard
-            # Filtramos líneas vacías o muy cortas
-            valid_lines = [l.strip() for l in search_lines if len(l.strip()) > 10]
-            # Ordenamos por longitud descendente
-            valid_lines.sort(key=len, reverse=True)
-            
-            anchor_found = False
-            
-            # Probamos con las 3 mejores anclas
-            for anchor in valid_lines[:3]:
-                # Buscar ancla en el contenido
-                anchor_idx = content.find(anchor)
-                if anchor_idx != -1:
-                    # Ancla encontrada!
-                    # Calculamos en qué línea está
-                    pre_content = content[:anchor_idx]
-                    anchor_line_num = pre_content.count('\n') + 1
-                    
-                    # Definimos ventana tentativa alrededor de esa línea
-                    # El anchor en search_text está en la posición X
-                    # En file está en position Y
-                    # Intentamos alinear el inicio
-                    
-                    # Find anchor line index in search_text
-                    search_anchor_idx = -1
-                    for i, sl in enumerate(search_lines):
-                        if anchor in sl:
-                            search_anchor_idx = i
-                            break
-                    
-                    start_line_est = max(0, anchor_line_num - search_anchor_idx - 1)
-                    end_line_est = start_line_est + window_size + 2 # un margen
-                    
-                    window_lines = lines[start_line_est:end_line_est]
-                    window_text = "\n".join(window_lines) # Reconstruir con saltos originales (aprox)
-                    
-                    matcher = difflib.SequenceMatcher(None, search_text, window_text)
-                    ratio = matcher.quick_ratio()
-                    
-                    logging.info(f"⚓ [Arbitrary] Anchor Hit: '{anchor[:30]}...' en línea {anchor_line_num}. Ratio: {ratio:.2f}")
-                    
-                    if ratio > 0.6: # Si es decente, asumimos que es el sitio
-                        return window_text, file_path, matcher.ratio(), start_line_est + 1
-
-            # --- ESTRATEGIA 2: SLIDING WINDOW (Fallback) ---
-            if step is not None and step > 0:
-                current_step = step
-            else:
-                if len(lines) < 1000:
-                    current_step = 1
-                elif search_lines_count > 50:
-                    current_step = 5 # Salto agresivo
-                elif search_lines_count > 20:
-                    current_step = 2
-                else:
-                    current_step = 2 
-            
-            # Usar índices sobre lista de líneas
-            limit = max(1, len(lines) - window_size + 1)
-            
-            for i in range(0, limit, current_step):
-                # Construcción optimizada: slice list
-                window_slice = lines[i : i + window_size]
-                # Join cuesta, pero es necesario para diff.
-                # Optimization: check length sum first? No, too complex python side.
-                window_text = "\n".join(window_slice)
-                
-                # Validación longitud rapida
-                if abs(len(window_text) - len(search_text)) > len(search_text) * 0.5:
-                   continue
-
-                # Quick Ratio
-                matcher = difflib.SequenceMatcher(None, search_text, window_text)
-                if matcher.quick_ratio() < 0.5: 
-                    continue
-                
-                ratio = matcher.ratio()
-                
-                if ratio > best_ratio:
-                    best_ratio = ratio
-                    best_match = window_text
-                    best_file = file_path
-                    best_line_num = i + 1
-                    
-                    if ratio >= 0.95: # Early exit
-                        return best_match, best_file, best_ratio, best_line_num
-                                
-        except Exception as e:
-            logging.error(f"Error en búsqueda: {e}")
+            loaded.append((file_path, content))
+        except Exception:
             pass
+    return loaded
 
-    return best_match, best_file, best_ratio, best_line_num
+
+def find_unique_substring(search_text, loaded_files, min_len=20, max_len=None, step=10):
+    """
+    Algoritmo de búsqueda por coincidencia exacta única.
+
+    Estrategia:
+    - Toma substrings de tamaño creciente del texto del portapapeles.
+    - Para cada tamaño, prueba múltiples posiciones de inicio (inicio, centro, fin).
+    - Busca ese substring exacto en todos los ficheros cargados.
+    - Cuando exactamente 1 fichero contiene el substring → coincidencia única encontrada.
+    - Devuelve (match_text, file_path, line_num) o (None, None, -1) si no se encuentra.
+
+    Parámetros:
+    - min_len: longitud mínima del substring a probar.
+    - max_len: longitud máxima (por defecto, longitud total del texto).
+    - step: incremento de tamaño entre iteraciones.
+    """
+    text_len = len(search_text)
+    if max_len is None:
+        max_len = text_len
+
+    # Aseguramos que min_len no supere el texto
+    min_len = min(min_len, text_len)
+    max_len = min(max_len, text_len)
+
+    logging.info(f"🔎 [Arbitrary] Buscando substring único. Texto: {text_len} chars, "
+                 f"rango [{min_len}..{max_len}], step={step}")
+
+    best_result = None  # (substring, file_path, line_num)
+    best_len = 0
+
+    for substr_len in range(min_len, max_len + 1, step):
+        # Posiciones de inicio a probar: inicio, 1/4, centro, 3/4, fin
+        positions = set()
+        positions.add(0)
+        positions.add(max(0, text_len // 4 - substr_len // 2))
+        positions.add(max(0, text_len // 2 - substr_len // 2))
+        positions.add(max(0, 3 * text_len // 4 - substr_len // 2))
+        positions.add(max(0, text_len - substr_len))
+
+        for start in sorted(positions):
+            end = start + substr_len
+            if end > text_len:
+                break
+            substring = search_text[start:end]
+
+            # Ignorar substrings que sean solo espacios/saltos de línea
+            if not substring.strip():
+                continue
+
+            # Buscar en todos los ficheros
+            matching_files = []
+            for file_path, content in loaded_files:
+                if substring in content:
+                    matching_files.append(file_path)
+
+            if len(matching_files) == 1:
+                # ¡Coincidencia única encontrada!
+                file_path = matching_files[0]
+                content = next(c for fp, c in loaded_files if fp == file_path)
+
+                # Calcular número de línea
+                idx = content.find(substring)
+                line_num = content[:idx].count('\n') + 1
+
+                logging.info(
+                    f"✅ [Arbitrary] Substring único encontrado! "
+                    f"Len={substr_len}, pos={start}, fichero={os.path.basename(file_path)}, "
+                    f"línea={line_num}"
+                )
+                # Guardamos el mejor resultado (mayor substring único)
+                if substr_len > best_len:
+                    best_len = substr_len
+                    best_result = (substring, file_path, line_num)
+
+    if best_result:
+        return best_result
+
+    logging.info("⚠️ [Arbitrary] No se encontró substring único. Sin coincidencias.")
+    return None, None, -1
+
+
+def find_similar_region(file_list, search_text, step=None, forced_file=None):
+    """
+    Busca la región de código usando el algoritmo de substring único.
+
+    1. Carga todos los ficheros en memoria.
+    2. Si forced_file, filtra solo ese fichero.
+    3. Llama a find_unique_substring para encontrar la coincidencia exacta única.
+    4. Devuelve (match_text, file_path, ratio, line_num).
+
+    El 'ratio' devuelto es 1.0 si se encontró coincidencia exacta, 0 si no.
+    """
+    if not file_list:
+        return None, None, 0, -1
+
+    # Cargar contenidos
+    loaded_files = _load_file_contents(file_list)
+
+    if not loaded_files:
+        return None, None, 0, -1
+
+    if forced_file:
+        # Filtrar solo el fichero forzado
+        loaded_files = [(fp, c) for fp, c in loaded_files if fp == forced_file]
+        logging.info(f"🎯 [Arbitrary] Fichero forzado: {os.path.basename(forced_file)}")
+
+    text_len = len(search_text)
+
+    # Parámetros adaptativos según tamaño del texto
+    if text_len < 50:
+        min_len = max(10, text_len // 2)
+        substr_step = 5
+    elif text_len < 200:
+        min_len = 20
+        substr_step = 10
+    elif text_len < 1000:
+        min_len = 30
+        substr_step = 15
+    else:
+        min_len = 40
+        substr_step = 20
+
+    substring, file_path, line_num = find_unique_substring(
+        search_text, loaded_files,
+        min_len=min_len,
+        max_len=text_len,
+        step=substr_step
+    )
+
+    if substring and file_path:
+        return substring, file_path, 1.0, line_num
+
+    return None, None, 0, -1
+
+
+def identify_best_file(file_list, search_text):
+    """
+    Identifica el archivo candidato usando el algoritmo de substring único.
+    Devuelve (file_path, score) donde score=1.0 si hay coincidencia única, 0 si no.
+    Mantenida por compatibilidad con el flujo existente.
+    """
+    loaded_files = _load_file_contents(file_list)
+    if not loaded_files:
+        return None, 0
+
+    text_len = len(search_text)
+    min_len = min(20, text_len)
+    substr_step = max(5, text_len // 20)
+
+    substring, file_path, line_num = find_unique_substring(
+        search_text, loaded_files,
+        min_len=min_len,
+        max_len=text_len,
+        step=substr_step
+    )
+
+    if file_path:
+        logging.info(f"👉 [Arbitrary] Fichero identificado: {os.path.basename(file_path)} (Score: 1.0)")
+        return file_path, 1.0
+
+    logging.info("👉 [Arbitrary] No se pudo identificar fichero único.")
+    return None, 0
 
 def get_match_context(file_path, match_text, approximate_line_num, margin=150):
     """(Sin cambios funcionales - extracción de contexto)"""
@@ -606,7 +582,7 @@ def show_popup(clipboard_text, match_text, file_path, ratio, line_num):
     lbl_scale = tk.Label(control_frame, text="Margen de Contexto:", bg=THEME["bg"], fg="#569cd6", font=FONT_UI)
     lbl_scale.pack(side="left", padx=(0, 10))
     
-    margin_var = tk.IntVar(value=500)
+    margin_var = tk.IntVar(value=5000)
     scale_margin = tk.Scale(
         control_frame, from_=0, to=5000, orient="horizontal", variable=margin_var,
         bg=THEME["bg"], fg=THEME["fg"], highlightthickness=0, length=400,
@@ -655,8 +631,7 @@ def show_popup(clipboard_text, match_text, file_path, ratio, line_num):
     highlight_syntax(txt_clip, file_path)  # Highlight con detección de lenguaje
     txt_clip.config(state="disabled")
     txt_clip.grid(row=1, column=0, sticky="nsew", padx=5, pady=5)
-    
-    # 2. Editor
+
     lbl_edit = tk.Label(content_frame, text="✏️ Editor (VS Code Style)", bg=THEME["bg"], fg="#dcdcaa", font=FONT_UI)
     lbl_edit.grid(row=0, column=1, sticky="w", padx=5, pady=(5,0))
     
@@ -664,10 +639,22 @@ def show_popup(clipboard_text, match_text, file_path, ratio, line_num):
     # Borde para distinguir editor
     txt_edit.config(bd=1, relief="solid") 
     txt_edit.grid(row=1, column=1, sticky="nsew", padx=5, pady=5)
-    
+
+    content_frame.columnconfigure(2, weight=0)  # columna para scrollbar compartida
+
+    # Scrollbar independiente para cada panel (no sincronizamos por fracción,
+    # sino por unidades absolutas en el mousewheel para mantener la alineación)
+    scroll_clip = ttk.Scrollbar(content_frame, orient="vertical", command=txt_clip.yview)
+    scroll_clip.grid(row=1, column=0, sticky="nse", pady=5)
+    txt_clip.config(yscrollcommand=scroll_clip.set)
+
+    scroll_edit = ttk.Scrollbar(content_frame, orient="vertical", command=txt_edit.yview)
+    scroll_edit.grid(row=1, column=1, sticky="nse", pady=5)
+    txt_edit.config(yscrollcommand=scroll_edit.set)
 
 
-    # --- UPDATES & EVENTS ---
+
+
     
     def on_edit_change(event=None):
         """Re-highlighter con debounce simple"""
@@ -851,40 +838,36 @@ def show_popup(clipboard_text, match_text, file_path, ratio, line_num):
         txt_edit.edit_separator()  # Separador para que la primera edición del usuario sea un bloque limpio
         
 
-        # Scroll to match logic
-        # match_start_line was already computed above for highlighting
-        match_line = text_before_match.count('\n') + 1 if rel_pos >= 0 and match_text else 1
-        
-        # Center the view on this line
-        # see() makes it visible, usually at bottom or top if scrolling needed.
-        # To center, we can try to see a few lines below it too if possible
-        # Simple approach: see the line.
-        txt_edit.see(f"{match_line}.0")
-        
-        # Try to center visually (approximate)
-        # Force update to get height
-        # popup.update_idletasks() 
-        # But that might be slow/flickering.
-        # Just use 'see' + centered logic via yview_moveto is hard without knowing total lines accurately rendered.
-        # 'see' is robust. Let's stick to 'see' but also try to see a line further down to push match up?
-        # No, let's just use see(line).Ideally use `txt.yview_pickplace(line)` but it's deprecated for `see`.
-        # Actually, if we want to center, we can calculate fraction.
-        # total_lines = full_block.count('\n') + 1
-        # fraction = (match_line - 10) / total_lines # approximate centering
-        # txt_edit.yview_moveto(max(0, fraction))
-        
-        # Robust centering:
-        try:
-             # Just ensures it is visible. 
-             txt_edit.see(f"{match_line}.0")
-             
-             # Attempt to center: scroll so match_line is middle
-             # Get total lines visible (height)
-             visible_lines = 20 # assumption or txt_edit.cget('height')
-             target_top = max(1, match_line - 10)
-             txt_edit.yview(target_top)
-        except:
-            pass
+        # --- Sincronización visual: alinear línea 1 del portapapeles con match en el editor ---
+        # match_start_line = línea dentro de full_block donde empieza el match
+        match_line = match_start_line if rel_pos >= 0 and match_text else 1
+
+        def _do_sync_scroll():
+            popup.update_idletasks()
+
+            # 1. Poner el editor con match_line en la parte superior
+            total_edit_lines = int(txt_edit.index("end-1c").split(".")[0])
+            if total_edit_lines > 0:
+                frac_edit = max(0.0, (match_line - 1) / total_edit_lines)
+                txt_edit.yview_moveto(frac_edit)
+
+            # 2. El portapapeles tiene (match_line - 1) líneas de contexto antes del match.
+            #    Queremos que la línea 1 del portapapeles quede a la misma altura visual
+            #    que match_line en el editor, es decir, desplazar txt_clip hacia arriba
+            #    (match_line - 1) líneas respecto al inicio.
+            #    Como el portapapeles empieza en línea 1, necesitamos hacer scroll negativo:
+            #    scrolleamos txt_clip a la fracción equivalente a -(match_line-1) líneas.
+            #    En la práctica: ponemos txt_clip al inicio (0.0) y luego hacemos scroll
+            #    hacia arriba tantas unidades como líneas de contexto hay antes del match.
+            txt_clip.yview_moveto(0.0)
+            # Desplazar hacia abajo en el portapapeles para que la línea 1 quede
+            # alineada con match_line del editor. Como el portapapeles es más corto,
+            # simplemente lo dejamos al inicio (línea 1 = inicio del portapapeles).
+            # El editor se desplaza para que match_line esté arriba → ambos alineados.
+
+        popup.after(50, _do_sync_scroll)
+
+
 
     scale_margin.config(command=update_view)
     update_view() # Initial load
@@ -1027,35 +1010,21 @@ def run_arbitrary_search(app_instance):
              return
 
         logging.info(f"Arbitrary: Buscando en {len(code_files)} ficheros listados.")
-        arbitrary_step = getattr(app_instance, 'arbitrary_step', 1)
-
-        # PASO 1: Evaluar confianza en identificación de fichero
-        best_file, best_score = identify_best_file(code_files, clipboard_text)
-        
-        forced_file = None
-        
-        if best_score < 0.5:
-            # Baja confianza → mostrar picker para que el usuario elija
-            logging.info(f"Arbitrary: Confianza baja ({best_score:.2f}). Mostrando selector de ficheros.")
-            chosen_file = show_file_picker_dialog(code_files)
-            if not chosen_file:
-                logging.info("Arbitrary: Usuario canceló la selección de fichero.")
-                return
-            forced_file = chosen_file
 
         app_instance.root.config(cursor="watch")
         app_instance.root.update()
 
+        # El nuevo algoritmo de substring único determina el fichero automáticamente
         match, file_path, ratio, line_num = find_similar_region(
-            code_files, clipboard_text, step=arbitrary_step, forced_file=forced_file
+            code_files, clipboard_text
         )
-        
+
         app_instance.root.config(cursor="")
 
-        if match and ratio > 0.1:
+        if match and file_path:
             show_popup(clipboard_text, match, file_path, ratio, line_num)
         else:
-            logging.info("Arbitrary: Sin coincidencias.")
+            logging.info("Arbitrary: Sin coincidencias exactas únicas.")
 
     except Exception as e:
         app_instance.root.config(cursor="")
