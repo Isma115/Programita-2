@@ -29,3 +29,4 @@ python main.py
 - **Modular Design**: Easy to extend with new tabs or logic.
 - **Navigation**: Switch between "Code" and "Documentation" views.
 # Programita-2
+# Programita-2
