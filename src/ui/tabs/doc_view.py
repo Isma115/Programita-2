@@ -32,6 +32,8 @@ class DocView(ttk.Frame):
                 self.controller = parent.winfo_toplevel().controller
             except:
                 pass
+        
+        self._last_selected_section = None
 
         # Load settings if available
         if self.controller and hasattr(self.controller, 'config_manager'):
@@ -191,7 +193,6 @@ class DocView(ttk.Frame):
         
         
         # Nueva Sección moved to context menu
-        ttk.Button(btn_frame, text="📄 Generar Prompt Docs", style="Action.TButton", command=self._on_generate_docs).pack(fill="x", pady=(10, 2))
         
         # Context Menu for Sections (same as CodeView)
         self.context_menu = tk.Menu(self, tearoff=0)
@@ -218,12 +219,19 @@ class DocView(ttk.Frame):
     def _on_section_select(self, event=None):
         selected_indices = self.section_list.curselection()
         if not selected_indices:
+            self._last_selected_section = None
             self._display_message("Selecciona una sección.")
             self.cmb_files.config(values=[])
             self.cmb_files.set("")
             return
             
         section_name = self.section_list.get(selected_indices[0])
+        
+        # Only reload if the selection has actually changed
+        if section_name == self._last_selected_section:
+            return
+            
+        self._last_selected_section = section_name
         
         # Save selection
         if self.controller and hasattr(self.controller, 'config_manager'):
@@ -455,79 +463,12 @@ class DocView(ttk.Frame):
         self.controller.section_manager.delete_section(name)
         self._refresh_sections()
 
-    def _on_generate_docs(self):
-        """Generates a documentation prompt for the selected section."""
+    def _on_delete_section(self):
         selected_indices = self.section_list.curselection()
-        if not selected_indices:
-            messagebox.showwarning("Aviso", "Selecciona una sección primero.")
-            return
-
-        section_name = self.section_list.get(selected_indices[0])
-        
-        # Hardcoded documentation prompt
-        prompt_text = (
-            "Genera una documentación técnica detallada en formato Markdown para los siguientes ficheros y tablas. "
-            "Analiza el código y estructura la documentación de forma clara, incluyendo propósito, parámetros, "
-            "retornos y ejemplos si procede."
-        )
-
-        try:
-            # Generate prompt with ALL files in section (high limit)
-            prompt = self.controller.generate_prompt(
-                prompt_text, 
-                selected_section=section_name, 
-                return_regions=False, 
-                file_limit=1000
-            )
-
-            # Save to Documents/codigo.txt
-            documents_path = os.path.join(os.path.expanduser("~"), "Documents")
-            os.makedirs(documents_path, exist_ok=True)
-            file_path = os.path.join(documents_path, "codigo.txt")
-            
-            with open(file_path, "w", encoding="utf-8") as f:
-                f.write(prompt)
-
-            # Copy ONLY the prompt text to clipboard (as requested)
-            self.clipboard_clear()
-            self.clipboard_append(prompt_text)
-            self.update() # Keep clipboard content after window closes
-
-            messagebox.showinfo(
-                "Éxito", 
-                f"Prompt de documentación generado para la sección '{section_name}'.\n\n"
-                f"✅ Instrucción copiada al portapapeles\n"
-                f"✅ Contenido completo guardado en {file_path}"
-            )
-
-            # Redirect to AI (Extra functionality requested)
-            try:
-                # Access CodeView via Controller -> App -> Layout
-                if hasattr(self.controller, 'app') and hasattr(self.controller.app, 'layout'):
-                    code_view = self.controller.app.layout.code_view
-                    if code_view:
-                        selected_ai = code_view.cmb_ai.get()
-                        
-                        # Handle Auto Mode
-                        if selected_ai == "⚡ Automático":
-                            # We can force a rotation or just pick the current best
-                            # Since this is a new action, let's treat it as a "use"
-                            selected_ai = code_view._get_auto_ai() 
-
-                        # Open URL if applicable
-                        if selected_ai in code_view.AI_URLS:
-                            url = code_view.AI_URLS[selected_ai]
-                            webbrowser.open_new_tab(url)
-                            print(f"DocView: Opening AI URL for {selected_ai}")
-                        elif selected_ai == "🤖 Agente":
-                            pass # Local agent mode, no URL
-            except Exception as e:
-                logging.error(f"Error redirecting to AI: {e}")
-                # Don't show error to user as the main task (docs) succeeded
-
-        except Exception as e:
-            logging.error(f"Error making docs prompt: {e}")
-            messagebox.showerror("Error", f"No se pudo generar la documentación: {e}")
+        if not selected_indices: return
+        name = self.section_list.get(selected_indices[0])
+        self.controller.section_manager.delete_section(name)
+        self._refresh_sections()
 
     def _refresh_sections(self):
         self.section_list.delete(0, tk.END)

@@ -2,19 +2,20 @@ import tkinter as tk
 from src.ui.styles import Styles
 
 
-# Type icons for visual distinction
 TYPE_ICONS = {
-    'code':  '📄',
-    'table': '🗄️',
-    'doc':   '📝',
-    'file':  '📁',
+    'code':     '📄',
+    'table':    '🗄️',
+    'doc':      '📝',
+    'file':     '📁',
+    'function': 'λ',
 }
 
 TYPE_LABELS = {
-    'code':  'Código',
-    'table': 'Tabla BD',
-    'doc':   'Documentación',
-    'file':  'Fichero',
+    'code':     'Código',
+    'table':    'Tabla BD',
+    'doc':      'Documentación',
+    'file':     'Fichero',
+    'function': 'Función',
 }
 
 
@@ -150,26 +151,41 @@ class SearchOverlay(tk.Toplevel):
             return
 
         self._clear_placeholder()
-        query = self.entry.get().strip().lower()
+        raw_query = self.entry.get().strip()
+        query = raw_query.lower()
 
-        if not query or (getattr(self, '_placeholder_active', False)):
+        if query.startswith("funcion:"):
+            # Function search mode
+            search_term = query[len("funcion:"):].strip()
+            all_functions = self.controller.get_all_functions()
+            if not search_term:
+                self.filtered = all_functions
+            else:
+                self.filtered = [f for f in all_functions if search_term in f['name'].lower()]
+            self._update_status(f"🔍 Modo Función: {len(self.filtered)} encontradas")
+        elif not query or (getattr(self, '_placeholder_active', False)):
             self.filtered = list(self.all_assets)
+            self._update_status(f"{len(self.all_assets)} activos disponibles")
         else:
             self.filtered = [
                 a for a in self.all_assets
                 if query in a['name'].lower()
             ]
+            self._update_status(f"{len(self.filtered)} coincidencias")
 
         self.selected_index = 0
         self._update_listbox()
-        self._update_status(f"{len(self.filtered)} coincidencias")
 
     def _update_listbox(self):
         self.listbox.delete(0, tk.END)
         for asset in self.filtered[:self.MAX_VISIBLE]:
             icon = TYPE_ICONS.get(asset['type'], '📄')
             label = TYPE_LABELS.get(asset['type'], '')
-            display = f"{icon}  {asset['name']}   [{label}]"
+            if asset['type'] == 'function':
+                # Show function name and its source file
+                display = f"{icon}  {asset['name']}   ({asset['file_rel_path']})   [{label}]"
+            else:
+                display = f"{icon}  {asset['name']}   [{label}]"
             self.listbox.insert(tk.END, display)
 
         if self.filtered:
@@ -216,7 +232,20 @@ class SearchOverlay(tk.Toplevel):
                 self._select_asset(self.filtered[idx])
 
     def _select_asset(self, asset):
-        """Reads asset content and appends to codigo.txt."""
+        """Processes selection: either copy-to-clipboard for functions or append to codigo.txt."""
+        if asset['type'] == 'function':
+            self._update_status("⏳ Copiando función...")
+            self.update_idletasks()
+            
+            success = self.controller.copy_to_clipboard(asset['content'])
+            if success:
+                self._update_status(f"✅ {asset['name']} copiado al portapapeles")
+                self.update_idletasks()
+                self.after(800, self._close)
+            else:
+                self._update_status("❌ Error al copiar al portapapeles")
+            return
+
         self._update_status("⏳ Obteniendo contenido...")
         self.update_idletasks()
 

@@ -239,3 +239,133 @@ class ProjectManager:
                     })
 
         return non_code
+
+    def extract_functions(self):
+        """
+        Extracts all function definitions from loaded code files.
+        Returns a list of dicts: {
+            'name': str,
+            'type': 'function',
+            'content': str,
+            'file_rel_path': str,
+            'path': str (formatted for UI: "file:line")
+        }
+        """
+        functions = []
+        for f in self.files:
+            ext = os.path.splitext(f['path'])[1].lower()
+            content = f['content']
+            lines = content.split('\n')
+            
+            if ext == '.py':
+                functions.extend(self._extract_python_functions(f, lines))
+            elif ext in ('.js', '.jsx', '.ts', '.tsx'):
+                functions.extend(self._extract_js_functions(f, content, lines))
+                
+        return functions
+
+    def _extract_python_functions(self, file_info, lines):
+        results = []
+        # Regex for Python function/method definitions
+        # Groups: 1: indentation, 2: 'async ' (optional), 3: 'def ', 4: function name
+        py_fn_pattern = re.compile(r'^([ \t]*)((?:async\s+)?def\s+)([a-zA-Z_]\w*)\s*\(')
+        
+        i = 0
+        while i < len(lines):
+            line = lines[i]
+            match = py_fn_pattern.match(line)
+            if match:
+                indent = match.group(1)
+                fn_name = match.group(3)
+                start_line = i
+                
+                # Find the end of the function (until next line with same or less indentation, excluding empty/comment lines)
+                end_line = i + 1
+                while end_line < len(lines):
+                    next_line = lines[end_line]
+                    if not next_line.strip() or next_line.strip().startswith('#'):
+                        end_line += 1
+                        continue
+                        
+                    next_indent_match = re.match(r'^([ \t]*)', next_line)
+                    next_indent = next_indent_match.group(1) if next_indent_match else ""
+                    
+                    if len(next_indent) <= len(indent):
+                        break
+                    end_line += 1
+                
+                # Cleanup trailing whitespace/empty lines
+                while end_line > start_line + 1 and not lines[end_line - 1].strip():
+                    end_line -= 1
+                    
+                fn_content = '\n'.join(lines[start_line:end_line])
+                results.append({
+                    'name': fn_name,
+                    'type': 'function',
+                    'content': fn_content,
+                    'file_rel_path': file_info['rel_path'],
+                    'path': f"{file_info['path']}:{start_line+1}"
+                })
+                i = end_line - 1
+            i += 1
+        return results
+
+    def _extract_js_functions(self, file_info, content, lines):
+        results = []
+        # Basic regex to find starts of functions
+        # This is a heuristic and might miss some complex cases, but covers most common ones
+        
+        # 1. function keyword: function name(...) {
+        js_fn_keyword = re.compile(r'(?:export\s+)?(?:async\s+)?function\s+([a-zA-Z_]\w*)\s*\(')
+        # 2. Arrow functions assigned to const/let/var: const name = (...) => {
+        js_arrow_fn = re.compile(r'(?:export\s+)?(?:const|let|var)\s+([a-zA-Z_]\w*)\s*=\s*(?:async\s+)?(?:\([^)]*\)|[a-zA-Z_]\w*)\s*=>')
+        # 3. Method definitions in objects/classes: name(...) {
+        js_method = re.compile(r'^[ \t]*([a-zA-Z_]\w*)\s*\([^)]*\)\s*\{')
+
+        for i, line in enumerate(lines):
+            name = None
+            match = js_fn_keyword.search(line) or js_arrow_fn.search(line) or js_method.match(line)
+            
+            if match:
+                name = match.group(1)
+                start_line = i
+                
+                # For JS, extracting the full body is harder because of nesting.
+                # We'll use a simple brace counting heuristic starting from the first '{' found
+                # Or if it's an arrow function without braces (single expression), it's just that line (or until ;)
+                
+                start_idx = content.find(line)
+                # Find the first '{'
+                brace_start = content.find('{', start_idx)
+                
+                if brace_start != -1 and (brace_start < content.find('\n', start_idx + len(line)) or '\n' not in line):
+                    # Brace counting
+                    count = 1
+                    current_idx = brace_start + 1
+                    while count > 0 and current_idx < len(content):
+                        char = content[current_idx]
+                        if char == '{':
+                            count += 1
+                        elif char == '}':
+                            count -= 1
+                        current_idx += 1
+                    
+                    fn_content = content[start_idx:current_idx]
+                    results.append({
+                        'name': name,
+                        'type': 'function',
+                        'content': fn_content,
+                        'file_rel_path': file_info['rel_path'],
+                        'path': f"{file_info['path']}:{start_line+1}"
+                    })
+                else:
+                    # Likely single line arrow function or we missed the brace
+                    # Just take the line for now as a fallback
+                    results.append({
+                        'name': name,
+                        'type': 'function',
+                        'content': line.strip(),
+                        'file_rel_path': file_info['rel_path'],
+                        'path': f"{file_info['path']}:{start_line+1}"
+                    })
+        return results

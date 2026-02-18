@@ -5,6 +5,7 @@ from src.logic.config_manager import ConfigManager
 from src.logic.global_hotkeys import GlobalHotkeyListener
 from src.ui.styles import Styles
 import os
+import pyperclip
 
 class Controller:
     """
@@ -239,24 +240,36 @@ class Controller:
                 except:
                     pass
 
-    def get_relevant_files_for_ui(self, user_text, selected_section=None):
+    def get_relevant_files_for_ui(self, user_text, selected_section=None, extension=""):
         """Helper to get relevant files for UI display."""
+        all_files = self.project_manager.get_files()
+        
+        # 1. Scope Filtering (Section or Global)
         if selected_section:
-            section_files_list = self.section_manager.get_files_in_section(selected_section)
-            all_files = self.project_manager.get_files()
-            
-            # If a section is selected, return all files in that section, preserving order
+            section_files_paths = self.section_manager.get_files_in_section(selected_section)
             files_map = {f['path']: f for f in all_files}
-            ordered_files = []
-            for path in section_files_list:
-                 if path in files_map:
-                     ordered_files.append(files_map[path])
-            return ordered_files
+            base_files = [files_map[p] for p in section_files_paths if p in files_map]
+        else:
+            if not user_text:
+                base_files = all_files
+            else:
+                base_files = self.project_manager.find_relevant_files(user_text)
 
-        if not user_text:
-            return self.project_manager.get_files()
+        # 2. Extension Filtering (Support multiple comma-separated extensions)
+        if extension and extension.strip():
+            # Parse extensions: split by comma, strip whitespace, ensure dot prefix
+            ext_list = []
+            for e in extension.split(','):
+                e = e.strip().lower()
+                if e:
+                    if not e.startswith('.'):
+                        e = '.' + e
+                    ext_list.append(e)
             
-        return self.project_manager.find_relevant_files(user_text)
+            if ext_list:
+                base_files = [f for f in base_files if any(f['rel_path'].lower().endswith(ext) for ext in ext_list)]
+            
+        return base_files
 
     def show_code_view(self):
         """
@@ -426,4 +439,21 @@ class Controller:
                 return f"--- Archivo: {os.path.basename(path)} ---\n(No se pudo leer)"
 
         return ""
+
+    def get_all_functions(self):
+        """
+        Returns all functions extracted from the project.
+        """
+        return self.project_manager.extract_functions()
+
+    def copy_to_clipboard(self, text):
+        """
+        Copies the given text to the system clipboard.
+        """
+        try:
+            pyperclip.copy(text)
+            return True
+        except Exception as e:
+            print(f"Controller: Error copying to clipboard: {e}")
+            return False
 

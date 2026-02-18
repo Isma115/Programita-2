@@ -58,6 +58,8 @@ class CodeView(ttk.Frame):
             self.controller = parent.winfo_toplevel().controller 
         except:
              pass 
+        
+        self._last_selected_section = None
 
         self._create_layout()
 
@@ -159,6 +161,26 @@ class CodeView(ttk.Frame):
         )
         self.cmb_ai.current(0) # Default to first item (Best Quality)
         self.cmb_ai.pack(side="left", padx=(20, 0))
+
+        # Extension Filter
+        self.ext_var = tk.StringVar(value="")
+        
+        lbl_ext = ttk.Label(slider_frame, text="Exts:", style="TLabel")
+        lbl_ext.pack(side="left", padx=(20, 5))
+
+        self.txt_ext = tk.Entry(
+            slider_frame,
+            textvariable=self.ext_var,
+            bg=Styles.COLOR_INPUT_BG,
+            fg=Styles.COLOR_INPUT_FG,
+            insertbackground="white",
+            borderwidth=0,
+            highlightthickness=0,
+            width=15,
+            font=Styles.FONT_MAIN
+        )
+        self.txt_ext.bind("<KeyRelease>", self._on_prompt_change)
+        self.txt_ext.pack(side="left", padx=(0, 0))
 
         # 2. File List (Treeview)
         # "Occupies 3/4 width" -> We'll handle this with sash positioning initially
@@ -273,18 +295,16 @@ class CodeView(ttk.Frame):
         self.section_list.bind("<Button-1>", self._on_section_click)
         self.section_list.pack(fill="both", expand=True, padx=5, pady=5)
         
-        # Controls for Sections
-        btn_frame = ttk.Frame(self.right_top_frame, style="Sidebar.TFrame")
-        btn_frame.pack(fill="x", padx=5, pady=5)
-        
-        button_width = 25 # Approximate characters
-        
+        # Sección controls frame removed (redundant)
+
         # Nueva Sección moved to context menu as requested
 
 
         # Context Menu for Sections
         self.context_menu = tk.Menu(self, tearoff=0)
         self.context_menu.add_command(label="Nueva Sección", command=self._on_add_section)
+        self.context_menu.add_separator()
+        self.context_menu.add_command(label="Generar Prompt Docs", command=self._on_generate_docs)
         self.context_menu.add_separator()
         self.context_menu.add_command(label="Editar", command=self._on_edit_section)
         self.context_menu.add_command(label="Eliminar", command=self._on_delete_section)
@@ -583,13 +603,15 @@ class CodeView(ttk.Frame):
         selected_indices = self.section_list.curselection()
         section = self.section_list.get(selected_indices[0]) if selected_indices else None
         
+        extension = self.ext_var.get()
+        
         # Run search in thread
-        threading.Thread(target=self._perform_search, args=(text, section), daemon=True).start()
+        threading.Thread(target=self._perform_search, args=(text, section, extension), daemon=True).start()
 
-    def _perform_search(self, text, section):
+    def _perform_search(self, text, section, extension="Todos"):
         """Executes search logic (Thread Safe)."""
         try:
-            relevant_files = self.controller.get_relevant_files_for_ui(text, selected_section=section)
+            relevant_files = self.controller.get_relevant_files_for_ui(text, selected_section=section, extension=extension)
             # Schedule UI update on main thread
             self.after(0, lambda: self._update_file_list_safe(relevant_files))
         except Exception as e:
@@ -602,10 +624,17 @@ class CodeView(ttk.Frame):
 
     def _on_section_select(self, event=None):
         """Trigger update when section selection changes."""
-        # Save selection
         selected_indices = self.section_list.curselection()
-        if selected_indices:
-            section_name = self.section_list.get(selected_indices[0])
+        section_name = self.section_list.get(selected_indices[0]) if selected_indices else None
+        
+        # Only reload if the selection has actually changed
+        if section_name == self._last_selected_section:
+            return
+            
+        self._last_selected_section = section_name
+        
+        # Save selection
+        if section_name:
             if hasattr(self.controller, 'config_manager'):
                 self.controller.config_manager.set_last_code_section(section_name)
         
@@ -806,6 +835,77 @@ class CodeView(ttk.Frame):
         name = self.section_list.get(selected_indices[0])
         self.controller.section_manager.delete_section(name)
         self._refresh_sections()
+
+    def _on_generate_docs(self):
+        """Generates a documentation prompt for the selected files or visible files."""
+        # 1. Get selected files from Treeview
+        selected_items = self.tree.selection()
+        
+        # Fallback: if no selection, use ALL VISIBLE items in Treeview
+        items_to_process = selected_items if selected_items else self.tree.get_children()
+        
+        if not items_to_process:
+            messagebox.showwarning("Aviso", "No hay ficheros visibles o seleccionados para procesar.")
+            return
+
+        selected_files_data = []
+        all_files = self.controller.project_manager.get_files()
+        files_map = {f['path']: f for f in all_files}
+        
+        for item in items_to_process:
+            tags = self.tree.item(item, 'tags')
+            if tags:
+                file_path = tags[0] if isinstance(tags, (list, tuple)) else tags
+                if file_path in files_map:
+                    selected_files_data.append(files_map[file_path])
+        
+        if not selected_files_data:
+            messagebox.showwarning("Aviso", "No se han encontrado datos para los ficheros procesados.")
+            return
+
+        # Instruction text (same as DocView)
+        prompt_instruction = (
+            "Genera una documentación técnica detallada en formato Markdown para los siguientes ficheros y tablas. "
+            "Analiza el código y estructura la documentación de forma clara, incluyendo propósito, parámetros, "
+            "retornos y ejemplos si procede."
+        )
+
+        try:
+            # 2. Build prompt manually for the specific list of files
+            prompt = f"Petición del Usuario: {prompt_instruction}\n\nArchivos de Contexto:\n"
+            for f in selected_files_data:
+                prompt += f"\n--- Archivo: {f['rel_path']} ---\n"
+                prompt += f.get('content', '') + "\n"
+
+            # 3. Save to Documents/codigo.txt
+            success, result = self.controller.save_content_to_codigo_txt(prompt, append=False)
+            
+            if success:
+                # 4. Copy Instruction to Clipboard
+                self.clipboard_clear()
+                self.clipboard_append(prompt_instruction)
+                
+                messagebox.showinfo(
+                    "Éxito", 
+                    f"Prompt de documentación generado.\n\n"
+                    f"✅ Instrucción copiada al portapapeles\n"
+                    f"✅ Contenido completo guardado en {result}"
+                )
+                
+                # 5. Open AI URL
+                selected_ai = self.cmb_ai.get()
+                if selected_ai == "⚡ Automático":
+                    selected_ai = self._get_auto_ai()
+                
+                if selected_ai in self.AI_URLS:
+                    url = self.AI_URLS[selected_ai]
+                    webbrowser.open_new_tab(url)
+            else:
+                messagebox.showerror("Error", f"No se pudo guardar: {result}")
+
+        except Exception as e:
+            print(f"Error generating docs prompt: {e}")
+            messagebox.showerror("Error", f"Error generando prompt: {e}")
 
     def _refresh_sections(self):
         self.section_list.delete(0, tk.END)
