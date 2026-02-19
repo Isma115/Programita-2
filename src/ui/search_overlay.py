@@ -8,6 +8,7 @@ TYPE_ICONS = {
     'doc':      '📝',
     'file':     '📁',
     'function': 'λ',
+    'command':  '🐚',
 }
 
 TYPE_LABELS = {
@@ -16,6 +17,7 @@ TYPE_LABELS = {
     'doc':      'Documentación',
     'file':     'Fichero',
     'function': 'Función',
+    'command':  'Comando',
 }
 
 
@@ -112,6 +114,7 @@ class SearchOverlay(tk.Toplevel):
         self._update_status(f"{len(self.all_assets)} activos disponibles")
 
         # --- Bindings ---
+        self.entry.bind("<FocusIn>", self._on_focus_in)
         self.entry.bind("<KeyRelease>", self._on_key_release)
         self.entry.bind("<Return>", self._on_enter)
         self.entry.bind("<Up>", self._on_arrow_up)
@@ -126,9 +129,6 @@ class SearchOverlay(tk.Toplevel):
         # Focus the entry
         self.entry.focus_force()
 
-        # Grab input
-        self.grab_set()
-
     # --- Placeholder ---
     def _set_placeholder(self):
         if not self.entry.get():
@@ -138,7 +138,8 @@ class SearchOverlay(tk.Toplevel):
         else:
             self._placeholder_active = False
 
-    def _clear_placeholder(self):
+    def _on_focus_in(self, event=None):
+        """Clears the placeholder when the user focuses the entry."""
         if getattr(self, '_placeholder_active', False):
             self.entry.delete(0, tk.END)
             self.entry.config(fg=Styles.COLOR_INPUT_FG)
@@ -150,8 +151,7 @@ class SearchOverlay(tk.Toplevel):
         if event and event.keysym in ('Up', 'Down', 'Return', 'Escape'):
             return
 
-        self._clear_placeholder()
-        raw_query = self.entry.get().strip()
+        raw_query = self.entry.get()
         query = raw_query.lower()
 
         if query.startswith("funcion:"):
@@ -163,6 +163,13 @@ class SearchOverlay(tk.Toplevel):
             else:
                 self.filtered = [f for f in all_functions if search_term in f['name'].lower()]
             self._update_status(f"🔍 Modo Función: {len(self.filtered)} encontradas")
+        elif query.startswith(">"):
+            # Explicit command mode (optional prefix)
+            search_term = query[1:].strip()
+            all_commands = self.controller.get_all_commands()
+            cmds = [c for c in all_commands if search_term in c.lower()] if search_term else all_commands
+            self.filtered = [{'name': c, 'type': 'command', 'path': c} for c in cmds]
+            self._update_status(f"🐚 Modo Comando: {len(self.filtered)} disponibles")
         elif not query or (getattr(self, '_placeholder_active', False)):
             self.filtered = list(self.all_assets)
             self._update_status(f"{len(self.all_assets)} activos disponibles")
@@ -214,8 +221,26 @@ class SearchOverlay(tk.Toplevel):
 
     # --- Selection ---
     def _on_enter(self, event=None):
+        query = self.entry.get().strip()
+        if not query or getattr(self, '_placeholder_active', False):
+            return "break"
+
+        # Check if we should run as a command (if no selection or if selected is a command)
+        asset = None
         if self.filtered and 0 <= self.selected_index < len(self.filtered):
-            self._select_asset(self.filtered[self.selected_index])
+            asset = self.filtered[self.selected_index]
+
+        if asset and asset['type'] == 'command':
+            # Use query if it starts with the command name to preserve arguments
+            cmd_name = asset['name']
+            run_text = query if query.lower().startswith(cmd_name.lower()) or query.startswith(">") else cmd_name
+            self._execute_command(run_text)
+        elif not asset:
+            # No matching asset, try running as raw command
+            self._execute_command(query)
+        else:
+            # Normal asset selection
+            self._select_asset(asset)
         return "break"
 
     def _on_listbox_click(self, event=None):
@@ -232,7 +257,11 @@ class SearchOverlay(tk.Toplevel):
                 self._select_asset(self.filtered[idx])
 
     def _select_asset(self, asset):
-        """Processes selection: either copy-to-clipboard for functions or append to codigo.txt."""
+        """Processes selection: copy-to-clipboard for functions or append to codigo.txt."""
+        if asset['type'] == 'command':
+            self._execute_command(asset['name'])
+            return
+
         if asset['type'] == 'function':
             self._update_status("⏳ Copiando función...")
             self.update_idletasks()
@@ -241,9 +270,8 @@ class SearchOverlay(tk.Toplevel):
             if success:
                 self._update_status(f"✅ {asset['name']} copiado al portapapeles")
                 self.update_idletasks()
-                self.after(800, self._close)
             else:
-                self._update_status("❌ Error al copiar al portapapeles")
+               self._update_status("❌ Error al copiar al portapapeles")
             return
 
         self._update_status("⏳ Obteniendo contenido...")
@@ -256,42 +284,30 @@ class SearchOverlay(tk.Toplevel):
                 icon = TYPE_ICONS.get(asset['type'], '📄')
                 self._update_status(f"✅ {icon} {asset['name']} → añadido a codigo.txt")
                 self.update_idletasks()
-                # Close after a short delay so the user sees the confirmation
-                self.after(800, self._close)
             else:
                 self._update_status(f"❌ Error: {path}")
         else:
             self._update_status("⚠️ El activo no tiene contenido")
 
+    def _execute_command(self, text):
+        """Executes a command and shows output."""
+        self._update_status(f"⏳ Ejecutando...")
+        self.update_idletasks()
+        self.controller.run_command(text, output_callback=self._update_status)
+
     # --- Close ---
     def _on_escape(self, event=None):
-        self._close()
+        # Only close on click outside as requested
         return "break"
 
-    def _on_focus_out(self, event=None):
-        # Only close if focus went to a widget outside this overlay
-        try:
-            focused = self.focus_get()
-            if focused and (focused == self or focused.master == self or
-                            str(focused).startswith(str(self))):
-                return
-        except Exception:
-            pass
-        # Small delay to avoid closing when clicking listbox
-        self.after(150, self._check_focus)
-
-    def _check_focus(self):
-        try:
-            focused = self.focus_get()
-            if focused and str(focused).startswith(str(self)):
-                return
-        except Exception:
-            pass
-        self._close()
-
+    
+    # En src/ui/search_overlay.py, modificar el método _close
     def _close(self):
+        # Restaurar el foco a la ventana principal antes de destruir
         try:
-            self.grab_release()
-        except Exception:
+            if self.master and self.master.winfo_exists():
+                self.master.focus_force()
+        except:
             pass
+        
         self.destroy()

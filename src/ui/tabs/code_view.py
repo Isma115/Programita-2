@@ -688,7 +688,22 @@ class CodeView(ttk.Frame):
         except:
             file_limit = 10
 
-        prompt = self.controller.generate_prompt(text, selected_section=section, return_regions=return_regions, file_limit=file_limit, implementation_mode=implementation_mode)
+        # Get exact paths shown in the treeview to ensure prompt matches the UI list
+        displayed_files = []
+        for item in self.tree.get_children():
+            tags = self.tree.item(item, 'tags')
+            if tags:
+                file_path = tags[0] if isinstance(tags, (list, tuple)) else tags
+                displayed_files.append(file_path)
+
+        prompt = self.controller.generate_prompt(
+            text, 
+            selected_section=section, 
+            return_regions=return_regions, 
+            file_limit=file_limit, 
+            implementation_mode=implementation_mode,
+            file_paths=displayed_files
+        )
         
         # Save prompt to file in Documents
         try:

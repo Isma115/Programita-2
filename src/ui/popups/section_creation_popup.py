@@ -107,7 +107,19 @@ class SectionCreationPopup(tk.Toplevel):
     def _populate_initial_data(self):
         """Populate text area with existing files and tables when editing."""
         all_files = self.controller.project_manager.get_files()
+
+        # Also include non-code files in the reverse map
+        try:
+            non_code_files = self.controller.project_manager.get_non_code_files()
+            code_paths = {f['path'] for f in all_files}
+            for nf in non_code_files:
+                if nf['path'] not in code_paths:
+                    all_files = all_files + [{'path': nf['path'], 'rel_path': nf['rel_path'], 'content': ''}]
+        except Exception:
+            pass
+
         abs_to_rel = {f['path']: f['rel_path'] for f in all_files}
+
         
         lines = []
         
@@ -137,11 +149,23 @@ class SectionCreationPopup(tk.Toplevel):
         self.valid_files = []
         self.valid_tables = []
         
-        # Get all available files once
+        # Get all available files: code files + non-code files
         all_files = self.controller.project_manager.get_files()
-        
+
+        # Merge non-code files (they don't have 'content', use '' as fallback)
+        try:
+            non_code_files = self.controller.project_manager.get_non_code_files()
+            # Convert to same dict format as code files (without content)
+            code_paths = {f['path'] for f in all_files}
+            for nf in non_code_files:
+                if nf['path'] not in code_paths:
+                    all_files = all_files + [{'path': nf['path'], 'rel_path': nf['rel_path'], 'content': ''}]
+        except Exception as e:
+            print(f"SectionPopup: Could not get non-code files: {e}")
+
         # Create lookup maps for files
         file_map = {f['rel_path']: f['path'] for f in all_files}
+
         
         filename_map = {}
         for rel_path in file_map.keys():

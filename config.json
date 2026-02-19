@@ -1,5 +1,5 @@
 {
-    "last_project": "/Users/ismaelmoraledalopez/Documents/Azure-Irrigation-Web/HidraSmart-Irrigation-System",
+    "last_project": "/Users/ismaelmoraledalopez/Desktop/pruebas/Iterador/TrustedSearch",
     "file_limit": 20,
     "return_regions": false,
     "doc_path": "/Users/ismaelmoraledalopez/Documents/Documentacion Irrigation",
@@ -10,9 +10,10 @@
     "arbitrary_step": 25,
     "project_directories": [
         "/Users/ismaelmoraledalopez/Documents/Azure-Irrigation-Web/HidraSmart-Irrigation-System",
-        "/Users/ismaelmoraledalopez/Desktop/Programita 2"
+        "/Users/ismaelmoraledalopez/Desktop/Programita 2",
+        "/Users/ismaelmoraledalopez/Desktop/pruebas/Iterador/TrustedSearch"
     ],
-    "current_project_index": 0,
+    "current_project_index": 2,
     "db_config": {
         "host": "hidralab-server.mysql.database.azure.com",
         "port": "3306",
@@ -25,6 +26,6 @@
         "is_editor_mode": false
     },
     "last_doc_section": "Catastro",
-    "last_code_section": "Catastro",
+    "last_code_section": "Gesti\u00f3n de cultivos",
     "implementation_mode": false
 }

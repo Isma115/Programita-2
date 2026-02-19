@@ -6,6 +6,7 @@ from src.logic.global_hotkeys import GlobalHotkeyListener
 from src.ui.styles import Styles
 import os
 import pyperclip
+import importlib
 
 class Controller:
     """
@@ -100,27 +101,32 @@ class Controller:
         self.config_manager.set_current_project_index(new_idx)
         self.load_project_folder(path)
 
-    def generate_prompt(self, user_text, selected_section=None, return_regions=False, file_limit=10, implementation_mode=False):
+    def generate_prompt(self, user_text, selected_section=None, return_regions=False, file_limit=10, implementation_mode=False, file_paths=None):
         """
         Generates a prompt based on user text and selected files.
         """
         # Determine scope
-        if selected_section:
-            section_files_list = self.section_manager.get_files_in_section(selected_section)
-            # Filter all loaded files to just those in the section
+        if file_paths is not None:
             all_files = self.project_manager.get_files()
-            
-            # Create a lookup for all files {path: file_obj} for O(1) access
             files_map = {f['path']: f for f in all_files}
-            
-            # Build relevant_files list ensuring order from section_files_list
-            relevant_files = []
-            for path in section_files_list:
-                if path in files_map:
-                    relevant_files.append(files_map[path])
+            relevant_files = [files_map[p] for p in file_paths if p in files_map]
         else:
-            # Search everything using relevant files finding
-            relevant_files = self.project_manager.find_relevant_files(user_text)
+            if selected_section:
+                section_files_list = self.section_manager.get_files_in_section(selected_section)
+                # Filter all loaded files to just those in the section
+                all_files = self.project_manager.get_files()
+                
+                # Create a lookup for all files {path: file_obj} for O(1) access
+                files_map = {f['path']: f for f in all_files}
+                
+                # Build relevant_files list ensuring order from section_files_list
+                relevant_files = []
+                for path in section_files_list:
+                    if path in files_map:
+                        relevant_files.append(files_map[path])
+            else:
+                # Search everything using relevant files finding
+                relevant_files = self.project_manager.find_relevant_files(user_text)
         
         # Build Prompt
         prompt = f"Petición del Usuario: {user_text}\n\nArchivos de Contexto:\n"
@@ -285,12 +291,6 @@ class Controller:
         print("Logic: Switching to Docs View")
         self.app.layout.show_docs_tab()
 
-    def show_console_view(self):
-        """
-        Switch the main content area to the Console view.
-        """
-        print("Logic: Switching to Console View")
-        self.app.layout.show_console_tab()
 
     def show_database_view(self):
         """
@@ -386,6 +386,14 @@ class Controller:
                 'path': f['path']
             })
 
+        # 5. Commands
+        for cmd in self.get_all_commands():
+            assets.append({
+                'name': cmd,
+                'type': 'command',
+                'path': cmd
+            })
+
         return assets
 
     def get_asset_content(self, asset):
@@ -457,3 +465,101 @@ class Controller:
             print(f"Controller: Error copying to clipboard: {e}")
             return False
 
+    def get_all_commands(self):
+        """Returns a list of all available commands (built-in + addons)."""
+        commands = ["help", "clear", "exit", "set_step"]
+        
+        # Scan for addons
+        try:
+            addon_dir = os.path.join("src", "addons")
+            if os.path.exists(addon_dir):
+                for f in os.listdir(addon_dir):
+                    if f.endswith(".py") and f != "__init__.py":
+                        cmd_name = f[:-3].replace("_", " ")
+                        if cmd_name not in commands:
+                            commands.append(cmd_name)
+        except Exception as e:
+            print(f"Controller: Error scanning addons: {e}")
+            
+        return sorted(commands)
+
+    def run_command(self, text, output_callback=None):
+        """
+        Executes a command string.
+        output_callback: function that takes a string to display feedback.
+        """
+        def log(msg):
+            if output_callback:
+                output_callback(msg)
+            else:
+                print(f"Command Output: {msg}")
+
+        text = text.strip()
+        if not text:
+            return
+            
+        # Remove prefix '>' if present
+        if text.startswith(">"):
+            text = text[1:].strip()
+
+        parts = text.split()
+        if not parts: return
+        
+        cmd = parts[0].lower()
+        args = parts[1:]
+        
+        # 1. Built-in Commands
+        if cmd == "help":
+            log("Comandos: help, clear, exit, set_step [n], [addon_name]")
+            return
+        elif cmd == "clear":
+            # clear might not make sense without a dedicated console, 
+            # but we keep it for compatibility or future use.
+            log("Consola limpiada (simulado)")
+            return
+        elif cmd == "exit":
+            self.app.root.quit()
+            return
+        elif cmd == "set_step":
+            if not args:
+                log("Uso: set_step [numero]")
+                return
+            try:
+                new_step = int(args[0])
+                self.app.arbitrary_step = new_step
+                self.config_manager.set_arbitrary_step(new_step)
+                log(f"Step actualizado a: {new_step}")
+            except ValueError:
+                log("Error: El valor debe ser un entero.")
+            return
+
+        # 2. Addons search
+        try:
+            # Try to find the longest matching addon command
+            module_name = None
+            remaining_args = []
+            all_words = [cmd] + args
+            
+            for i in range(len(all_words), 0, -1):
+                potential_name = "_".join(all_words[:i])
+                addon_path = os.path.join("src", "addons", f"{potential_name}.py")
+                if os.path.exists(addon_path):
+                    module_name = potential_name
+                    remaining_args = all_words[i:]
+                    break
+            
+            if module_name:
+                module = importlib.import_module(f"src.addons.{module_name}")
+                importlib.reload(module)
+                
+                if hasattr(module, 'run'):
+                    result = module.run(self.app, remaining_args)
+                    if result:
+                        log(str(result))
+                else:
+                    log(f"Error: El addon '{module_name}' no tiene función run().")
+            else:
+                log(f"Comando '{cmd}' no encontrado.")
+                
+        except Exception as e:
+            log(f"Error ejecutando comando: {e}")
