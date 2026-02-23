@@ -161,9 +161,8 @@ class Controller:
         return prompt
 
     def _get_table_samples_for_prompt(self, table_names, limit=5):
-        """Connects to DB (if needed) and gets sample data for given tables."""
+        """Gets sample data for given tables using only an existing active DB connection."""
         connection = None
-        created_connection = False
         
         try:
             # Try to reuse existing connection from database_view
@@ -172,29 +171,11 @@ class Controller:
                 if db_view.connection and db_view.connection.is_connected():
                     connection = db_view.connection
             
-            # If no existing connection, create one from config
+            # Do not auto-connect/reconnect from config here.
+            # DB lifecycle is managed manually from DatabaseView buttons.
             if not connection:
-                db_config = self.config_manager.get_db_config()
-                if not db_config or not db_config.get('host'):
-                    print("Controller: No DB config available for table samples")
-                    return ""
-                
-                try:
-                    import mysql.connector
-                    connection = mysql.connector.connect(
-                        host=db_config.get('host', 'localhost'),
-                        port=int(db_config.get('port', 3306)),
-                        user=db_config.get('user', ''),
-                        password=db_config.get('password', ''),
-                        database=db_config.get('database', '')
-                    )
-                    created_connection = True
-                except ImportError:
-                    print("Controller: mysql-connector-python not installed")
-                    return ""
-                except Exception as e:
-                    print(f"Controller: DB connection error: {e}")
-                    return ""
+                print("Controller: No active DB connection; skipping table samples")
+                return ""
             
             # Fetch samples
             results = []
@@ -239,12 +220,6 @@ class Controller:
         except Exception as e:
             print(f"Controller: Error getting table samples: {e}")
             return ""
-        finally:
-            if created_connection and connection:
-                try:
-                    connection.close()
-                except:
-                    pass
 
     def get_relevant_files_for_ui(self, user_text, selected_section=None, extension=""):
         """Helper to get relevant files for UI display."""

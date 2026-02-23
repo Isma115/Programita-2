@@ -20,10 +20,10 @@ class DatabaseView(ttk.Frame):
         
         self.connection = None
         self.table_vars = {}  # Store BooleanVars for checkboxes
-        self.auto_refresh_job = None  # To store the 'after' job ID
+        # Eliminamos la variable auto_refresh_job ya que no la necesitamos
         
         self._create_layout()
-    
+
     def _create_layout(self):
         """Creates the main layout with connection form and results area."""
         # Main container with padding
@@ -43,7 +43,7 @@ class DatabaseView(ttk.Frame):
         
         # === Results Frame (Right) ===
         self._create_results_frame()
-    
+
     def _create_connection_frame(self):
         """Creates the database connection form."""
         conn_frame = ttk.LabelFrame(
@@ -105,7 +105,7 @@ class DatabaseView(ttk.Frame):
         
         conn_frame.columnconfigure(1, weight=1)
         
-        # Connect button
+        # Connect/Disconnect/Reconnect buttons
         btn_frame = ttk.Frame(conn_frame, style="Main.TFrame")
         btn_frame.grid(row=len(fields), column=0, columnspan=2, pady=15)
         
@@ -126,6 +126,16 @@ class DatabaseView(ttk.Frame):
         )
         self.btn_disconnect.pack(side="left", padx=5)
         
+        # Nuevo botón: Reiniciar Conexión
+        self.btn_reconnect = ttk.Button(
+            btn_frame,
+            text="🔄 Reiniciar Conexión",
+            style="Nav.TButton",
+            command=self._on_reconnect,
+            state="disabled"
+        )
+        self.btn_reconnect.pack(side="left", padx=5)
+        
         # Status label
         self.lbl_status = ttk.Label(
             conn_frame,
@@ -133,7 +143,7 @@ class DatabaseView(ttk.Frame):
             style="TLabel"
         )
         self.lbl_status.grid(row=len(fields) + 1, column=0, columnspan=2, pady=5)
-    
+
     def _create_tables_frame(self):
         """Creates the tables selection frame."""
         self.tables_frame = ttk.LabelFrame(
@@ -174,7 +184,7 @@ class DatabaseView(ttk.Frame):
         self.tables_inner_frame.bind('<Leave>', self._unbound_to_mousewheel)
         self.canvas.bind('<Enter>', self._bound_to_mousewheel)
         self.canvas.bind('<Leave>', self._unbound_to_mousewheel)
-    
+
     def _bound_to_mousewheel(self, event):
         self.canvas.bind_all("<MouseWheel>", self._on_mousewheel)
 
@@ -183,7 +193,7 @@ class DatabaseView(ttk.Frame):
 
     def _on_mousewheel(self, event):
         self.canvas.yview_scroll(int(-1*(event.delta)), "units")
-    
+
     def _create_results_frame(self):
         """Creates the results display area."""
         results_frame = ttk.LabelFrame(
@@ -260,7 +270,7 @@ class DatabaseView(ttk.Frame):
             command=self._on_clear_results
         )
         self.btn_clear.pack(side="right", padx=5)
-    
+
     def _on_connect(self):
         """Handles connection button click."""
         try:
@@ -305,6 +315,7 @@ class DatabaseView(ttk.Frame):
             self.lbl_status.config(text="🟢 Conectado")
             self.btn_connect.config(state="disabled")
             self.btn_disconnect.config(state="normal")
+            self.btn_reconnect.config(state="normal")  # Habilitar botón de reinicio
             self.btn_sample.config(state="normal")
             
             # Disable connection fields
@@ -313,15 +324,11 @@ class DatabaseView(ttk.Frame):
             
             # Load tables
             self._load_tables()
-
-            # Start auto-refresh loop
-            self._start_auto_refresh_loop()
-
             
         except Exception as e:
             messagebox.showerror("Error de Conexión", str(e))
             self.lbl_status.config(text="🔴 Error de conexión")
-    
+
     def _on_disconnect(self):
         """Handles disconnect button click."""
         if self.connection:
@@ -334,6 +341,7 @@ class DatabaseView(ttk.Frame):
         self.lbl_status.config(text="⚪ No conectado")
         self.btn_connect.config(state="normal")
         self.btn_disconnect.config(state="disabled")
+        self.btn_reconnect.config(state="disabled")  # Deshabilitar botón de reinicio
         self.btn_sample.config(state="disabled")
         
         # Enable connection fields
@@ -342,10 +350,63 @@ class DatabaseView(ttk.Frame):
         
         # Clear tables
         self._clear_tables()
+
+    def _on_reconnect(self):
+        """
+        Nuevo método: Reinicia la conexión manualmente.
+        Desconecta y vuelve a conectar automáticamente.
+        """
+        if not self.connection:
+            messagebox.showwarning("Aviso", "No hay una conexión activa para reiniciar.")
+            return
         
-        # Stop auto-refresh loop
-        self._stop_auto_refresh_loop()
-    
+        # Guardar estado actual
+        self.lbl_status.config(text="🔄 Reiniciando conexión...")
+        self.update_idletasks()
+        
+        # 1. Desconectar
+        try:
+            if self.connection and self.connection.is_connected():
+                self.connection.close()
+        except Exception as e:
+            print(f"DatabaseView: Error al desconectar durante reinicio: {e}")
+        
+        self.connection = None
+        
+        # 2. Obtener configuración actual
+        host = self.conn_entries["host"].get()
+        port = self.conn_entries["port"].get()
+        user = self.conn_entries["user"].get()
+        password = self.conn_entries["password"].get()
+        database = self.conn_entries["database"].get()
+        
+        # 3. Reconectar
+        try:
+            import mysql.connector
+            self.connection = mysql.connector.connect(
+                host=host,
+                port=int(port),
+                user=user,
+                password=password,
+                database=database
+            )
+            
+            # Actualizar UI
+            self.lbl_status.config(text="🟢 Conexión reiniciada")
+            
+            # Recargar tablas
+            self._clear_tables()
+            self._load_tables()
+            
+            messagebox.showinfo("Éxito", "Conexión reiniciada correctamente.")
+            
+        except Exception as e:
+            self.lbl_status.config(text="🔴 Error al reconectar")
+            messagebox.showerror("Error", f"No se pudo reiniciar la conexión:\n{str(e)}")
+            
+            # Volver a estado desconectado
+            self._on_disconnect()
+
     def _load_tables(self):
         """Loads the list of tables from the database."""
         self._clear_tables()
@@ -374,15 +435,13 @@ class DatabaseView(ttk.Frame):
                 
         except Exception as e:
             messagebox.showerror("Error", f"Error cargando tablas: {e}")
-    
+
     def _clear_tables(self):
         """Clears the tables list."""
         self.table_vars.clear()
         for widget in self.tables_inner_frame.winfo_children():
             widget.destroy()
-    
 
-    
     def _on_get_samples(self):
         """Gets sample data from selected tables."""
         if not self.connection:
@@ -437,71 +496,6 @@ class DatabaseView(ttk.Frame):
         except Exception as e:
             messagebox.showerror("Error", f"Error obteniendo muestras: {e}")
 
-    def _start_auto_refresh_loop(self):
-        """Starts the 2-minute auto-refresh cycle."""
-        self._stop_auto_refresh_loop() # Ensure no duplicate loops
-        print("DatabaseView: Iniciando ciclo de re-conexión automática (2 min)")
-        self.auto_refresh_job = self.after(120000, self._auto_refresh_connection)
-
-    def _stop_auto_refresh_loop(self):
-        """Stops the auto-refresh cycle."""
-        if self.auto_refresh_job:
-            self.after_cancel(self.auto_refresh_job)
-            self.auto_refresh_job = None
-
-    def _auto_refresh_connection(self):
-        """Attempts to keep the connection alive or reconnects."""
-        if self.connection:
-            try:
-                print("DatabaseView: Ejecutando re-conexión automática (Keep-alive)...")
-                # ping() with reconnect=True tries to re-establish the connection if it dropped
-                self.connection.ping(reconnect=True, attempts=3, delay=2)
-                
-                if self.connection.is_connected():
-                    print("DatabaseView: Conexión mantenida con éxito.")
-                    # Optionally refresh labels or something very subtle
-                    self.lbl_status.config(text="🟢 Conectado (Refrescado)")
-                else:
-                    print("DatabaseView: La conexión se perdió, intentando re-conectar...")
-                    self._silent_reconnect()
-            except Exception as e:
-                print(f"DatabaseView: Error en auto-refresco: {e}")
-                self._silent_reconnect()
-        
-        # Schedule next refresh
-        self.auto_refresh_job = self.after(120000, self._auto_refresh_connection)
-
-    def _silent_reconnect(self):
-        """Helper to reconnect without showing message boxes (unless critical)."""
-        host = self.conn_entries["host"].get()
-        port = self.conn_entries["port"].get()
-        user = self.conn_entries["user"].get()
-        password = self.conn_entries["password"].get()
-        database = self.conn_entries["database"].get()
-        
-        if not all([host, user, database]):
-            return
-
-        try:
-            import mysql.connector
-            if self.connection:
-                try: self.connection.close()
-                except: pass
-                
-            self.connection = mysql.connector.connect(
-                host=host,
-                port=int(port),
-                user=user,
-                password=password,
-                database=database
-            )
-            print("DatabaseView: Re-conexión silenciosa exitosa.")
-            self.lbl_status.config(text="🟢 Conectado (Auto)")
-        except Exception as e:
-            print(f"DatabaseView: Error en re-conexión silenciosa: {e}")
-            self.lbl_status.config(text="🔴 Error de auto-conexión")
-            self._on_disconnect() # Revert to disconnected state if failed
-    
     def _on_copy_and_save(self):
         """Copies to clipboard and appends to codigo.txt."""
         content = self.txt_results.get("1.0", tk.END).strip()
@@ -534,7 +528,7 @@ class DatabaseView(ttk.Frame):
             
         except Exception as e:
             messagebox.showerror("Error", f"Se copió al portapapeles pero falló el guardado:\n{e}")
-    
+
     def _on_clear_results(self):
         """Clears the results text area."""
         self.txt_results.delete("1.0", tk.END)
