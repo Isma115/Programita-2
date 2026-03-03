@@ -1,5 +1,5 @@
 {
-    "last_project": "/Users/ismaelmoraledalopez/Desktop/Programita 2",
+    "last_project": "/Users/ismaelmoraledalopez/Documents/Azure-Irrigation-Web/HidraSmart-Irrigation-System",
     "file_limit": 20,
     "return_regions": false,
     "doc_path": "/Users/ismaelmoraledalopez/Documents/Documentacion Irrigation",
@@ -13,19 +13,19 @@
         "/Users/ismaelmoraledalopez/Desktop/Programita 2",
         "/Users/ismaelmoraledalopez/Desktop/pruebas/Iterador/TrustedSearch"
     ],
-    "current_project_index": 1,
+    "current_project_index": 0,
     "db_config": {
         "host": "hidralab-server.mysql.database.azure.com",
         "port": "3306",
         "user": "telemedida_alcazar",
         "password": "Hidra2023Alcazar",
-        "database": "hidrasmart_is_b2"
+        "database": "hidrasmart_is"
     },
     "doc_view_settings": {
         "is_dark_mode": true,
         "is_editor_mode": false
     },
-    "last_doc_section": "Catastro",
+    "last_doc_section": "Ordenes riego",
     "last_code_section": "Catastro",
     "implementation_mode": false
 }

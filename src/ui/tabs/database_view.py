@@ -255,6 +255,29 @@ class DatabaseView(ttk.Frame):
         )
         self.btn_sample.pack(side="left", padx=5)
         
+        # Sample rows selector
+        lbl_rows = ttk.Label(export_frame, text="Filas:", style="TLabel")
+        lbl_rows.pack(side="left", padx=(10, 2))
+        
+        self.sample_rows_var = tk.IntVar(value=5)
+        self.spn_sample_rows = tk.Spinbox(
+            export_frame,
+            from_=1,
+            to=1000,
+            textvariable=self.sample_rows_var,
+            width=6,
+            font=Styles.FONT_MAIN,
+            bg=Styles.COLOR_INPUT_BG,
+            fg=Styles.COLOR_INPUT_FG,
+            insertbackground="white",
+            buttonbackground=Styles.COLOR_BG_MAIN,
+            borderwidth=1,
+            highlightthickness=1,
+            highlightbackground=Styles.COLOR_BORDER,
+            highlightcolor=Styles.COLOR_ACCENT
+        )
+        self.spn_sample_rows.pack(side="left", padx=2)
+        
         self.btn_export = ttk.Button(
             export_frame,
             text="📋 Copiar y Guardar",
@@ -443,7 +466,7 @@ class DatabaseView(ttk.Frame):
             widget.destroy()
 
     def _on_get_samples(self):
-        """Gets sample data from selected tables."""
+        """Gets sample data and full metadata from selected tables."""
         if not self.connection:
             messagebox.showwarning("Aviso", "No hay conexión activa.")
             return
@@ -454,7 +477,15 @@ class DatabaseView(ttk.Frame):
             messagebox.showwarning("Aviso", "Selecciona al menos una tabla.")
             return
         
-        limit = 5
+        try:
+            limit = self.sample_rows_var.get()
+            if limit < 1:
+                limit = 5
+        except (tk.TclError, ValueError):
+            limit = 5
+        
+        # Get current database name
+        database = self.conn_entries["database"].get()
         
         results = []
         
@@ -463,25 +494,126 @@ class DatabaseView(ttk.Frame):
             
             for table in selected:
                 results.append(f"\n{'='*60}")
-                results.append(f"TABLA: {table}")
-                results.append(f"{'='*60}\n")
+                results.append(f" TABLA: {table}")
+                results.append(f"{'='*60}")
                 
-                # Get columns
+                # ── Columnas ──
+                results.append(f"\nColumnas:")
                 cursor.execute(f"DESCRIBE `{table}`")
-                columns = [col[0] for col in cursor.fetchall()]
+                describe_rows = cursor.fetchall()
+                columns = []
+                for col in describe_rows:
+                    col_name = col[0]
+                    col_type = col[1] or ""
+                    col_null = "NULL" if col[2] == "YES" else "NOT NULL"
+                    col_default = f" default={col[4]}" if col[4] is not None else ""
+                    col_extra = f" {col[5]}" if col[5] else ""
+                    col_key = ""
+                    if col[3] == "PRI":
+                        col_key = " [PK]"
+                    elif col[3] == "UNI":
+                        col_key = " [UQ]"
+                    elif col[3] == "MUL":
+                        col_key = " [IDX]"
+                    columns.append(col_name)
+                    results.append(f"  {col_name} {col_type} {col_null}{col_key}{col_default}{col_extra}")
+                
+                # ── Clave primaria ──
+                try:
+                    cursor.execute("""
+                        SELECT COLUMN_NAME
+                        FROM INFORMATION_SCHEMA.KEY_COLUMN_USAGE
+                        WHERE TABLE_SCHEMA = %s
+                          AND TABLE_NAME = %s
+                          AND CONSTRAINT_NAME = 'PRIMARY'
+                        ORDER BY ORDINAL_POSITION
+                    """, (database, table))
+                    pk_cols = [row[0] for row in cursor.fetchall()]
+                    if pk_cols:
+                        results.append(f"\nPK: ({', '.join(pk_cols)})")
+                except Exception:
+                    pass
+                
+                # ── Índices (sin incluir PRIMARY) ──
+                try:
+                    cursor.execute(f"SHOW INDEX FROM `{table}`")
+                    index_rows = cursor.fetchall()
+                    indexes = {}
+                    for idx in index_rows:
+                        idx_name = idx[2]
+                        if idx_name == "PRIMARY":
+                            continue
+                        idx_unique = "UNIQUE" if idx[1] == 0 else ""
+                        idx_col = idx[4]
+                        if idx_name not in indexes:
+                            indexes[idx_name] = {"unique": idx_unique, "columns": []}
+                        indexes[idx_name]["columns"].append(idx_col)
+                    if indexes:
+                        results.append(f"\nÍndices:")
+                        for idx_name, info in indexes.items():
+                            u = " UNIQUE" if info['unique'] else ""
+                            results.append(f"  {idx_name}{u}: ({', '.join(info['columns'])})")
+                except Exception:
+                    pass
+                
+                # ── FK salientes ──
+                try:
+                    cursor.execute("""
+                        SELECT CONSTRAINT_NAME, COLUMN_NAME, REFERENCED_TABLE_NAME, REFERENCED_COLUMN_NAME
+                        FROM INFORMATION_SCHEMA.KEY_COLUMN_USAGE
+                        WHERE TABLE_SCHEMA = %s AND TABLE_NAME = %s AND REFERENCED_TABLE_NAME IS NOT NULL
+                        ORDER BY CONSTRAINT_NAME, ORDINAL_POSITION
+                    """, (database, table))
+                    fk_rows = cursor.fetchall()
+                    if fk_rows:
+                        fks = {}
+                        for fk in fk_rows:
+                            if fk[0] not in fks:
+                                fks[fk[0]] = {"cols": [], "ref_table": fk[2], "ref_cols": []}
+                            fks[fk[0]]["cols"].append(fk[1])
+                            fks[fk[0]]["ref_cols"].append(fk[3])
+                        results.append(f"\nFK salientes:")
+                        for fk_name, info in fks.items():
+                            results.append(f"  ({', '.join(info['cols'])}) → {info['ref_table']}({', '.join(info['ref_cols'])})")
+                except Exception:
+                    pass
+                
+                # ── FK entrantes ──
+                try:
+                    cursor.execute("""
+                        SELECT TABLE_NAME, COLUMN_NAME, CONSTRAINT_NAME, REFERENCED_COLUMN_NAME
+                        FROM INFORMATION_SCHEMA.KEY_COLUMN_USAGE
+                        WHERE TABLE_SCHEMA = %s AND REFERENCED_TABLE_NAME = %s
+                        ORDER BY TABLE_NAME, CONSTRAINT_NAME
+                    """, (database, table))
+                    ref_rows = cursor.fetchall()
+                    if ref_rows:
+                        refs = {}
+                        for ref in ref_rows:
+                            key = (ref[0], ref[2])
+                            if key not in refs:
+                                refs[key] = {"src_cols": [], "ref_cols": []}
+                            refs[key]["src_cols"].append(ref[1])
+                            refs[key]["ref_cols"].append(ref[3])
+                        results.append(f"\nFK entrantes:")
+                        for (src_table, _), info in refs.items():
+                            results.append(f"  {src_table}({', '.join(info['src_cols'])}) → ({', '.join(info['ref_cols'])})")
+                except Exception:
+                    pass
+                
+                # ── Muestra de datos ──
+                results.append(f"\nDatos ({limit} filas):")
                 results.append(",".join(columns))
                 
-                # Get sample data
                 cursor.execute(f"SELECT * FROM `{table}` LIMIT {limit}")
                 rows = cursor.fetchall()
                 
                 if rows:
                     for row in rows:
                         formatted_row = []
-                        for i, val in enumerate(row):
-                            # Format binary/long data representation
+                        for val in row:
                             if isinstance(val, (bytes, bytearray)):
-                                val_str = "<DATOS BINARIOS / GEOMETRÍA>"
+                                val_str = "<BIN>"
                             else:
                                 val_str = str(val) if val is not None else ""
                             formatted_row.append(val_str)
@@ -495,6 +627,15 @@ class DatabaseView(ttk.Frame):
             
         except Exception as e:
             messagebox.showerror("Error", f"Error obteniendo muestras: {e}")
+
+    @staticmethod
+    def _format_bytes(size):
+        """Formats a byte count into a human-readable string."""
+        for unit in ("B", "KB", "MB", "GB", "TB"):
+            if size < 1024:
+                return f"{size:.1f} {unit}"
+            size /= 1024
+        return f"{size:.1f} PB"
 
     def _on_copy_and_save(self):
         """Copies to clipboard and appends to codigo.txt."""
