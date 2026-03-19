@@ -4,6 +4,7 @@ from src.ui.styles import Styles
 from src.ui.tabs.code_view import CodeView
 from src.ui.tabs.doc_view import DocView
 from src.ui.tabs.database_view import DatabaseView
+from src.ui.tabs.prompting_view import PromptingView
 
 class MainLayout(ttk.Frame):
     """
@@ -31,6 +32,7 @@ class MainLayout(ttk.Frame):
 
         self._create_navbar()
         self._create_content_area()
+        self.is_navbar_visible = True
 
         # Initialize with Code View
         self.show_code_tab()
@@ -49,6 +51,7 @@ class MainLayout(ttk.Frame):
         self.nav_buttons_frame.columnconfigure(0, weight=1)
         self.nav_buttons_frame.columnconfigure(1, weight=1)
         self.nav_buttons_frame.columnconfigure(2, weight=1)
+        self.nav_buttons_frame.columnconfigure(3, weight=1)
 
         # Tab Buttons
         self.btn_code = ttk.Button(
@@ -75,6 +78,14 @@ class MainLayout(ttk.Frame):
         )
         self.btn_docs.grid(row=0, column=2, sticky="nsew", padx=0, pady=0)
 
+        self.btn_prompting = ttk.Button(
+            self.nav_buttons_frame,
+            text="Prompting",
+            style="Nav.TButton",
+            command=self.controller.show_prompting_view
+        )
+        self.btn_prompting.grid(row=0, column=3, sticky="nsew", padx=0, pady=0)
+
     def _create_content_area(self):
         """Creates the area where tab content will be displayed."""
         self.content_frame = ttk.Frame(self, style="Main.TFrame")
@@ -84,38 +95,73 @@ class MainLayout(ttk.Frame):
         self.code_view = CodeView(self.content_frame)
         self.doc_view = DocView(self.content_frame)
         self.database_view = DatabaseView(self.content_frame)
+        self.prompting_view = PromptingView(self.content_frame)
 
     def show_code_tab(self):
         """Displays the Code view."""
         self._clear_content()
+        self.doc_view.on_tab_hidden()
+        self.set_navbar_visible(True)
         self.code_view.pack(fill="both", expand=True)
         # Update button states (visual feedback)
         self.btn_code.state(["pressed", "disabled"]) 
         self.btn_docs.state(["!pressed", "!disabled"])
         self.btn_database.state(["!pressed", "!disabled"])
+        self.btn_prompting.state(["!pressed", "!disabled"])
         self.update_idletasks()
 
     def show_docs_tab(self):
         """Displays the Documentation view."""
         self._clear_content()
         self.doc_view.pack(fill="both", expand=True)
+        self.doc_view.on_tab_shown()
          # Update button states
         self.btn_code.state(["!pressed", "!disabled"])
         self.btn_docs.state(["pressed", "disabled"])
         self.btn_database.state(["!pressed", "!disabled"])
+        self.btn_prompting.state(["!pressed", "!disabled"])
         self.update_idletasks()
 
     def show_database_tab(self):
         """Displays the Database view."""
         self._clear_content()
+        self.doc_view.on_tab_hidden()
+        self.set_navbar_visible(True)
         self.database_view.pack(fill="both", expand=True)
         # Update button states
         self.btn_code.state(["!pressed", "!disabled"])
         self.btn_docs.state(["!pressed", "!disabled"])
         self.btn_database.state(["pressed", "disabled"])
+        self.btn_prompting.state(["!pressed", "!disabled"])
+        self.update_idletasks()
+
+    def show_prompting_tab(self):
+        """Displays the Prompting view."""
+        self._clear_content()
+        self.doc_view.on_tab_hidden()
+        self.set_navbar_visible(True)
+        self.prompting_view.pack(fill="both", expand=True)
+        # Update button states
+        self.btn_code.state(["!pressed", "!disabled"])
+        self.btn_docs.state(["!pressed", "!disabled"])
+        self.btn_database.state(["!pressed", "!disabled"])
+        self.btn_prompting.state(["pressed", "disabled"])
         self.update_idletasks()
 
     def _clear_content(self):
         """Unpacks all views from the content frame."""
         for widget in self.content_frame.winfo_children():
             widget.pack_forget()
+
+    def set_navbar_visible(self, is_visible):
+        """Shows or hides the top navigation bar."""
+        if self.is_navbar_visible == is_visible:
+            return
+
+        if is_visible:
+            self.navbar.grid()
+        else:
+            self.navbar.grid_remove()
+
+        self.is_navbar_visible = is_visible
+        self.update_idletasks()

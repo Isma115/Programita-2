@@ -274,6 +274,13 @@ class Controller:
         print("Logic: Switching to Database View")
         self.app.layout.show_database_tab()
 
+    def show_prompting_view(self):
+        """
+        Switch the main content area to the Prompting view.
+        """
+        print("Logic: Switching to Prompting View")
+        self.app.layout.show_prompting_tab()
+
     def replace_region_from_clipboard(self, region_name, content):
         """
         Bridges the hotkey trigger to the project manager.

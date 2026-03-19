@@ -7,7 +7,7 @@
         "COLOR_ACCENT": "#1E90FF",
         "COLOR_ACCENT_HOVER": "#1873cc"
     },
-    "arbitrary_step": 25,
+    "arbitrary_step": 120,
     "project_directories": [
         "/Users/ismaelmoraledalopez/Documents/Azure-Irrigation-Web/HidraSmart-Irrigation-System",
         "/Users/ismaelmoraledalopez/Desktop/Programita 2",
@@ -19,13 +19,15 @@
         "port": "3306",
         "user": "telemedida_alcazar",
         "password": "Hidra2023Alcazar",
-        "database": "hidrasmart_is"
+        "database": "hidrasmart_is_b2"
     },
     "doc_view_settings": {
         "is_dark_mode": true,
-        "is_editor_mode": false
+        "is_editor_mode": false,
+        "code_sash_ratio": 0.5174496644295302,
+        "is_fullscreen_mode": true
     },
-    "last_doc_section": "Ordenes riego",
-    "last_code_section": "Catastro",
+    "last_doc_section": "Gestor de Equipos",
+    "last_code_section": "Gestor de red",
     "implementation_mode": false
 }

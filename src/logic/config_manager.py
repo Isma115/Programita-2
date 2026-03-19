@@ -76,6 +76,15 @@ class ConfigManager:
         self.config["doc_path"] = path
         self.save_config()
 
+    def get_prompting_path(self):
+        """Returns the saved prompting folder path, or None."""
+        return self.config.get("prompting_path")
+
+    def set_prompting_path(self, path):
+        """Sets the prompting folder path and saves config."""
+        self.config["prompting_path"] = path
+        self.save_config()
+
     def get_file_limit(self):
         """Returns the file limit, defaulting to 100."""
         return self.config.get("file_limit", 100)
@@ -137,15 +146,32 @@ class ConfigManager:
         """Returns the saved DocView settings or default values."""
         return self.config.get("doc_view_settings", {
             "is_dark_mode": False,
-            "is_editor_mode": False
+            "is_editor_mode": False,
+            "code_sash_ratio": 0.7,
+            "is_fullscreen_mode": False
         })
 
-    def set_doc_view_settings(self, is_dark_mode, is_editor_mode):
+    def set_doc_view_settings(self, is_dark_mode, is_editor_mode, code_sash_ratio=None, is_fullscreen_mode=None):
         """Sets the DocView settings and saves config."""
-        self.config["doc_view_settings"] = {
+        settings = {
             "is_dark_mode": bool(is_dark_mode),
             "is_editor_mode": bool(is_editor_mode)
         }
+        if code_sash_ratio is not None:
+            try:
+                settings["code_sash_ratio"] = float(code_sash_ratio)
+            except Exception:
+                settings["code_sash_ratio"] = 0.7
+        else:
+            prev = self.config.get("doc_view_settings", {})
+            if "code_sash_ratio" in prev:
+                settings["code_sash_ratio"] = prev.get("code_sash_ratio")
+        if is_fullscreen_mode is not None:
+            settings["is_fullscreen_mode"] = bool(is_fullscreen_mode)
+        else:
+            prev = self.config.get("doc_view_settings", {})
+            settings["is_fullscreen_mode"] = bool(prev.get("is_fullscreen_mode", False))
+        self.config["doc_view_settings"] = settings
         self.save_config()
 
     def get_last_code_section(self):

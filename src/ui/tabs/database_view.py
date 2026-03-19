@@ -20,6 +20,7 @@ class DatabaseView(ttk.Frame):
         
         self.connection = None
         self.table_vars = {}  # Store BooleanVars for checkboxes
+        self.table_filter_var = tk.StringVar(value="")
         # Eliminamos la variable auto_refresh_job ya que no la necesitamos
         
         self._create_layout()
@@ -152,6 +153,26 @@ class DatabaseView(ttk.Frame):
             style="TLabelframe"
         )
         self.tables_frame.grid(row=1, column=0, sticky="nsew", padx=(0, 10), pady=(0, 0))
+
+        # Search bar for table names
+        search_frame = ttk.Frame(self.tables_frame, style="Main.TFrame")
+        search_frame.pack(fill="x", padx=5, pady=(5, 0))
+
+        ttk.Label(search_frame, text="Buscar:", style="TLabel").pack(side="left", padx=(0, 6))
+        self.ent_table_search = tk.Entry(
+            search_frame,
+            textvariable=self.table_filter_var,
+            font=Styles.FONT_MAIN,
+            bg=Styles.COLOR_INPUT_BG,
+            fg=Styles.COLOR_INPUT_FG,
+            insertbackground="white",
+            borderwidth=0,
+            highlightthickness=1,
+            highlightbackground=Styles.COLOR_BORDER,
+            highlightcolor=Styles.COLOR_ACCENT
+        )
+        self.ent_table_search.pack(side="left", fill="x", expand=True)
+        self.table_filter_var.trace_add("write", self._on_table_filter_change)
         
         # Scrollable frame for checkboxes
         self.canvas = tk.Canvas(
@@ -447,14 +468,8 @@ class DatabaseView(ttk.Frame):
                 table_name = table[0]
                 var = tk.BooleanVar(value=False)
                 self.table_vars[table_name] = var
-                
-                chk = ttk.Checkbutton(
-                    self.tables_inner_frame,
-                    text=table_name,
-                    variable=var,
-                    style="TCheckbutton"
-                )
-                chk.pack(anchor="w", padx=5, pady=2)
+
+            self._render_table_checkboxes()
                 
         except Exception as e:
             messagebox.showerror("Error", f"Error cargando tablas: {e}")
@@ -462,8 +477,32 @@ class DatabaseView(ttk.Frame):
     def _clear_tables(self):
         """Clears the tables list."""
         self.table_vars.clear()
+        self.table_filter_var.set("")
         for widget in self.tables_inner_frame.winfo_children():
             widget.destroy()
+
+    def _on_table_filter_change(self, *_):
+        """Applies a name filter to table checkboxes."""
+        self._render_table_checkboxes()
+
+    def _render_table_checkboxes(self):
+        """Renders table checkboxes respecting the current search filter."""
+        filter_text = self.table_filter_var.get().strip().lower()
+
+        for widget in self.tables_inner_frame.winfo_children():
+            widget.destroy()
+
+        for table_name in sorted(self.table_vars.keys()):
+            if filter_text and filter_text not in table_name.lower():
+                continue
+
+            chk = ttk.Checkbutton(
+                self.tables_inner_frame,
+                text=table_name,
+                variable=self.table_vars[table_name],
+                style="TCheckbutton"
+            )
+            chk.pack(anchor="w", padx=5, pady=2)
 
     def _on_get_samples(self):
         """Gets sample data and full metadata from selected tables."""

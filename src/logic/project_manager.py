@@ -8,9 +8,28 @@ class ProjectManager:
     
     # Supported code extensions
     CODE_EXTENSIONS = {
-        '.py', '.js', '.jsx', '.ts', '.tsx', '.html', '.css', 
-        '.java', '.cpp', '.c', '.h', '.cs', '.go', '.rs', '.php',
-        '.rb', '.swift', '.kt', '.sql', '.json', '.xml', '.yml', '.yaml'
+        '.c', '.cc', '.cpp', '.cxx', '.h', '.hh', '.hpp', '.hxx',
+        '.cs', '.vb', '.fs', '.fsx',
+        '.go', '.rs', '.zig',
+        '.java', '.kt', '.kts', '.scala', '.groovy', '.gradle',
+        '.swift', '.m', '.mm',
+        '.py', '.pyw', '.rb', '.php', '.phtml',
+        '.pl', '.pm', '.lua', '.r', '.jl', '.dart',
+        '.ex', '.exs', '.erl', '.hrl',
+        '.js', '.mjs', '.cjs', '.jsx', '.ts', '.tsx',
+        '.html', '.htm', '.xhtml', '.css', '.scss', '.sass', '.less',
+        '.vue', '.svelte', '.astro',
+        '.ejs', '.hbs', '.handlebars', '.mustache', '.njk', '.twig', '.jinja', '.jinja2', '.tpl',
+        '.sql', '.graphql', '.gql', '.proto',
+        '.json', '.jsonc', '.xml', '.xsd', '.xsl', '.wsdl',
+        '.yml', '.yaml', '.toml', '.ini', '.cfg', '.conf', '.properties',
+        '.sh', '.bash', '.zsh', '.fish', '.bat', '.cmd', '.ps1', '.psm1', '.psd1',
+        '.dockerignore', '.editorconfig'
+    }
+    CODE_FILENAMES = {
+        'Dockerfile', 'Containerfile', 'Makefile', 'CMakeLists.txt',
+        'Jenkinsfile', 'Procfile', 'Rakefile', 'Gemfile', 'Podfile',
+        'Brewfile', 'Vagrantfile'
     }
 
     def __init__(self, config_manager=None):
@@ -42,8 +61,7 @@ class ProjectManager:
                 continue
                 
             for filename in filenames:
-                ext = os.path.splitext(filename)[1].lower()
-                if ext in self.CODE_EXTENSIONS:
+                if self.is_code_file(filename):
                     full_path = os.path.join(root, filename)
                     try:
                         # Attempt to read file content to cache it (or at least verify it's text)
@@ -62,6 +80,13 @@ class ProjectManager:
     def get_files(self):
         """Returns the list of loaded files."""
         return self.files
+
+    @classmethod
+    def is_code_file(cls, filename):
+        """Returns True if the file should be treated as code/config/source."""
+        basename = os.path.basename(filename)
+        ext = os.path.splitext(basename)[1].lower()
+        return ext in cls.CODE_EXTENSIONS or basename in cls.CODE_FILENAMES
 
     def get_directory_tree(self):
         """
@@ -230,8 +255,7 @@ class ProjectManager:
             for filename in filenames:
                 if filename.startswith('.'):
                     continue
-                ext = os.path.splitext(filename)[1].lower()
-                if ext not in self.CODE_EXTENSIONS:
+                if not self.is_code_file(filename):
                     full_path = os.path.join(root, filename)
                     non_code.append({
                         'path': full_path,
