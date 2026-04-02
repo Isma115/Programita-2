@@ -323,6 +323,47 @@ class Controller:
         except Exception as e:
             return False, str(e)
 
+    def _get_doc_root(self):
+        """Returns the configured documentation root folder, if valid."""
+        doc_dir = self.config_manager.get_doc_path()
+        if not doc_dir:
+            return None
+        doc_dir = os.path.abspath(doc_dir)
+        if not os.path.isdir(doc_dir):
+            return None
+        return doc_dir
+
+    def _get_doc_sections(self):
+        """Returns available documentation sections as [(name, abs_path), ...]."""
+        doc_root = self._get_doc_root()
+        if not doc_root:
+            return []
+        sections = []
+        try:
+            for name in os.listdir(doc_root):
+                section_path = os.path.join(doc_root, name)
+                if os.path.isdir(section_path):
+                    sections.append((name, section_path))
+        except Exception:
+            return []
+        sections.sort(key=lambda item: item[0].lower())
+        return sections
+
+    def _get_markdown_files_for_section(self, section_path):
+        """Returns sorted markdown files inside a documentation section folder."""
+        files = []
+        if not section_path or not os.path.isdir(section_path):
+            return files
+        try:
+            for root, _, filenames in os.walk(section_path):
+                for filename in filenames:
+                    if filename.lower().endswith(".md"):
+                        files.append(os.path.join(root, filename))
+        except Exception:
+            return []
+        files.sort(key=lambda path: os.path.relpath(path, section_path).lower())
+        return files
+
     def get_all_searchable_assets(self):
         """
         Returns a flat list of all searchable project assets.
@@ -352,12 +393,12 @@ class Controller:
         except Exception:
             pass
 
-        # 3. Documentation sections
-        for section_name in self.section_manager.get_sections():
+        # 3. Documentation sections (folder-based structure)
+        for section_name, section_path in self._get_doc_sections():
             assets.append({
                 'name': section_name,
                 'type': 'doc',
-                'path': section_name
+                'path': section_path
             })
 
         # 4. Non-code files
@@ -406,7 +447,22 @@ class Controller:
             return result if result else f"--- Tabla: {table_name} ---\n(Sin datos disponibles)"
 
         elif asset_type == 'doc':
-            # Read documentation section content
+            # Folder-based doc sections (preferred)
+            if os.path.isdir(path):
+                section_path = path
+                section_name = os.path.basename(section_path.rstrip(os.sep))
+                section_files = self._get_markdown_files_for_section(section_path)
+                parts = [f"--- Sección Doc: {section_name} ---"]
+                for fpath in section_files:
+                    try:
+                        rel = os.path.relpath(fpath, section_path)
+                        with open(fpath, 'r', encoding='utf-8', errors='ignore') as fh:
+                            parts.append(f"\n--- {rel} ---\n{fh.read()}")
+                    except Exception:
+                        pass
+                return "\n".join(parts) if len(parts) > 1 else f"--- Sección Doc: {section_name} ---\n(Sin archivos)"
+
+            # Legacy fallback: section metadata from SectionManager
             section_name = path
             section_files = self.section_manager.get_files_in_section(section_name)
             parts = [f"--- Sección Doc: {section_name} ---"]

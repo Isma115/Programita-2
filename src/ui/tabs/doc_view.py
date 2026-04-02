@@ -1,10 +1,11 @@
 import tkinter as tk
-from tkinter import ttk, filedialog, messagebox
+from tkinter import ttk, filedialog, messagebox, simpledialog
 import os
 import webbrowser
 import logging
 import re
 import time
+import shutil
 from urllib.parse import quote, unquote
 from html import escape as html_escape
 from markdown_it import MarkdownIt
@@ -191,6 +192,15 @@ class DocView(ttk.Frame):
         
         self.btn_save = ttk.Button(self.actions_row, image=self.icons.get("save"), width=3, style="Action.TButton", command=self._on_save_doc)
         self.btn_save.pack(side="left", padx=5)
+
+        self.btn_prompt_template = ttk.Button(
+            self.actions_row,
+            text="{}",
+            width=4,
+            style="Nav.TButton",
+            command=self._open_prompt_builder
+        )
+        self.btn_prompt_template.pack(side="left", padx=5)
         
         self.btn_delete = ttk.Button(self.actions_row, image=self.icons.get("delete"), width=3, style="Secondary.TButton", command=self._on_delete_doc)
         self.btn_delete.pack(side="left", padx=5)
@@ -271,6 +281,12 @@ class DocView(ttk.Frame):
         )
         self.txt_content.pack(fill="both", expand=True)
         self.txt_content.bind("<KeyRelease>", self._on_content_change)
+        self.txt_content.bind("<Control-s>", self._on_save_doc_shortcut)
+        self.txt_content.bind("<Control-z>", self._on_undo_markdown_shortcut)
+        self.txt_content.bind("<Control-y>", self._on_redo_markdown_shortcut)
+        self.txt_content.bind("<Command-s>", self._on_save_doc_shortcut)
+        self.txt_content.bind("<Command-z>", self._on_undo_markdown_shortcut)
+        self.txt_content.bind("<Command-y>", self._on_redo_markdown_shortcut)
 
         # 2. Previewer (Visible by default)
         self.preview_frame = ttk.Frame(self.left_content_frame, style="Main.TFrame")
@@ -389,7 +405,31 @@ class DocView(ttk.Frame):
         if path:
             if self.controller and hasattr(self.controller, 'config_manager'):
                 self.controller.config_manager.set_doc_path(path)
-                self._on_section_select(force_reload=True)
+            self._refresh_sections()
+
+    def _get_doc_root(self):
+        if not self.controller or not hasattr(self.controller, "config_manager"):
+            return None
+        doc_dir = self.controller.config_manager.get_doc_path()
+        if not doc_dir:
+            return None
+        doc_dir = os.path.abspath(doc_dir)
+        if not os.path.isdir(doc_dir):
+            return None
+        return doc_dir
+
+    def _get_section_dir(self, section_name):
+        doc_dir = self._get_doc_root()
+        if not doc_dir:
+            return None
+        return os.path.join(doc_dir, section_name)
+
+    def _has_path_separator(self, value):
+        if os.sep in value:
+            return True
+        if os.altsep and os.altsep in value:
+            return True
+        return False
 
     def _on_section_select(self, event=None, force_reload=False):
         selected_indices = self.section_list.curselection()
@@ -415,27 +455,38 @@ class DocView(ttk.Frame):
         self._find_markdown_files(section_name)
 
     def _find_markdown_files(self, section_name, selected_file_path=None):
-        """Searches for .md files matching the section name."""
-        if not self.controller: return
-        doc_dir = self.controller.config_manager.get_doc_path()
-        if not doc_dir or not os.path.exists(doc_dir):
+        """Loads .md files from the selected section folder."""
+        section_dir = self._get_section_dir(section_name)
+        if not section_dir:
             self._display_message("⚠️ Carga una carpeta de documentación.")
+            self.cmb_files.config(values=[])
+            self.cmb_files.set("")
+            self.current_file_path = None
+            self.available_md_files = []
+            return
+        if not os.path.isdir(section_dir):
+            self._display_message(f"⚠️ No existe la carpeta de sección '{section_name}'.")
+            self.cmb_files.config(values=[])
+            self.cmb_files.set("")
+            self.current_file_path = None
+            self.available_md_files = []
             return
 
         self.available_md_files = []
         try:
-            for root, dirs, files in os.walk(doc_dir):
+            for root, _, files in os.walk(section_dir):
                 for file in files:
                     if file.lower().endswith('.md'):
-                        if section_name.lower() in file.lower():
-                            self.available_md_files.append(os.path.join(root, file))
+                        self.available_md_files.append(os.path.join(root, file))
         except Exception as e:
             logging.error(f"Search error: {e}")
 
-        self.available_md_files.sort(key=lambda path: os.path.basename(path).lower())
+        self.available_md_files.sort(
+            key=lambda path: os.path.relpath(path, section_dir).lower()
+        )
 
         # Update Combo
-        basenames = [os.path.basename(f) for f in self.available_md_files]
+        basenames = [os.path.relpath(f, section_dir) for f in self.available_md_files]
         self.cmb_files.config(values=basenames)
         
         if self.available_md_files:
@@ -489,30 +540,59 @@ class DocView(ttk.Frame):
         except Exception as e:
             messagebox.showerror("Error", f"Error al guardar: {e}")
 
+    def _on_save_doc_shortcut(self, event=None):
+        self._on_save_doc()
+        return "break"
+
+    def _on_undo_markdown_shortcut(self, event=None):
+        if str(self.txt_content.cget("state")) != "normal":
+            return "break"
+        try:
+            self.txt_content.edit_undo()
+        except tk.TclError:
+            return "break"
+        self._on_content_change()
+        return "break"
+
+    def _on_redo_markdown_shortcut(self, event=None):
+        if str(self.txt_content.cget("state")) != "normal":
+            return "break"
+        try:
+            self.txt_content.edit_redo()
+        except tk.TclError:
+            return "break"
+        self._on_content_change()
+        return "break"
+
     def _on_new_doc(self):
-        if not self.controller: return
-        doc_dir = self.controller.config_manager.get_doc_path()
-        if not doc_dir or not os.path.exists(doc_dir):
+        doc_dir = self._get_doc_root()
+        if not doc_dir:
             messagebox.showwarning("Aviso", "Primero carga una carpeta de documentación.")
             return
 
         # Get current section name as suggestion
         selected_indices = self.section_list.curselection()
-        suggestion = ""
-        section_name = None
-        if selected_indices:
-            section_name = self.section_list.get(selected_indices[0])
-            suggestion = section_name + ".md"
+        if not selected_indices:
+            messagebox.showwarning("Aviso", "Selecciona una sección para crear el documento.")
+            return
+        section_name = self.section_list.get(selected_indices[0])
+        suggestion = "documentacion.md"
 
         # Ask for filename
-        from tkinter import simpledialog
         filename = simpledialog.askstring("Nuevo Documento", "Nombre del archivo (.md):", initialvalue=suggestion)
         if not filename: return
+        filename = filename.strip()
+        if not filename:
+            messagebox.showwarning("Aviso", "El nombre del documento no puede estar vacío.")
+            return
+        if self._has_path_separator(filename):
+            messagebox.showwarning("Aviso", "El nombre del documento no puede contener separadores de ruta.")
+            return
         if not filename.endswith(".md"): filename += ".md"
-        if section_name and section_name.lower() not in filename.lower():
-            filename = f"{section_name} - {filename}"
 
-        file_path = os.path.join(doc_dir, filename)
+        section_dir = os.path.join(doc_dir, section_name)
+        os.makedirs(section_dir, exist_ok=True)
+        file_path = os.path.join(section_dir, filename)
         if os.path.exists(file_path):
             if not messagebox.askyesno("Confirmar", "El archivo ya existe. ¿Sobrescribir?"):
                 return
@@ -522,12 +602,8 @@ class DocView(ttk.Frame):
                 f.write(f"# {filename[:-3]}\n\n")
             
             # Refresh current section view to find the new file
-            if section_name:
-                self._last_selected_section = section_name
-                self._find_markdown_files(section_name, selected_file_path=file_path)
-            else:
-                # If no section selected, just open it
-                self._display_file_content(file_path)
+            self._last_selected_section = section_name
+            self._find_markdown_files(section_name, selected_file_path=file_path)
         except Exception as e:
             messagebox.showerror("Error", f"No se pudo crear: {e}")
 
@@ -542,6 +618,236 @@ class DocView(ttk.Frame):
                 self._on_section_select(force_reload=True) # Refresh
             except Exception as e:
                 messagebox.showerror("Error", f"No se pudo borrar: {e}")
+
+    def _build_documentation_prompt(self, functionality_name):
+        functionality_name = (functionality_name or "").strip()
+
+        return (
+            f"Genera un documento markdown para conocer de forma simple y directa el flujo de la funcionalidad del software "
+            f"\"{functionality_name}\".\n\n"
+            "Junto con referencias al código y funciones, variables o elementos importantes relacionados con el flujo. "
+            "Incluye una pequeña descripción de lo que hace cada paso y documenta cada funcionalidad implicada. "
+            "Agrega trozos de código en cada apartado para saber qué código se está ejecutando en cada paso.\n\n"
+            "Estructura obligatoria del documento:\n"
+            "1. Primero escribe el flujo en lenguaje no técnico, simple y directo.\n"
+            "2. Después añade el apartado equivalente en lenguaje técnico.\n"
+            "3. Divide el documento por pasos claros del flujo.\n"
+            "4. En cada paso, indica referencias al código relacionado.\n"
+            "5. Señala funciones, variables, componentes, endpoints, consultas o tablas importantes si aplica.\n"
+            "6. Añade fragmentos de código útiles y concretos en cada apartado.\n\n"
+            "Formato esperado:\n"
+            "- Documento en Markdown.\n"
+            "- Explicación clara y directa.\n"
+            "- Primero visión funcional y después visión técnica.\n"
+            "- Código de apoyo en cada sección relevante.\n\n"
+            "Guarda el documento en docs."
+        )
+
+    def _build_optimization_prompt(self, target_name):
+        target_name = (target_name or "").strip()
+
+        return (
+            f"Genera un documento markdown con un plan claro para optimizar la parte del código "
+            f"\"{target_name}\".\n\n"
+            "El objetivo es hacer esa zona más legible, mantenible y eficiente sin romper el comportamiento actual. "
+            "Analiza nombres, responsabilidades, complejidad, duplicidad, estructura, posibles mejoras de rendimiento "
+            "y riesgos del refactor.\n\n"
+            "Estructura obligatoria del documento:\n"
+            "1. Resume qué hace actualmente esa parte del código en lenguaje simple.\n"
+            "2. Describe los problemas detectados de legibilidad, diseño, mantenimiento y rendimiento.\n"
+            "3. Propón una secuencia de pasos concreta para optimizarla.\n"
+            "4. En cada paso, indica archivos, funciones, clases, variables o componentes implicados.\n"
+            "5. Explica el beneficio esperado de cada cambio.\n"
+            "6. Añade fragmentos de código o pseudocódigo cuando ayuden a entender el cambio.\n"
+            "7. Cierra con una checklist de validación para confirmar que el refactor no rompe nada.\n\n"
+            "Formato esperado:\n"
+            "- Documento en Markdown.\n"
+            "- Pasos ordenados y accionables.\n"
+            "- Explicación directa, sin relleno.\n"
+            "- Con referencias concretas al código.\n\n"
+            "Guarda el documento en docs."
+        )
+
+    def _build_test_prompt(self, feature_name):
+        feature_name = (feature_name or "").strip()
+
+        return (
+            f"Propón una prueba manual para validar la característica del software "
+            f"\"{feature_name}\".\n\n"
+            "El objetivo es definir una comprobación simple, clara y fácil de seguir para verificar manualmente que "
+            "esa característica funciona correctamente.\n\n"
+            "Estructura obligatoria del documento:\n"
+            "1. Resume qué se quiere comprobar y cuál es el comportamiento esperado de la característica.\n"
+            "2. Indica el contexto previo necesario para hacer la prueba manual.\n"
+            "3. Describe los pasos exactos que debe seguir una persona dentro de la app/web/software.\n"
+            "4. Explica qué debe comprobar manualmente en cada paso.\n"
+            "5. Indica el resultado esperado final para dar la prueba por válida.\n"
+            "6. Añade una breve lista de señales claras de que la prueba ha fallado.\n\n"
+            "Formato esperado:\n"
+            "- Documento en Markdown.\n"
+            "- Explicación directa y accionable.\n"
+            "- Pasos numerados y fáciles de seguir.\n"
+            "- Solo prueba manual, sin tests automáticos.\n\n"
+            "Guarda el documento en docs."
+        )
+
+    def _open_prompt_builder(self):
+        dialog = tk.Toplevel(self)
+        dialog.title("Construir Prompt")
+        dialog.transient(self.winfo_toplevel())
+        dialog.grab_set()
+        dialog.geometry("980x700")
+        dialog.minsize(760, 520)
+        dialog.configure(bg=Styles.COLOR_BG_MAIN)
+
+        wrapper = ttk.Frame(dialog, style="Main.TFrame")
+        wrapper.pack(fill="both", expand=True, padx=12, pady=12)
+
+        prompt_configs = [
+            {
+                "name": "Documentación",
+                "input_label": "Funcionalidad",
+                "placeholder": "[FUNCIONALIDAD]",
+                "builder": self._build_documentation_prompt,
+            },
+            {
+                "name": "Optimización",
+                "input_label": "Parte del código",
+                "placeholder": "[PARTE_CODIGO]",
+                "builder": self._build_optimization_prompt,
+            },
+            {
+                "name": "Test",
+                "input_label": "Característica a probar",
+                "placeholder": "[CARACTERISTICA]",
+                "builder": self._build_test_prompt,
+            },
+        ]
+        prompt_index = {"value": 0}
+        prompt_title_var = tk.StringVar()
+        input_label_var = tk.StringVar()
+
+        selector_row = ttk.Frame(wrapper, style="Main.TFrame")
+        selector_row.pack(fill="x", pady=(0, 12))
+
+        ttk.Button(
+            selector_row,
+            text="←",
+            width=3,
+            style="Nav.TButton",
+            command=lambda: switch_prompt(-1)
+        ).pack(side="left")
+
+        ttk.Label(
+            selector_row,
+            textvariable=prompt_title_var,
+            style="Header.TLabel"
+        ).pack(side="left", padx=10)
+
+        ttk.Button(
+            selector_row,
+            text="→",
+            width=3,
+            style="Nav.TButton",
+            command=lambda: switch_prompt(1)
+        ).pack(side="left")
+
+        ttk.Label(
+            selector_row,
+            text="Ctrl/Cmd + ← o → para cambiar",
+            style="TLabel"
+        ).pack(side="right")
+
+        ttk.Label(wrapper, textvariable=input_label_var, style="Header.TLabel").pack(fill="x")
+
+        functionality_var = tk.StringVar()
+
+        entry = tk.Entry(
+            wrapper,
+            textvariable=functionality_var,
+            font=("Segoe UI", 16),
+            bg=Styles.COLOR_INPUT_BG,
+            fg=Styles.COLOR_FG_TEXT,
+            insertbackground=Styles.COLOR_FG_TEXT,
+            relief="flat"
+        )
+        entry.pack(fill="x", pady=(10, 12), ipady=10)
+
+        ttk.Label(wrapper, text="Plantilla del prompt", style="TLabel").pack(anchor="w")
+
+        prompt_text = tk.Text(
+            wrapper,
+            font=("Consolas", 12),
+            bg=Styles.COLOR_INPUT_BG,
+            fg=Styles.COLOR_FG_TEXT,
+            insertbackground=Styles.COLOR_FG_TEXT,
+            relief="flat",
+            wrap="word",
+            padx=12,
+            pady=12
+        )
+        prompt_text.pack(fill="both", expand=True, pady=(8, 12))
+
+        prompt_scroll = ttk.Scrollbar(wrapper, orient="vertical", command=prompt_text.yview)
+        prompt_scroll.place(relx=1.0, rely=0.23, relheight=0.66, anchor="ne")
+        prompt_text.configure(yscrollcommand=prompt_scroll.set)
+
+        def refresh_prompt(event=None):
+            config = prompt_configs[prompt_index["value"]]
+            functionality_name = functionality_var.get().strip() or config["placeholder"]
+            prompt = config["builder"](functionality_name)
+            prompt_text.delete("1.0", tk.END)
+            prompt_text.insert("1.0", prompt)
+
+        def sync_prompt_selector():
+            config = prompt_configs[prompt_index["value"]]
+            prompt_title_var.set(f"Prompt: {config['name']}")
+            input_label_var.set(config["input_label"])
+
+        def switch_prompt(delta):
+            prompt_index["value"] = (prompt_index["value"] + delta) % len(prompt_configs)
+            sync_prompt_selector()
+            refresh_prompt()
+
+        def on_prev_prompt(event=None):
+            switch_prompt(-1)
+            return "break"
+
+        def on_next_prompt(event=None):
+            switch_prompt(1)
+            return "break"
+
+        def copy_prompt():
+            content = prompt_text.get("1.0", "end-1c").strip()
+            if not content:
+                return
+            try:
+                if self.controller and hasattr(self.controller, "copy_to_clipboard"):
+                    copied = self.controller.copy_to_clipboard(content)
+                    if copied:
+                        messagebox.showinfo("Prompt", "Prompt copiado al portapapeles.")
+                        return
+                self.clipboard_clear()
+                self.clipboard_append(content)
+                messagebox.showinfo("Prompt", "Prompt copiado al portapapeles.")
+            except Exception as e:
+                messagebox.showerror("Error", f"No se pudo copiar el prompt: {e}")
+
+        button_row = ttk.Frame(wrapper, style="Main.TFrame")
+        button_row.pack(fill="x")
+
+        ttk.Button(button_row, text="Copiar prompt", style="Action.TButton", command=copy_prompt).pack(side="right", padx=(8, 0))
+        ttk.Button(button_row, text="Cerrar", style="Secondary.TButton", command=dialog.destroy).pack(side="right")
+
+        functionality_var.trace_add("write", lambda *_: refresh_prompt())
+        dialog.bind("<Escape>", lambda event: dialog.destroy())
+        dialog.bind("<Control-Left>", on_prev_prompt)
+        dialog.bind("<Control-Right>", on_next_prompt)
+        dialog.bind("<Command-Left>", on_prev_prompt)
+        dialog.bind("<Command-Right>", on_next_prompt)
+        entry.focus_set()
+        sync_prompt_selector()
+        refresh_prompt()
 
     def _display_message(self, message):
 
@@ -1075,68 +1381,175 @@ class DocView(ttk.Frame):
             print(f"Error showing context menu: {e}")
 
     def _on_add_section(self):
-        from src.ui.popups.section_creation_popup import SectionCreationPopup
+        doc_dir = self._get_doc_root()
+        if not doc_dir:
+            messagebox.showwarning("Aviso", "Primero carga una carpeta de documentación.")
+            return
+
+        section_name = simpledialog.askstring("Nueva Sección", "Nombre de la nueva sección:")
+        if not section_name:
+            return
+        section_name = section_name.strip()
+        if not section_name:
+            messagebox.showwarning("Aviso", "El nombre de la sección no puede estar vacío.")
+            return
+        if self._has_path_separator(section_name):
+            messagebox.showwarning("Aviso", "El nombre de la sección no puede contener separadores de ruta.")
+            return
+
+        section_dir = os.path.join(doc_dir, section_name)
+        if os.path.exists(section_dir):
+            messagebox.showwarning("Aviso", "Esa sección ya existe.")
+            return
+
         try:
-            popup = SectionCreationPopup(self, self.controller)
-            self.wait_window(popup)
+            os.makedirs(section_dir, exist_ok=False)
             self._refresh_sections()
+            sections = list(self.section_list.get(0, tk.END))
+            if section_name in sections:
+                idx = sections.index(section_name)
+                self.section_list.selection_clear(0, tk.END)
+                self.section_list.selection_set(idx)
+                self.section_list.activate(idx)
+                self._on_section_select(force_reload=True)
         except Exception as e:
-            print(f"Error opening popup: {e}")
-            messagebox.showerror("Error", f"Error abriendo popup: {e}")
+            messagebox.showerror("Error", f"No se pudo crear la sección: {e}")
 
     def _on_edit_section(self):
         selected_indices = self.section_list.curselection()
         if not selected_indices:
             messagebox.showwarning("Aviso", "Selecciona una sección para editar.")
             return
-            
-        section_name = self.section_list.get(selected_indices[0])
-        files = self.controller.section_manager.get_files_in_section(section_name)
-        tables = self.controller.section_manager.get_tables_in_section(section_name)
-        
-        from src.ui.popups.section_creation_popup import SectionCreationPopup
+
+        doc_dir = self._get_doc_root()
+        if not doc_dir:
+            messagebox.showwarning("Aviso", "Primero carga una carpeta de documentación.")
+            return
+
+        old_name = self.section_list.get(selected_indices[0])
+        new_name = simpledialog.askstring("Renombrar Sección", "Nuevo nombre:", initialvalue=old_name)
+        if not new_name:
+            return
+        new_name = new_name.strip()
+        if not new_name:
+            messagebox.showwarning("Aviso", "El nombre de la sección no puede estar vacío.")
+            return
+        if self._has_path_separator(new_name):
+            messagebox.showwarning("Aviso", "El nombre de la sección no puede contener separadores de ruta.")
+            return
+        if new_name == old_name:
+            return
+
+        old_path = os.path.join(doc_dir, old_name)
+        new_path = os.path.join(doc_dir, new_name)
+        if os.path.exists(new_path):
+            messagebox.showwarning("Aviso", "Ya existe otra sección con ese nombre.")
+            return
+
         try:
-            popup = SectionCreationPopup(self, self.controller, section_name=section_name, initial_files=files, initial_tables=tables)
-            self.wait_window(popup)
+            os.rename(old_path, new_path)
             self._refresh_sections()
+            sections = list(self.section_list.get(0, tk.END))
+            if new_name in sections:
+                idx = sections.index(new_name)
+                self.section_list.selection_clear(0, tk.END)
+                self.section_list.selection_set(idx)
+                self.section_list.activate(idx)
+                self._on_section_select(force_reload=True)
         except Exception as e:
-            print(f"Error opening popup for edit: {e}")
-            messagebox.showerror("Error", f"Error abriendo popup: {e}")
+            messagebox.showerror("Error", f"No se pudo renombrar la sección: {e}")
 
     def _on_delete_section(self):
         selected_indices = self.section_list.curselection()
-        if not selected_indices: return
-        name = self.section_list.get(selected_indices[0])
-        self.controller.section_manager.delete_section(name)
-        self._refresh_sections()
+        if not selected_indices:
+            return
 
-    def _on_delete_section(self):
-        selected_indices = self.section_list.curselection()
-        if not selected_indices: return
+        doc_dir = self._get_doc_root()
+        if not doc_dir:
+            messagebox.showwarning("Aviso", "Primero carga una carpeta de documentación.")
+            return
+
         name = self.section_list.get(selected_indices[0])
-        self.controller.section_manager.delete_section(name)
+        section_dir = os.path.join(doc_dir, name)
+        if not os.path.isdir(section_dir):
+            self._refresh_sections()
+            return
+
+        confirm = messagebox.askyesno(
+            "Eliminar sección",
+            f"¿Eliminar la sección '{name}' y todos sus documentos?"
+        )
+        if not confirm:
+            return
+
+        try:
+            shutil.rmtree(section_dir)
+        except Exception as e:
+            messagebox.showerror("Error", f"No se pudo eliminar la sección: {e}")
+            return
+
+        if self._last_selected_section == name:
+            self._last_selected_section = None
+            if self.controller and hasattr(self.controller, "config_manager"):
+                self.controller.config_manager.set_last_doc_section("")
+            self.current_file_path = None
+            self.available_md_files = []
+            self.cmb_files.config(values=[])
+            self.cmb_files.set("")
+            self._display_message("Selecciona una sección.")
+
         self._refresh_sections()
 
     def _refresh_sections(self):
         self.section_list.delete(0, tk.END)
-        if self.controller and hasattr(self.controller, 'section_manager'):
-            sections = self.controller.section_manager.get_sections()
-            for s in sections:
-                self.section_list.insert(tk.END, s)
-                
-            # Restore last selection
-            if hasattr(self.controller, 'config_manager'):
-                last_section = self.controller.config_manager.get_last_doc_section()
-                if last_section:
-                    try:
-                        idx = sections.index(last_section)
-                        self.section_list.selection_set(idx)
-                        self.section_list.activate(idx)
-                        # We don't auto-load files to avoid heavy startup, 
-                        # or we can if desired. Let's auto-load for better UX.
-                        self._on_section_select() 
-                    except ValueError:
-                        pass
+        doc_dir = self._get_doc_root()
+        if not doc_dir:
+            self._last_selected_section = None
+            self.available_md_files = []
+            self.current_file_path = None
+            self.cmb_files.config(values=[])
+            self.cmb_files.set("")
+            self._display_message("⚠️ Carga una carpeta de documentación.")
+            return
+
+        sections = []
+        try:
+            for name in os.listdir(doc_dir):
+                full_path = os.path.join(doc_dir, name)
+                if os.path.isdir(full_path):
+                    sections.append(name)
+        except Exception as e:
+            logging.error(f"Error loading section folders: {e}")
+            self._display_message("⚠️ No se pudieron cargar las secciones.")
+            return
+
+        sections.sort(key=str.lower)
+        for section_name in sections:
+            self.section_list.insert(tk.END, section_name)
+
+        if not sections:
+            self._last_selected_section = None
+            self.available_md_files = []
+            self.current_file_path = None
+            self.cmb_files.config(values=[])
+            self.cmb_files.set("")
+            self._display_message("No hay secciones en la carpeta de documentación.")
+            return
+
+        # Restore last selection, fallback to first section
+        last_section = None
+        if self.controller and hasattr(self.controller, "config_manager"):
+            last_section = self.controller.config_manager.get_last_doc_section()
+
+        if last_section in sections:
+            target_section = last_section
+        else:
+            target_section = sections[0]
+
+        idx = sections.index(target_section)
+        self.section_list.selection_set(idx)
+        self.section_list.activate(idx)
+        self._on_section_select(force_reload=True)
 
     def _toggle_mode(self):
         """Toggles between Editor and Viewer modes."""
@@ -1387,10 +1800,17 @@ class DocView(ttk.Frame):
             def render_wrapped_open(block_kind, wrapper_class, render_tag_first=False):
                 def renderer(tokens, idx, options, env):
                     token = tokens[idx]
+                    stack = env.setdefault("editable_wrapper_stack", [])
+                    is_nested = len(stack) > 0
+                    
                     block_id = self._register_editable_block(token, block_kind, content)
-                    button_html = self._build_edit_button_html(block_id)
+                    
+                    # Only show edit button for the outermost block to avoid duplicate pencils
+                    button_html = self._build_edit_button_html(block_id) if not is_nested else ""
                     anchor_id = self._editable_blocks.get(block_id, {}).get("anchor_id", "")
-                    env.setdefault("editable_wrapper_stack", []).append(wrapper_class)
+                    
+                    stack.append(wrapper_class)
+                    
                     open_html = md.renderer.renderToken(tokens, idx, options, env)
                     if render_tag_first:
                         return open_html + f'<div id="{anchor_id}" class="editable-block {wrapper_class}">{button_html}'
@@ -1415,16 +1835,23 @@ class DocView(ttk.Frame):
                 language_hint = ""
                 if token.info:
                     language_hint = token.info.strip().split()[0]
+                
+                stack = env.setdefault("editable_wrapper_stack", [])
+                is_nested = len(stack) > 0
+                
                 block_id = self._register_editable_block(token, "bloque de código", content)
-                button_html = self._build_edit_button_html(block_id)
+                button_html = self._build_edit_button_html(block_id) if not is_nested else ""
                 anchor_id = self._editable_blocks.get(block_id, {}).get("anchor_id", "")
                 highlighted = self._render_markdown_code_block(token.content, language_hint, self.is_dark_mode)
                 return f'<div id="{anchor_id}" class="editable-block editable-code">{button_html}<pre class="code-block"><code>{highlighted}</code></pre></div>'
 
             def render_code_block(tokens, idx, options, env):
                 token = tokens[idx]
+                stack = env.setdefault("editable_wrapper_stack", [])
+                is_nested = len(stack) > 0
+                
                 block_id = self._register_editable_block(token, "bloque de código", content)
-                button_html = self._build_edit_button_html(block_id)
+                button_html = self._build_edit_button_html(block_id) if not is_nested else ""
                 anchor_id = self._editable_blocks.get(block_id, {}).get("anchor_id", "")
                 highlighted = self._render_markdown_code_block(token.content, "", self.is_dark_mode)
                 return f'<div id="{anchor_id}" class="editable-block editable-code">{button_html}<pre class="code-block"><code>{highlighted}</code></pre></div>'
