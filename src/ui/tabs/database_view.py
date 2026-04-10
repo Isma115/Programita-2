@@ -2,6 +2,7 @@ import tkinter as tk
 from tkinter import ttk, messagebox
 import os
 from src.ui.styles import Styles
+from src.ui.tooltip import attach_tooltip
 
 class DatabaseView(ttk.Frame):
     """
@@ -117,6 +118,7 @@ class DatabaseView(ttk.Frame):
             command=self._on_connect
         )
         self.btn_connect.pack(side="left", padx=5)
+        attach_tooltip(self.btn_connect, "Abrir conexión")
         
         self.btn_disconnect = ttk.Button(
             btn_frame,
@@ -126,6 +128,7 @@ class DatabaseView(ttk.Frame):
             state="disabled"
         )
         self.btn_disconnect.pack(side="left", padx=5)
+        attach_tooltip(self.btn_disconnect, "Cerrar conexión")
         
         # Nuevo botón: Reiniciar Conexión
         self.btn_reconnect = ttk.Button(
@@ -136,6 +139,7 @@ class DatabaseView(ttk.Frame):
             state="disabled"
         )
         self.btn_reconnect.pack(side="left", padx=5)
+        attach_tooltip(self.btn_reconnect, "Reiniciar conexión")
         
         # Status label
         self.lbl_status = ttk.Label(
@@ -275,6 +279,7 @@ class DatabaseView(ttk.Frame):
             state="disabled"
         )
         self.btn_sample.pack(side="left", padx=5)
+        attach_tooltip(self.btn_sample, "Tomar muestras")
         
         # Sample rows selector
         lbl_rows = ttk.Label(export_frame, text="Filas:", style="TLabel")
@@ -306,6 +311,7 @@ class DatabaseView(ttk.Frame):
             command=self._on_copy_and_save
         )
         self.btn_export.pack(side="left", padx=5)
+        attach_tooltip(self.btn_export, "Copiar guardar")
         
         self.btn_clear = ttk.Button(
             export_frame,
@@ -314,6 +320,7 @@ class DatabaseView(ttk.Frame):
             command=self._on_clear_results
         )
         self.btn_clear.pack(side="right", padx=5)
+        attach_tooltip(self.btn_clear, "Limpiar panel")
 
     def _on_connect(self):
         """Handles connection button click."""

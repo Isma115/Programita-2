@@ -1,5 +1,7 @@
 import tkinter as tk
+import tkinter.font as tkfont
 from tkinter import ttk, filedialog, messagebox, simpledialog
+import io
 import os
 import webbrowser
 import logging
@@ -10,13 +12,21 @@ from urllib.parse import quote, unquote
 from html import escape as html_escape
 from markdown_it import MarkdownIt
 from tkinterweb import HtmlFrame
-from PIL import Image, ImageTk
+from PIL import Image, ImageDraw, ImageTk
 from pygments import highlight as pygments_highlight
 from pygments.formatters import HtmlFormatter
 from pygments.lexers import TextLexer, get_lexer_by_name, guess_lexer
 from pygments.style import Style
 from pygments.token import Comment, Keyword, Name, Number, Operator, String, Text
+from src.ui.popups.diagram_editor import DiagramEditorWindow
 from src.ui.styles import Styles
+from src.ui.tooltip import attach_tooltip
+try:
+    import cairosvg
+    CAIROSVG_AVAILABLE = True
+except Exception:
+    cairosvg = None
+    CAIROSVG_AVAILABLE = False
 try:
     from src.addons.Arbitrary_sus import create_styled_text_widget as arb_create_styled_text_widget
     from src.addons.Arbitrary_sus import highlight_syntax as arb_highlight_syntax
@@ -55,10 +65,18 @@ class VsCodeDarkStyle(Style):
         Comment: "italic #6a9955",
         Keyword: "#569cd6",
         Operator: "#d4d4d4",
+        Operator.Word: "#569cd6",
+        Name: "#9cdcfe",
         Name.Builtin: "#4ec9b0",
         Name.Function: "#dcdcaa",
         Name.Class: "#4ec9b0",
         Name.Decorator: "#c586c0",
+        Name.Attribute: "#9cdcfe",
+        Name.Variable: "#9cdcfe",
+        Name.Variable.Instance: "#9cdcfe",
+        Name.Variable.Class: "#9cdcfe",
+        Name.Variable.Global: "#9cdcfe",
+        Name.Other: "#9cdcfe",
         String: "#ce9178",
         Number: "#b5cea8",
     }
@@ -88,6 +106,36 @@ class DocView(ttk.Frame):
     """
     DRAG_SASH_WIDTH = 18
     DRAG_HANDLE_SIZE = 14
+    MARKDOWN_EDITOR_INDENT = "    "
+    MARKDOWN_PREVIEW_ZOOM = 1.2
+    MARKDOWN_PREVIEW_FONTSCALE = 1.08
+    MARKDOWN_PREVIEW_ZOOM_STEP = 0.1
+    MARKDOWN_PREVIEW_ZOOM_MIN = 0.8
+    MARKDOWN_PREVIEW_ZOOM_MAX = 2.2
+    FULLSCREEN_ENTER_SVG = """
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="#f2f3f5" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M9 9L4 4"/>
+      <path d="M4 8V4H8"/>
+      <path d="M15 9L20 4"/>
+      <path d="M16 4H20V8"/>
+      <path d="M9 15L4 20"/>
+      <path d="M4 16V20H8"/>
+      <path d="M15 15L20 20"/>
+      <path d="M16 20H20V16"/>
+    </svg>
+    """
+    FULLSCREEN_EXIT_SVG = """
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="#f2f3f5" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M4 4L9 9"/>
+      <path d="M5 9H9V5"/>
+      <path d="M20 4L15 9"/>
+      <path d="M15 5V9H19"/>
+      <path d="M4 20L9 15"/>
+      <path d="M5 15H9V19"/>
+      <path d="M20 20L15 15"/>
+      <path d="M15 19V15H19"/>
+    </svg>
+    """
 
     def __init__(self, parent):
         super().__init__(parent, style="Main.TFrame")
@@ -107,6 +155,23 @@ class DocView(ttk.Frame):
         self._editable_block_seq = 0
         self._pending_web_view_scroll = None
         self._pending_web_view_fragment = None
+        self._code_highlight_job = None
+        self._doc_search_job = None
+        self._active_code_file_path = None
+        self._active_code_line_no = None
+        self._is_code_dirty = False
+        self.doc_search_results = []
+        self.doc_search_selected_index = 0
+        self.doc_search_placeholder = "Buscar..."
+        self._doc_search_placeholder_active = False
+        self.diagram_editor_window = None
+        self.all_sections = []
+        self.filtered_sections = []
+        self.doc_path_options = {}
+        self.markdown_preview_zoom = self.MARKDOWN_PREVIEW_ZOOM
+        self.markdown_preview_fontscale = self.MARKDOWN_PREVIEW_FONTSCALE
+        self.code_font_family = self._resolve_code_font_family()
+        self.code_font_size = ARB_FONT_CODE[1] if ARB_FONT_CODE else 14
 
         try:
             self.controller = parent.master.controller
@@ -125,16 +190,39 @@ class DocView(ttk.Frame):
             self.is_editor_mode = settings.get("is_editor_mode", False)
             self.code_sash_ratio = settings.get("code_sash_ratio", 0.7)
             self.is_fullscreen_mode = settings.get("is_fullscreen_mode", False)
+            self.markdown_preview_zoom = settings.get("markdown_preview_zoom", self.MARKDOWN_PREVIEW_ZOOM)
         else:
             self.code_sash_ratio = 0.7
+            self.markdown_preview_zoom = self.MARKDOWN_PREVIEW_ZOOM
         try:
             self.code_sash_ratio = float(self.code_sash_ratio)
         except Exception:
             self.code_sash_ratio = 0.7
         self.code_sash_ratio = max(0.2, min(0.9, self.code_sash_ratio))
+        try:
+            self.markdown_preview_zoom = float(self.markdown_preview_zoom)
+        except Exception:
+            self.markdown_preview_zoom = self.MARKDOWN_PREVIEW_ZOOM
+        self.markdown_preview_zoom = max(
+            self.MARKDOWN_PREVIEW_ZOOM_MIN,
+            min(self.markdown_preview_zoom, self.MARKDOWN_PREVIEW_ZOOM_MAX)
+        )
+        self.markdown_preview_fontscale = self._compute_markdown_preview_fontscale(self.markdown_preview_zoom)
 
         self._load_icons()
         self._create_layout()
+
+    def _resolve_code_font_family(self):
+        preferred_families = ["Consolas", "Menlo", "Monaco", "Courier New", "Courier"]
+        try:
+            available = set(tkfont.families())
+        except Exception:
+            return "Consolas"
+
+        for family in preferred_families:
+            if family in available:
+                return family
+        return "Courier"
 
     def _load_icons(self):
         """Loads icons from assets directory."""
@@ -152,6 +240,75 @@ class DocView(ttk.Frame):
                     self.icons[name] = None
         except Exception as e:
             logging.error(f"Error loading icons: {e}")
+        self.icons["fullscreen_enter"] = self._create_svg_icon(self.FULLSCREEN_ENTER_SVG, mode="enter")
+        self.icons["fullscreen_exit"] = self._create_svg_icon(self.FULLSCREEN_EXIT_SVG, mode="exit")
+
+    def _create_svg_icon(self, svg_markup, mode, size=(22, 22)):
+        try:
+            if CAIROSVG_AVAILABLE:
+                png_bytes = cairosvg.svg2png(
+                    bytestring=svg_markup.encode("utf-8"),
+                    output_width=size[0],
+                    output_height=size[1]
+                )
+                image = Image.open(io.BytesIO(png_bytes)).convert("RGBA")
+                return ImageTk.PhotoImage(image)
+        except Exception as e:
+            logging.warning(f"Error rendering SVG icon '{mode}': {e}")
+
+        return ImageTk.PhotoImage(self._draw_fullscreen_fallback_icon(mode, size))
+
+    def _draw_fullscreen_fallback_icon(self, mode, size):
+        upscale = 6
+        large_size = (size[0] * upscale, size[1] * upscale)
+        image = Image.new("RGBA", large_size, (0, 0, 0, 0))
+        draw = ImageDraw.Draw(image)
+        color = "#f2f3f5"
+        scale_x = large_size[0] / 24.0
+        scale_y = large_size[1] / 24.0
+        stroke = max(8, round(min(large_size) / 10))
+
+        def point(x, y):
+            return (round(x * scale_x), round(y * scale_y))
+
+        def segment(start, end):
+            draw.line([point(*start), point(*end)], fill=color, width=stroke, joint="curve")
+
+        if mode == "enter":
+            segments = [
+                ((10, 10), (4.5, 4.5)),
+                ((4.5, 8.8), (4.5, 4.5)),
+                ((4.5, 4.5), (8.8, 4.5)),
+                ((14, 10), (19.5, 4.5)),
+                ((15.2, 4.5), (19.5, 4.5)),
+                ((19.5, 4.5), (19.5, 8.8)),
+                ((10, 14), (4.5, 19.5)),
+                ((4.5, 15.2), (4.5, 19.5)),
+                ((4.5, 19.5), (8.8, 19.5)),
+                ((14, 14), (19.5, 19.5)),
+                ((15.2, 19.5), (19.5, 19.5)),
+                ((19.5, 15.2), (19.5, 19.5)),
+            ]
+        else:
+            segments = [
+                ((4.5, 4.5), (10, 10)),
+                ((5.2, 10), (10, 10)),
+                ((10, 5.2), (10, 10)),
+                ((19.5, 4.5), (14, 10)),
+                ((14, 5.2), (14, 10)),
+                ((14, 10), (18.8, 10)),
+                ((4.5, 19.5), (10, 14)),
+                ((5.2, 14), (10, 14)),
+                ((10, 14), (10, 18.8)),
+                ((19.5, 19.5), (14, 14)),
+                ((14, 14), (14, 18.8)),
+                ((14, 14), (18.8, 14)),
+            ]
+
+        for start, end in segments:
+            segment(start, end)
+
+        return image.resize(size, Image.Resampling.LANCZOS)
 
     def set_controller(self, controller):
         """Explicitly set controller if not available via hierarchy."""
@@ -170,6 +327,9 @@ class DocView(ttk.Frame):
             sashrelief="flat"
         )
         self.paned_window.pack(fill="both", expand=True)
+        self.paned_window.bind("<Configure>", self._schedule_sidebar_toggle_position, add="+")
+        self.paned_window.bind("<B1-Motion>", self._schedule_sidebar_toggle_position, add="+")
+        self.paned_window.bind("<ButtonRelease-1>", self._schedule_sidebar_toggle_position, add="+")
 
         # --- Left Pane (Markdown Content) ---
         self.left_frame = ttk.Frame(self.paned_window, style="Main.TFrame")
@@ -184,47 +344,161 @@ class DocView(ttk.Frame):
         self.actions_row = ttk.Frame(self.header_frame, style="Main.TFrame")
         self.actions_row.pack(side="top", fill="x")
 
-        self.btn_load = ttk.Button(self.actions_row, image=self.icons.get("folder_open"), width=3, style="Action.TButton", command=self._on_load_docs)
-        self.btn_load.pack(side="left", padx=(0, 10))
-        
-        self.btn_new = ttk.Button(self.actions_row, image=self.icons.get("file_plus"), width=3, style="Action.TButton", command=self._on_new_doc)
-        self.btn_new.pack(side="left", padx=5)
-        
-        self.btn_save = ttk.Button(self.actions_row, image=self.icons.get("save"), width=3, style="Action.TButton", command=self._on_save_doc)
-        self.btn_save.pack(side="left", padx=5)
-
-        self.btn_prompt_template = ttk.Button(
+        self.btn_load = self._create_toolbar_button(
             self.actions_row,
-            text="{}",
-            width=4,
-            style="Nav.TButton",
-            command=self._open_prompt_builder
+            side="left",
+            padx=(0, 10),
+            style="Action.TButton",
+            image=self.icons.get("folder_open"),
+            command=self._on_load_docs,
+            tooltip_text="Abrir docs"
         )
-        self.btn_prompt_template.pack(side="left", padx=5)
-        
-        self.btn_delete = ttk.Button(self.actions_row, image=self.icons.get("delete"), width=3, style="Secondary.TButton", command=self._on_delete_doc)
-        self.btn_delete.pack(side="left", padx=5)
+
+        self.btn_new = self._create_toolbar_button(
+            self.actions_row,
+            side="left",
+            padx=5,
+            style="Action.TButton",
+            image=self.icons.get("file_plus"),
+            command=self._on_new_doc,
+            tooltip_text="Nuevo doc"
+        )
+
+        self.btn_save = self._create_toolbar_button(
+            self.actions_row,
+            side="left",
+            padx=5,
+            style="Action.TButton",
+            image=self.icons.get("save"),
+            command=self._on_save_doc,
+            tooltip_text="Guardar doc"
+        )
+
+        self.btn_prompt_template = self._create_toolbar_button(
+            self.actions_row,
+            side="left",
+            padx=5,
+            style="Nav.TButton",
+            text="{}",
+            command=self._open_prompt_builder,
+            tooltip_text="Crear prompt"
+        )
+
+        self.btn_delete = self._create_toolbar_button(
+            self.actions_row,
+            side="left",
+            padx=5,
+            style="Secondary.TButton",
+            image=self.icons.get("delete"),
+            command=self._on_delete_doc,
+            tooltip_text="Borrar doc"
+        )
+
+        self.search_shell = tk.Frame(
+            self.actions_row,
+            bg=Styles.COLOR_BG_SIDEBAR,
+            highlightthickness=1,
+            highlightbackground=Styles.COLOR_SELECTION_BG,
+            highlightcolor=Styles.COLOR_ACCENT,
+            bd=0
+        )
+        self.search_shell.pack(side="left", fill="x", expand=True, padx=(12, 10))
+
+        self.doc_search_entry = tk.Entry(
+            self.search_shell,
+            font=("Segoe UI", 15),
+            bg=Styles.COLOR_INPUT_BG,
+            fg=Styles.COLOR_INPUT_FG,
+            insertbackground=Styles.COLOR_INPUT_FG,
+            relief="flat",
+            bd=0,
+            highlightthickness=0
+        )
+        self.doc_search_entry.pack(fill="x", padx=10, pady=(10, 6), ipady=10)
+        self.doc_search_entry.bind("<FocusIn>", self._on_doc_search_focus_in)
+        self.doc_search_entry.bind("<FocusOut>", self._on_doc_search_focus_out)
+        self.doc_search_entry.bind("<KeyPress>", self._on_doc_search_key_press, add="+")
+        self.doc_search_entry.bind("<KeyRelease>", self._on_doc_search_key_release)
+        self.doc_search_entry.bind("<Down>", lambda event: self._move_doc_search_selection(1))
+        self.doc_search_entry.bind("<Up>", lambda event: self._move_doc_search_selection(-1))
+        self.doc_search_entry.bind("<Return>", self._open_selected_doc_search_result)
+        self.doc_search_entry.bind("<Escape>", self._on_doc_search_escape)
+
+        self.doc_search_results_frame = tk.Frame(self.search_shell, bg=Styles.COLOR_BG_SIDEBAR)
+        self.doc_search_list = tk.Listbox(
+            self.doc_search_results_frame,
+            font=("Segoe UI", 12),
+            bg=Styles.COLOR_INPUT_BG,
+            fg=Styles.COLOR_FG_TEXT,
+            selectbackground=Styles.COLOR_ACCENT,
+            selectforeground="#ffffff",
+            activestyle="none",
+            borderwidth=0,
+            highlightthickness=0,
+            height=6
+        )
+        self.doc_search_list.pack(fill="x", padx=10, pady=(0, 6))
+        self.doc_search_list.bind("<<ListboxSelect>>", self._on_doc_search_listbox_select)
+        self.doc_search_list.bind("<ButtonRelease-1>", self._open_selected_doc_search_result)
+        self.doc_search_list.bind("<Double-Button-1>", self._open_selected_doc_search_result)
+        self.doc_search_list.bind("<Return>", self._open_selected_doc_search_result)
+        self.doc_search_list.bind("<Escape>", self._on_doc_search_escape)
+        self.doc_search_list.bind("<Up>", lambda event: self._move_doc_search_selection(-1))
+        self.doc_search_list.bind("<Down>", lambda event: self._move_doc_search_selection(1))
+
+        self.doc_search_status = tk.Label(
+            self.search_shell,
+            text="",
+            font=("Segoe UI", 10),
+            bg=Styles.COLOR_BG_SIDEBAR,
+            fg=Styles.COLOR_DIM,
+            anchor="w"
+        )
+
+        self._set_doc_search_placeholder()
 
         # View Toggles
         mode_icon = self.icons.get("edit") if not self.is_editor_mode else self.icons.get("view")
-        self.btn_mode = ttk.Button(self.actions_row, image=mode_icon, width=3, style="Nav.TButton", command=self._toggle_mode)
-        self.btn_mode.pack(side="right", padx=5)
+        self.btn_mode = self._create_toolbar_button(
+            self.actions_row,
+            side="right",
+            padx=5,
+            style="Nav.TButton",
+            image=mode_icon,
+            command=self._toggle_mode,
+            tooltip_text="Cambiar vista"
+        )
+
+        self.btn_diagrams = self._create_toolbar_button(
+            self.actions_row,
+            side="right",
+            padx=5,
+            style="Nav.TButton",
+            text="DG",
+            command=self._open_diagram_editor,
+            tooltip_text="Crear diagrama"
+        )
 
         theme_icon = self.icons.get("moon") if not self.is_dark_mode else self.icons.get("sun")
-        self.btn_theme = ttk.Button(self.actions_row, image=theme_icon, width=3, style="Nav.TButton", command=self._toggle_theme)
-        self.btn_theme.pack(side="right", padx=5)
-
-        self.btn_toggle_fullscreen = ttk.Button(
+        self.btn_theme = self._create_toolbar_button(
             self.actions_row,
-            text="Expandir",
-            width=9,
+            side="right",
+            padx=5,
             style="Nav.TButton",
-            command=self._toggle_fullscreen_mode
+            image=theme_icon,
+            command=self._toggle_theme,
+            tooltip_text="Cambiar tema"
         )
-        self.btn_toggle_fullscreen.pack(side="right", padx=5)
 
-        self.btn_toggle_sidebar = ttk.Button(self.actions_row, text=">", width=3, style="Nav.TButton", command=self._toggle_sidebar)
-        self.btn_toggle_sidebar.pack(side="right", padx=5)
+        self.btn_toggle_fullscreen = self._create_toolbar_button(
+            self.actions_row,
+            side="right",
+            padx=5,
+            style="FullscreenToggle.TButton",
+            image=self.icons.get("fullscreen_enter"),
+            command=self._toggle_fullscreen_mode,
+            tooltip_text="Pantalla completa"
+        )
 
         # File Selector for Multiple Matches
         self.selector_row = ttk.Frame(self.header_frame, style="Main.TFrame")
@@ -236,6 +510,16 @@ class DocView(ttk.Frame):
         self.cmb_files = ttk.Combobox(self.selector_row, state="readonly", width=40, font=("Segoe UI", 14))
         self.cmb_files.pack(side="left", fill="x", expand=True)
         self.cmb_files.bind("<<ComboboxSelected>>", self._on_file_selected_via_combo)
+
+        self.btn_copy_doc = ttk.Button(
+            self.selector_row,
+            text="Copiar",
+            style="Secondary.TButton",
+            command=self._on_copy_doc_content
+        )
+        self.btn_copy_doc.pack(side="left", padx=(10, 0))
+        self.btn_copy_doc.state(["disabled"])
+        attach_tooltip(self.btn_copy_doc, "Copiar doc")
         
         # Increase dropdown list font size
         self.master.option_add('*TCombobox*Listbox.font', ("Segoe UI", 14))
@@ -252,8 +536,8 @@ class DocView(ttk.Frame):
             sashwidth=self.DRAG_SASH_WIDTH,
             handlesize=self.DRAG_HANDLE_SIZE,
             showhandle=True,
-            bg=Styles.COLOR_BG_MAIN,
-            sashrelief="flat"
+            bg=Styles.COLOR_PANE_DIVIDER,
+            sashrelief="raised"
         )
         self.content_pane.pack(fill="both", expand=True)
         self.content_pane.bind("<ButtonRelease-1>", self._on_content_pane_release)
@@ -295,54 +579,70 @@ class DocView(ttk.Frame):
         # ttk.Label(self.preview_frame, text="PREVISUALIZACIÓN (Web)", font=("Segoe UI", 10, "bold"), foreground=Styles.COLOR_DIM).pack(anchor="w", padx=5)
 
         # Use HtmlFrame for true web-based rendering
-        self.web_view = HtmlFrame(self.preview_frame, messages_enabled=False, on_link_click=self._on_web_link_click)
+        self.web_view = HtmlFrame(
+            self.preview_frame,
+            messages_enabled=False,
+            on_link_click=self._on_web_link_click,
+            zoom=self.markdown_preview_zoom,
+            fontscale=self.markdown_preview_fontscale
+        )
         self.web_view.pack(fill="both", expand=True)
+        self.web_view.bind("<Button-1>", self._activate_markdown_preview, add="+")
         self.web_view.bind("<Button-2>", self._on_markdown_selection_right_click)
         self.web_view.bind("<Button-3>", self._on_markdown_selection_right_click)
         self.web_view.bind("<Control-Button-1>", self._on_markdown_selection_right_click)
         self.web_view.bind("<<DoneLoading>>", self._on_web_view_done_loading)
+        self._bind_markdown_preview_zoom_controls()
 
         # 3. Code Panel (Hidden by default)
         self.code_frame = ttk.Frame(self.content_pane, style="Main.TFrame")
         self.code_header = ttk.Frame(self.code_frame, style="Main.TFrame")
         self.code_header.pack(fill="x", padx=8, pady=(8, 4))
-
-        default_margin = 25
-        if self.controller and hasattr(self.controller, "config_manager"):
-            try:
-                default_margin = int(self.controller.config_manager.get_arbitrary_step())
-            except Exception:
-                default_margin = 25
-        self.code_margin_var = tk.IntVar(value=default_margin)
-
         self.code_controls = ttk.Frame(self.code_header, style="Main.TFrame")
+        self.code_controls.pack(side="left", fill="x", expand=True, padx=(0, 12))
+
+        self.lbl_code_file = ttk.Label(
+            self.code_controls,
+            text="Sin fichero seleccionado",
+            style="TLabel"
+        )
+        self.lbl_code_file.pack(fill="x")
+
+        self.btn_save_code = ttk.Button(
+            self.code_header,
+            text="Guardar",
+            style="Action.TButton",
+            command=self._save_active_code_file
+        )
+        self.btn_save_code.pack(side="right", padx=(0, 8))
+        attach_tooltip(self.btn_save_code, "Guardar código")
+
         self.btn_close_code = ttk.Button(self.code_header, text="x", width=3, style="Nav.TButton", command=self._hide_code_panel)
         self.btn_close_code.pack(side="right")
-
-        self.code_controls.pack(side="left", fill="x", expand=True, padx=(0, 12))
-        self.scale_margin = ttk.Scale(
-            self.code_controls,
-            from_=1,
-            to=120,
-            orient="horizontal",
-            command=self._on_margin_change
-        )
-        self.scale_margin.set(self.code_margin_var.get())
-        self.scale_margin.pack(fill="x", expand=True)
+        attach_tooltip(self.btn_close_code, "Cerrar panel")
 
         self.code_body = ttk.Frame(self.code_frame, style="Main.TFrame")
         self.code_body.pack(fill="both", expand=True, padx=8, pady=(0, 8))
 
         self.code_text = arb_create_styled_text_widget(self.code_body)
+        self.code_text.configure(font=(self.code_font_family, self.code_font_size))
         self.code_text.configure(padx=10, pady=10)
         self.code_text.pack(side="left", fill="both", expand=True)
         self.code_text.bind("<Button-1>", self._clear_code_match_highlight)
+        self.code_text.bind("<<Modified>>", self._on_code_text_modified)
+        self.code_text.bind("<Control-s>", self._on_save_code_shortcut)
+        self.code_text.bind("<Control-z>", self._on_undo_code_shortcut)
+        self.code_text.bind("<Control-y>", self._on_redo_code_shortcut)
+        self.code_text.bind("<Command-s>", self._on_save_code_shortcut)
+        self.code_text.bind("<Command-z>", self._on_undo_code_shortcut)
+        self.code_text.bind("<Command-y>", self._on_redo_code_shortcut)
 
         self.code_scroll = ttk.Scrollbar(self.code_body, orient="vertical", command=self.code_text.yview)
         self.code_scroll.pack(side="right", fill="y")
         self.code_text.configure(yscrollcommand=self.code_scroll.set)
         self.code_text.tag_configure("match_highlight", background="#facc15", foreground="#111827")
         self.code_text.config(state="disabled")
+        self.btn_save_code.state(["disabled"])
 
         # Initial View State
         self._update_view_mode()
@@ -354,11 +654,66 @@ class DocView(ttk.Frame):
         self.right_frame = ttk.Frame(self.paned_window, style="Sidebar.TFrame")
         self.paned_window.add(self.right_frame, minsize=250, stretch="never")
 
+        self.btn_toggle_sidebar = ttk.Button(
+            self.paned_window,
+            text=">",
+            width=2,
+            style="SidebarToggle.TButton",
+            command=self._toggle_sidebar,
+            takefocus=False
+        )
+        self.btn_toggle_sidebar.place(x=0, y=0, anchor="center")
+        attach_tooltip(self.btn_toggle_sidebar, "Alternar panel")
+
         self.right_top_frame = ttk.Frame(self.right_frame, style="Sidebar.TFrame")
         self.right_top_frame.pack(side="top", fill="both", expand=True)
 
         lbl_sections = ttk.Label(self.right_top_frame, text="Secciones", style="Header.TLabel")
         lbl_sections.pack(fill="x")
+
+        self.doc_paths_row = ttk.Frame(self.right_top_frame, style="Sidebar.TFrame")
+        self.doc_paths_row.pack(fill="x", padx=8, pady=(8, 4))
+
+        self.cmb_doc_paths = ttk.Combobox(
+            self.doc_paths_row,
+            state="readonly",
+            font=("Segoe UI", 11)
+        )
+        self.cmb_doc_paths.pack(fill="x")
+        self.cmb_doc_paths.bind("<<ComboboxSelected>>", self._on_doc_path_selected)
+
+        self.section_search_shell = tk.Frame(
+            self.right_top_frame,
+            bg=Styles.COLOR_BG_SIDEBAR,
+            highlightthickness=1,
+            highlightbackground=Styles.COLOR_SELECTION_BG,
+            highlightcolor=Styles.COLOR_ACCENT,
+            bd=0
+        )
+        self.section_search_shell.pack(fill="x", padx=8, pady=(4, 6))
+
+        self.section_search_label = tk.Label(
+            self.section_search_shell,
+            text="Buscar sección",
+            bg=Styles.COLOR_BG_SIDEBAR,
+            fg=Styles.COLOR_DIM,
+            font=("Segoe UI", 10, "bold"),
+            anchor="w"
+        )
+        self.section_search_label.pack(fill="x", padx=10, pady=(8, 0))
+
+        self.section_search_entry = tk.Entry(
+            self.section_search_shell,
+            font=("Segoe UI", 12),
+            bg=Styles.COLOR_INPUT_BG,
+            fg=Styles.COLOR_INPUT_FG,
+            insertbackground=Styles.COLOR_INPUT_FG,
+            relief="flat",
+            bd=0,
+            highlightthickness=0
+        )
+        self.section_search_entry.pack(fill="x", padx=10, pady=(6, 10), ipady=8)
+        self.section_search_entry.bind("<KeyRelease>", self._on_section_search_change)
 
         self.section_list = tk.Listbox(
             self.right_top_frame, 
@@ -399,6 +754,34 @@ class DocView(ttk.Frame):
 
         self._update_sidebar_toggle()
         self._update_fullscreen_button()
+        self.after_idle(self._position_sidebar_toggle)
+
+    def _create_toolbar_button(
+        self,
+        parent,
+        side,
+        padx,
+        style,
+        command,
+        image=None,
+        text="",
+        tooltip_text=""
+    ):
+        slot = tk.Frame(parent, bg=Styles.COLOR_BG_MAIN, width=72, height=72)
+        slot.pack(side=side, padx=padx)
+        slot.pack_propagate(False)
+
+        button = ttk.Button(
+            slot,
+            image=image,
+            text=text,
+            style=style,
+            command=command
+        )
+        button.pack(fill="both", expand=True)
+        if tooltip_text:
+            attach_tooltip(button, tooltip_text)
+        return button
 
     def _on_load_docs(self):
         path = filedialog.askdirectory()
@@ -406,6 +789,346 @@ class DocView(ttk.Frame):
             if self.controller and hasattr(self.controller, 'config_manager'):
                 self.controller.config_manager.set_doc_path(path)
             self._refresh_sections()
+
+    def _open_diagram_editor(self):
+        if self.diagram_editor_window and self.diagram_editor_window.winfo_exists():
+            self.diagram_editor_window.deiconify()
+            self.diagram_editor_window.lift()
+            self.diagram_editor_window.focus_force()
+            return
+
+        self.diagram_editor_window = DiagramEditorWindow(
+            self,
+            on_close=self._on_diagram_editor_closed
+        )
+
+    def _on_diagram_editor_closed(self):
+        self.diagram_editor_window = None
+
+    def _bind_markdown_preview_zoom_controls(self):
+        widgets = [self.web_view]
+        html_widget = getattr(self.web_view, "_html", None)
+        if html_widget is not None:
+            widgets.append(html_widget)
+
+        bindings = [
+            ("<Control-plus>", self._zoom_in_markdown_preview),
+            ("<Control-equal>", self._zoom_in_markdown_preview),
+            ("<Control-KP_Add>", self._zoom_in_markdown_preview),
+            ("<Command-plus>", self._zoom_in_markdown_preview),
+            ("<Command-equal>", self._zoom_in_markdown_preview),
+            ("<Command-KP_Add>", self._zoom_in_markdown_preview),
+            ("<Control-minus>", self._zoom_out_markdown_preview),
+            ("<Control-KP_Subtract>", self._zoom_out_markdown_preview),
+            ("<Command-minus>", self._zoom_out_markdown_preview),
+            ("<Command-KP_Subtract>", self._zoom_out_markdown_preview),
+            ("<Control-0>", self._reset_markdown_preview_zoom),
+            ("<Control-KP_0>", self._reset_markdown_preview_zoom),
+            ("<Command-0>", self._reset_markdown_preview_zoom),
+            ("<Command-KP_0>", self._reset_markdown_preview_zoom),
+            ("<Button-1>", self._activate_markdown_preview),
+        ]
+
+        for widget in widgets:
+            try:
+                widget.configure(takefocus=True)
+            except Exception:
+                pass
+            for sequence, handler in bindings:
+                try:
+                    widget.bind(sequence, handler, add="+")
+                except Exception:
+                    pass
+
+    def _activate_markdown_preview(self, event=None):
+        html_widget = getattr(self.web_view, "_html", None)
+        try:
+            if html_widget is not None:
+                html_widget.focus_set()
+            else:
+                self.web_view.focus_set()
+        except Exception:
+            pass
+
+    def _safe_focus_get(self):
+        try:
+            return self.focus_get()
+        except Exception:
+            return None
+
+    def _is_descendant_widget(self, widget, ancestor):
+        if widget is None or ancestor is None:
+            return False
+
+        current = widget
+        while current is not None:
+            if current == ancestor:
+                return True
+            current = getattr(current, "master", None)
+        return False
+
+    def _is_markdown_preview_active(self):
+        if self.is_editor_mode or not self.preview_frame.winfo_ismapped():
+            return False
+
+        focus_widget = self._safe_focus_get()
+        html_widget = getattr(self.web_view, "_html", None)
+        return (
+            self._is_descendant_widget(focus_widget, self.preview_frame)
+            or self._is_descendant_widget(focus_widget, self.web_view)
+            or self._is_descendant_widget(focus_widget, html_widget)
+        )
+
+    def _compute_markdown_preview_fontscale(self, zoom_value):
+        return 1.0 + ((zoom_value - 1.0) * 0.4)
+
+    def _apply_markdown_preview_scale(self):
+        self.markdown_preview_zoom = max(
+            self.MARKDOWN_PREVIEW_ZOOM_MIN,
+            min(self.markdown_preview_zoom, self.MARKDOWN_PREVIEW_ZOOM_MAX)
+        )
+        self.markdown_preview_fontscale = self._compute_markdown_preview_fontscale(self.markdown_preview_zoom)
+        try:
+            self.web_view.configure(
+                zoom=self.markdown_preview_zoom,
+                fontscale=self.markdown_preview_fontscale
+            )
+        except Exception:
+            pass
+        self._save_settings()
+
+    def _zoom_in_markdown_preview(self, event=None):
+        if not self._is_markdown_preview_active():
+            return None
+        self.markdown_preview_zoom += self.MARKDOWN_PREVIEW_ZOOM_STEP
+        self._apply_markdown_preview_scale()
+        return "break"
+
+    def _zoom_out_markdown_preview(self, event=None):
+        if not self._is_markdown_preview_active():
+            return None
+        self.markdown_preview_zoom -= self.MARKDOWN_PREVIEW_ZOOM_STEP
+        self._apply_markdown_preview_scale()
+        return "break"
+
+    def _reset_markdown_preview_zoom(self, event=None):
+        if not self._is_markdown_preview_active():
+            return None
+        self.markdown_preview_zoom = self.MARKDOWN_PREVIEW_ZOOM
+        self._apply_markdown_preview_scale()
+        return "break"
+
+    def _set_doc_search_placeholder(self):
+        if self.doc_search_entry.get():
+            return
+        self.doc_search_entry.insert(0, self.doc_search_placeholder)
+        self.doc_search_entry.config(fg=Styles.COLOR_DIM)
+        self._doc_search_placeholder_active = True
+
+    def _clear_doc_search_placeholder(self):
+        if not self._doc_search_placeholder_active:
+            return
+        self.doc_search_entry.delete(0, tk.END)
+        self.doc_search_entry.config(fg=Styles.COLOR_INPUT_FG)
+        self._doc_search_placeholder_active = False
+
+    def _on_doc_search_focus_in(self, event=None):
+        self._clear_doc_search_placeholder()
+
+    def _on_doc_search_key_press(self, event=None):
+        if not self._doc_search_placeholder_active:
+            return None
+
+        ignored = {
+            "Shift_L", "Shift_R", "Control_L", "Control_R", "Alt_L", "Alt_R",
+            "Meta_L", "Meta_R", "Caps_Lock", "Tab", "Left", "Right",
+            "Up", "Down", "Return", "Escape"
+        }
+        if event and event.keysym in ignored:
+            return None
+
+        if event and event.keysym in {"BackSpace", "Delete"}:
+            self._clear_doc_search_placeholder()
+            return "break"
+
+        if event and event.char:
+            self._clear_doc_search_placeholder()
+        return None
+
+    def _on_doc_search_focus_out(self, event=None):
+        self.after(120, self._restore_doc_search_placeholder_if_needed)
+
+    def _restore_doc_search_placeholder_if_needed(self):
+        try:
+            focus_widget = self.focus_get()
+        except Exception:
+            focus_widget = None
+        if focus_widget in (self.doc_search_entry, self.doc_search_list):
+            return
+        if self.doc_search_entry.get().strip():
+            return
+        self._set_doc_search_placeholder()
+
+    def _on_doc_search_key_release(self, event=None):
+        if event and event.keysym in {"Up", "Down", "Return", "Escape"}:
+            return
+        self._schedule_doc_search()
+
+    def _on_section_search_change(self, event=None):
+        self._apply_section_filter(preferred_section=self._last_selected_section)
+
+    def _on_doc_path_selected(self, event=None):
+        selected_label = self.cmb_doc_paths.get().strip()
+        selected_path = self.doc_path_options.get(selected_label)
+        if not selected_path:
+            return
+
+        current_path = self._get_doc_root()
+        if current_path and os.path.normpath(current_path) == os.path.normpath(selected_path):
+            return
+
+        if self.controller and hasattr(self.controller, "config_manager"):
+            self.controller.config_manager.set_doc_path(selected_path)
+        self._refresh_sections()
+
+    def _schedule_doc_search(self):
+        if self._doc_search_job:
+            self.after_cancel(self._doc_search_job)
+        self._doc_search_job = self.after(180, self._run_doc_search)
+
+    def _run_doc_search(self):
+        self._doc_search_job = None
+        if self._doc_search_placeholder_active:
+            self._clear_doc_search_results()
+            return
+
+        query = self.doc_search_entry.get().strip()
+        if not query:
+            self._clear_doc_search_results()
+            return
+
+        if not self.controller or not hasattr(self.controller, "search_documentation"):
+            self._clear_doc_search_results()
+            return
+
+        payload = self.controller.search_documentation(query, limit=12)
+        self.doc_search_results = payload.get("results", [])
+        self.doc_search_selected_index = 0
+
+        roots_checked = payload.get("roots_checked", [])
+        self.doc_search_list.delete(0, tk.END)
+
+        if self.doc_search_results:
+            for result in self.doc_search_results:
+                self.doc_search_list.insert(tk.END, self._format_doc_search_result(result))
+
+            self.doc_search_results_frame.pack(fill="x")
+            self.doc_search_status.config(
+                text=f"{len(self.doc_search_results)} sugerencias · {len(roots_checked)} carpetas vigentes del historial"
+            )
+            self.doc_search_status.pack(fill="x", padx=10, pady=(0, 8))
+            self.doc_search_list.selection_clear(0, tk.END)
+            self.doc_search_list.selection_set(0)
+            self.doc_search_list.activate(0)
+        else:
+            self.doc_search_results_frame.pack_forget()
+            self.doc_search_status.config(
+                text=f"Sin coincidencias en {len(roots_checked)} carpetas vigentes del historial"
+            )
+            self.doc_search_status.pack(fill="x", padx=10, pady=(0, 8))
+
+    def _format_doc_search_result(self, result):
+        rel_path = result.get("rel_path", "")
+        root_name = result.get("doc_root_name", "")
+        snippet = result.get("snippet", "").strip()
+        return f"{rel_path} [{root_name}] · {snippet}"
+
+    def _clear_doc_search_results(self):
+        self.doc_search_results = []
+        self.doc_search_selected_index = 0
+        self.doc_search_list.delete(0, tk.END)
+        self.doc_search_results_frame.pack_forget()
+        self.doc_search_status.pack_forget()
+
+    def _move_doc_search_selection(self, step):
+        if not self.doc_search_results:
+            return "break"
+
+        max_index = len(self.doc_search_results) - 1
+        self.doc_search_selected_index = max(0, min(max_index, self.doc_search_selected_index + step))
+        self.doc_search_list.selection_clear(0, tk.END)
+        self.doc_search_list.selection_set(self.doc_search_selected_index)
+        self.doc_search_list.activate(self.doc_search_selected_index)
+        self.doc_search_list.see(self.doc_search_selected_index)
+        return "break"
+
+    def _on_doc_search_listbox_select(self, event=None):
+        selection = self.doc_search_list.curselection()
+        if selection:
+            self.doc_search_selected_index = selection[0]
+
+    def _on_doc_search_escape(self, event=None):
+        if self._doc_search_job:
+            self.after_cancel(self._doc_search_job)
+            self._doc_search_job = None
+        self.doc_search_entry.delete(0, tk.END)
+        self.doc_search_entry.config(fg=Styles.COLOR_INPUT_FG)
+        self._doc_search_placeholder_active = False
+        self._clear_doc_search_results()
+        self._set_doc_search_placeholder()
+        return "break"
+
+    def _open_selected_doc_search_result(self, event=None):
+        if not self.doc_search_results:
+            return "break"
+
+        if event is not None:
+            selection = self.doc_search_list.curselection()
+            if selection:
+                self.doc_search_selected_index = selection[0]
+
+        if self.doc_search_selected_index >= len(self.doc_search_results):
+            return "break"
+
+        self._open_doc_search_result(self.doc_search_results[self.doc_search_selected_index])
+        return "break"
+
+    def _open_doc_search_result(self, result):
+        file_path = result.get("path")
+        doc_root = result.get("doc_root")
+        section_name = result.get("section_name")
+
+        if not file_path or not os.path.isfile(file_path):
+            messagebox.showwarning("Aviso", "El documento ya no existe en disco.")
+            self._schedule_doc_search()
+            return
+
+        if doc_root and self.controller and hasattr(self.controller, "config_manager"):
+            self.controller.config_manager.set_doc_path(doc_root)
+
+        self.doc_search_entry.delete(0, tk.END)
+        self.doc_search_entry.config(fg=Styles.COLOR_INPUT_FG)
+        self._doc_search_placeholder_active = False
+        self._clear_doc_search_results()
+        self._set_doc_search_placeholder()
+        self.section_search_entry.delete(0, tk.END)
+
+        self._refresh_sections()
+
+        if section_name:
+            sections = list(self.section_list.get(0, tk.END))
+            if section_name in sections:
+                index = sections.index(section_name)
+                self.section_list.selection_clear(0, tk.END)
+                self.section_list.selection_set(index)
+                self.section_list.activate(index)
+                self._last_selected_section = section_name
+                if self.controller and hasattr(self.controller, "config_manager"):
+                    self.controller.config_manager.set_last_doc_section(section_name)
+                self._find_markdown_files(section_name, selected_file_path=file_path)
+                return
+
+        self._display_file_content(file_path)
 
     def _get_doc_root(self):
         if not self.controller or not hasattr(self.controller, "config_manager"):
@@ -509,12 +1232,34 @@ class DocView(ttk.Frame):
         if idx >= 0:
             self._display_file_content(self.available_md_files[idx])
 
+    def _on_copy_doc_content(self):
+        if not self.current_file_path:
+            messagebox.showwarning("Aviso", "No hay ningún documento abierto para copiar.")
+            return
+
+        content = self.txt_content.get("1.0", "end-1c")
+        if not content.strip():
+            messagebox.showwarning("Aviso", "El documento está vacío.")
+            return
+
+        try:
+            if self.controller and hasattr(self.controller, "copy_to_clipboard"):
+                copied = self.controller.copy_to_clipboard(content)
+                if copied:
+                    return
+            self.clipboard_clear()
+            self.clipboard_append(content)
+        except Exception as e:
+            messagebox.showerror("Error", f"No se pudo copiar el documento: {e}")
+            return
+
     def _display_file_content(self, file_path):
         try:
             with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
                 content = f.read()
             
             self.current_file_path = file_path
+            self.btn_copy_doc.state(["!disabled"])
             self.txt_content.config(state="normal")
             self.txt_content.delete("1.0", tk.END)
             # Use empty content if file is empty to ensure editable state
@@ -643,6 +1388,22 @@ class DocView(ttk.Frame):
             "Guarda el documento en docs."
         )
 
+    def _build_specific_flow_documentation_prompt(self, functionality_name):
+        functionality_name = (functionality_name or "").strip()
+
+        return (
+            f"Documenta el flujo de código de {functionality_name} con las siguientes normas:\n\n"
+            "- Divide el Markdown por pasos\n"
+            "- Cada paso tiene que tener esta estructura:\n"
+            "   1. x número de paso\n"
+            "   2. Descripción sencilla pero detallada de lo que se hace en este paso\n"
+            "   3. Trozo de código exacto o algoritmo que se ejecuta solamente en este paso\n"
+            "   4. No te dejes partes del flujo que sean relevantes, tanto frontend como backend y rutas deben incluirse\n"
+            "   5. Añade comentarios extra al código si es necesario, para explicar de manera sencilla y fácil que hace cada cosa\n"
+            "   6. Repetir para los pasos numerados siguientes hasta el paso final en el fin del documento\n"
+            "- Guarda el documento markdown en una carpeta docs"
+        )
+
     def _build_optimization_prompt(self, target_name):
         target_name = (target_name or "").strip()
 
@@ -711,6 +1472,12 @@ class DocView(ttk.Frame):
                 "builder": self._build_documentation_prompt,
             },
             {
+                "name": "Documentación funcional",
+                "input_label": "Funcionalidad específica",
+                "placeholder": "[X]",
+                "builder": self._build_specific_flow_documentation_prompt,
+            },
+            {
                 "name": "Optimización",
                 "input_label": "Parte del código",
                 "placeholder": "[PARTE_CODIGO]",
@@ -730,13 +1497,15 @@ class DocView(ttk.Frame):
         selector_row = ttk.Frame(wrapper, style="Main.TFrame")
         selector_row.pack(fill="x", pady=(0, 12))
 
-        ttk.Button(
+        btn_prev = ttk.Button(
             selector_row,
             text="←",
             width=3,
             style="Nav.TButton",
             command=lambda: switch_prompt(-1)
-        ).pack(side="left")
+        )
+        btn_prev.pack(side="left")
+        attach_tooltip(btn_prev, "Prompt previo")
 
         ttk.Label(
             selector_row,
@@ -744,13 +1513,15 @@ class DocView(ttk.Frame):
             style="Header.TLabel"
         ).pack(side="left", padx=10)
 
-        ttk.Button(
+        btn_next = ttk.Button(
             selector_row,
             text="→",
             width=3,
             style="Nav.TButton",
             command=lambda: switch_prompt(1)
-        ).pack(side="left")
+        )
+        btn_next.pack(side="left")
+        attach_tooltip(btn_next, "Prompt siguiente")
 
         ttk.Label(
             selector_row,
@@ -836,8 +1607,13 @@ class DocView(ttk.Frame):
         button_row = ttk.Frame(wrapper, style="Main.TFrame")
         button_row.pack(fill="x")
 
-        ttk.Button(button_row, text="Copiar prompt", style="Action.TButton", command=copy_prompt).pack(side="right", padx=(8, 0))
-        ttk.Button(button_row, text="Cerrar", style="Secondary.TButton", command=dialog.destroy).pack(side="right")
+        btn_copy_prompt = ttk.Button(button_row, text="Copiar prompt", style="Action.TButton", command=copy_prompt)
+        btn_copy_prompt.pack(side="right", padx=(8, 0))
+        attach_tooltip(btn_copy_prompt, "Copiar prompt")
+
+        btn_close_prompt = ttk.Button(button_row, text="Cerrar", style="Secondary.TButton", command=dialog.destroy)
+        btn_close_prompt.pack(side="right")
+        attach_tooltip(btn_close_prompt, "Cerrar ventana")
 
         functionality_var.trace_add("write", lambda *_: refresh_prompt())
         dialog.bind("<Escape>", lambda event: dialog.destroy())
@@ -855,6 +1631,7 @@ class DocView(ttk.Frame):
         self.txt_content.delete("1.0", tk.END)
         self.txt_content.insert("1.0", message)
         self.txt_content.config(state="disabled")
+        self.btn_copy_doc.state(["disabled"])
 
         # Determine Colors based on mode (or default to light for message)
         # We can respect the current mode
@@ -963,7 +1740,7 @@ class DocView(ttk.Frame):
     def _anchor_id_for_line(self, start_line):
         return f"mdblock-line-{int(start_line)}"
 
-    def _register_editable_block(self, token, block_kind, content):
+    def _register_editable_block(self, token, block_kind, content, language_hint=""):
         """Stores the line range for a rendered Markdown block."""
         if not getattr(token, "map", None):
             return None
@@ -980,9 +1757,51 @@ class DocView(ttk.Frame):
             "end_line": int(end_line),
             "kind": block_kind,
             "text": block_text,
+            "display_text": token.content if block_kind == "bloque de código" else block_text,
+            "language_hint": (language_hint or "").strip(),
+            "token_type": getattr(token, "type", ""),
+            "fence_markup": getattr(token, "markup", "") or "```",
+            "fence_info": (getattr(token, "info", "") or "").strip(),
+            "code_indent": self._detect_code_block_indent(block_text) if getattr(token, "type", "") == "code_block" else "",
             "anchor_id": self._anchor_id_for_line(start_line),
         }
         return block_id
+
+    def _detect_code_block_indent(self, block_text):
+        lines = block_text.splitlines()
+        for line in lines:
+            if line.strip():
+                match = re.match(r"^[ \t]+", line)
+                if match:
+                    return match.group(0)
+                break
+        return "    "
+
+    def _rebuild_code_block_markdown(self, block_info, edited_content):
+        token_type = block_info.get("token_type", "")
+        normalized = (edited_content or "").replace("\r", "")
+
+        if token_type == "fence":
+            fence_markup = block_info.get("fence_markup") or "```"
+            fence_info = (block_info.get("fence_info") or "").strip()
+            opening_line = f"{fence_markup} {fence_info}".rstrip()
+            body = normalized
+            if body and not body.endswith("\n"):
+                body += "\n"
+            return f"{opening_line}\n{body}{fence_markup}"
+
+        if token_type == "code_block":
+            indent = block_info.get("code_indent") or "    "
+            if not normalized:
+                return indent
+
+            lines = normalized.splitlines(keepends=True)
+            indented = "".join(f"{indent}{line}" for line in lines)
+            if normalized and not normalized.endswith("\n"):
+                return indented
+            return indented
+
+        return normalized
 
     def _build_edit_button_html(self, block_id):
         if not block_id:
@@ -991,6 +1810,81 @@ class DocView(ttk.Frame):
             f'<a class="edit-handle" href="edit://{quote(block_id, safe="")}" '
             f'title="Editar bloque">&#9998;</a>'
         )
+
+    def _outdent_line_text(self, line_text, indent_unit=None):
+        indent_unit = indent_unit or self.MARKDOWN_EDITOR_INDENT
+        if line_text.startswith(indent_unit):
+            return line_text[len(indent_unit):]
+        if line_text.startswith("\t"):
+            return line_text[1:]
+
+        leading_spaces = len(line_text) - len(line_text.lstrip(" "))
+        if leading_spaces <= 0:
+            return line_text
+        return line_text[min(leading_spaces, len(indent_unit)):]
+
+    def _indent_block_editor_selection(self, widget, backwards=False, indent_unit=None):
+        indent_unit = indent_unit or self.MARKDOWN_EDITOR_INDENT
+
+        try:
+            sel_start = widget.index("sel.first")
+            sel_end = widget.index("sel.last")
+            has_selection = True
+        except tk.TclError:
+            sel_start = widget.index("insert")
+            sel_end = sel_start
+            has_selection = False
+
+        if has_selection:
+            start_idx = widget.index(f"{sel_start} linestart")
+            effective_end = sel_end
+            if (
+                widget.compare(sel_end, ">", sel_start)
+                and widget.compare(widget.index(f"{sel_end} linestart"), "==", sel_end)
+            ):
+                effective_end = widget.index(f"{sel_end} -1c")
+            end_idx = widget.index(f"{effective_end} lineend")
+            original_text = widget.get(start_idx, end_idx)
+            lines = original_text.split("\n")
+            if backwards:
+                updated_lines = [self._outdent_line_text(line, indent_unit) for line in lines]
+            else:
+                updated_lines = [f"{indent_unit}{line}" for line in lines]
+            updated_text = "\n".join(updated_lines)
+
+            widget.edit_separator()
+            widget.delete(start_idx, end_idx)
+            widget.insert(start_idx, updated_text)
+            widget.tag_remove("sel", "1.0", tk.END)
+            widget.tag_add("sel", start_idx, widget.index(f"{start_idx} + {len(updated_text)}c"))
+            widget.mark_set("insert", start_idx)
+            widget.see(start_idx)
+            return "break"
+
+        insert_idx = widget.index("insert")
+        if backwards:
+            line_start = widget.index(f"{insert_idx} linestart")
+            line_end = widget.index(f"{insert_idx} lineend")
+            line_text = widget.get(line_start, line_end)
+            updated_line = self._outdent_line_text(line_text, indent_unit)
+            if updated_line == line_text:
+                return "break"
+            widget.edit_separator()
+            widget.delete(line_start, line_end)
+            widget.insert(line_start, updated_line)
+
+            try:
+                line_no, col_no = map(int, insert_idx.split("."))
+            except Exception:
+                line_no, col_no = 1, 0
+            removed = len(line_text) - len(updated_line)
+            widget.mark_set("insert", f"{line_no}.{max(0, col_no - removed)}")
+            widget.see("insert")
+            return "break"
+
+        widget.insert(insert_idx, indent_unit)
+        widget.see("insert")
+        return "break"
 
     def _replace_markdown_block(self, block_id, replacement_text):
         block_info = self._editable_blocks.get(block_id)
@@ -1005,6 +1899,8 @@ class DocView(ttk.Frame):
         original_text = "".join(lines[start_line:end_line])
 
         replacement = replacement_text
+        if block_info.get("kind") == "bloque de código":
+            replacement = self._rebuild_code_block_markdown(block_info, replacement_text)
         if original_text.endswith(("\n", "\r")) and replacement and not replacement.endswith(("\n", "\r")):
             replacement += "\n"
 
@@ -1029,16 +1925,23 @@ class DocView(ttk.Frame):
             messagebox.showwarning("Aviso", "No se pudo localizar el bloque para editar.")
             return
 
+        is_code_block = block_info.get("kind") == "bloque de código"
         dialog = tk.Toplevel(self)
         dialog.title("Editar bloque Markdown")
         dialog.transient(self.winfo_toplevel())
         dialog.grab_set()
-        dialog.geometry("900x520")
-        dialog.minsize(640, 360)
+        screen_width = max(dialog.winfo_screenwidth(), 1200)
+        screen_height = max(dialog.winfo_screenheight(), 800)
+        width = min(int(screen_width * 0.88), 1680)
+        height = min(int(screen_height * 0.82), 1080)
+        pos_x = max((screen_width - width) // 2, 0)
+        pos_y = max((screen_height - height) // 2, 0)
+        dialog.geometry(f"{width}x{height}+{pos_x}+{pos_y}")
+        dialog.minsize(920, 620)
         dialog.configure(bg=Styles.COLOR_BG_MAIN)
 
         header = ttk.Frame(dialog, style="Main.TFrame")
-        header.pack(fill="x", padx=12, pady=(12, 0))
+        header.pack(fill="x", padx=18, pady=(18, 0))
         ttk.Label(
             header,
             text=f"Editar {block_info['kind']}",
@@ -1046,37 +1949,93 @@ class DocView(ttk.Frame):
         ).pack(fill="x")
 
         editor_frame = ttk.Frame(dialog, style="Main.TFrame")
-        editor_frame.pack(fill="both", expand=True, padx=12, pady=12)
+        editor_frame.pack(fill="both", expand=True, padx=18, pady=18)
 
-        editor = tk.Text(
-            editor_frame,
-            font=("Consolas", 12),
-            bg=Styles.COLOR_INPUT_BG,
-            fg=Styles.COLOR_FG_TEXT,
-            insertbackground=Styles.COLOR_FG_TEXT,
-            relief="flat",
-            wrap="word",
-            padx=10,
-            pady=10,
-            undo=True
-        )
+        if is_code_block:
+            editor = arb_create_styled_text_widget(editor_frame)
+            editor.configure(
+                font=(self.code_font_family, self.code_font_size),
+                padx=18,
+                pady=16,
+                borderwidth=0,
+                highlightthickness=0,
+                wrap="none"
+            )
+        else:
+            editor = tk.Text(
+                editor_frame,
+                font=("Consolas", 12),
+                bg=Styles.COLOR_INPUT_BG,
+                fg=Styles.COLOR_FG_TEXT,
+                insertbackground=Styles.COLOR_FG_TEXT,
+                relief="flat",
+                wrap="word",
+                padx=12,
+                pady=12,
+                undo=True
+            )
         editor.pack(side="left", fill="both", expand=True)
-        editor.insert("1.0", block_info.get("text", ""))
+        editor.insert("1.0", block_info.get("display_text", block_info.get("text", "")))
 
         scrollbar = ttk.Scrollbar(editor_frame, orient="vertical", command=editor.yview)
         scrollbar.pack(side="right", fill="y")
         editor.configure(yscrollcommand=scrollbar.set)
 
+        highlight_job = {"id": None}
+
+        def schedule_code_highlight(event=None):
+            if not is_code_block:
+                return
+            if highlight_job["id"]:
+                dialog.after_cancel(highlight_job["id"])
+            highlight_job["id"] = dialog.after(180, apply_code_highlight)
+
+        def apply_code_highlight():
+            highlight_job["id"] = None
+            if not is_code_block:
+                return
+            try:
+                arb_highlight_syntax(editor, self._build_markdown_code_preview_path(block_info))
+                self._normalize_text_widget_fonts(editor)
+            except Exception:
+                pass
+
+        def indent_selection(event=None):
+            result = self._indent_block_editor_selection(editor, backwards=False)
+            if is_code_block:
+                schedule_code_highlight()
+            return result
+
+        def outdent_selection(event=None):
+            result = self._indent_block_editor_selection(editor, backwards=True)
+            if is_code_block:
+                schedule_code_highlight()
+            return result
+
+        if is_code_block:
+            editor.edit_reset()
+            editor.bind("<KeyRelease>", schedule_code_highlight, add="+")
+            apply_code_highlight()
+
+        editor.bind("<Tab>", indent_selection)
+        editor.bind("<Shift-Tab>", outdent_selection)
+        editor.bind("<ISO_Left_Tab>", outdent_selection)
+
         buttons = ttk.Frame(dialog, style="Main.TFrame")
-        buttons.pack(fill="x", padx=12, pady=(0, 12))
+        buttons.pack(fill="x", padx=18, pady=(0, 18))
 
         def save_changes(event=None):
             self._replace_markdown_block(block_id, editor.get("1.0", "end-1c"))
             dialog.destroy()
             return "break"
 
-        ttk.Button(buttons, text="Guardar cambios", style="Action.TButton", command=save_changes).pack(side="right", padx=(8, 0))
-        ttk.Button(buttons, text="Cancelar", style="Secondary.TButton", command=dialog.destroy).pack(side="right")
+        btn_save_changes = ttk.Button(buttons, text="Guardar cambios", style="Action.TButton", command=save_changes)
+        btn_save_changes.pack(side="right", padx=(8, 0))
+        attach_tooltip(btn_save_changes, "Guardar cambios")
+
+        btn_cancel_changes = ttk.Button(buttons, text="Cancelar", style="Secondary.TButton", command=dialog.destroy)
+        btn_cancel_changes.pack(side="right")
+        attach_tooltip(btn_cancel_changes, "Cancelar edición")
 
         dialog.bind("<Escape>", lambda event: dialog.destroy())
         dialog.bind("<Control-Return>", save_changes)
@@ -1093,6 +2052,8 @@ class DocView(ttk.Frame):
             self._set_code_sash()
 
     def _hide_code_panel(self):
+        if not self._confirm_pending_code_changes():
+            return
         if self.is_code_panel_visible:
             try:
                 self.content_pane.forget(self.code_frame)
@@ -1111,16 +2072,7 @@ class DocView(ttk.Frame):
             pass
 
     def _on_margin_change(self, value=None):
-        try:
-            margin = int(float(value)) if value is not None else int(self.scale_margin.get())
-        except Exception:
-            margin = int(self.code_margin_var.get())
-        margin = max(1, min(margin, 200))
-        self.code_margin_var.set(margin)
-        if self.controller and hasattr(self.controller, "config_manager"):
-            self.controller.config_manager.set_arbitrary_step(margin)
-        if self._last_code_token:
-            self._open_code_snippet(self._last_code_token)
+        return
 
     def _on_content_pane_release(self, event=None):
         if not self.is_code_panel_visible:
@@ -1140,10 +2092,175 @@ class DocView(ttk.Frame):
 
     def _show_code_panel_message(self, message):
         self._ensure_code_panel_visible()
+        self._set_active_code_context()
         self.code_text.config(state="normal")
         self.code_text.delete("1.0", tk.END)
         self.code_text.insert("1.0", message)
+        self._normalize_code_text_fonts()
+        self.code_text.edit_reset()
+        self.code_text.edit_modified(False)
         self.code_text.config(state="disabled")
+
+    def _format_code_reference(self, file_path):
+        if not file_path:
+            return ""
+
+        path = os.path.abspath(file_path)
+        project_root = None
+        if self.controller and hasattr(self.controller, "project_manager"):
+            project_root = getattr(self.controller.project_manager, "current_project_path", None)
+
+        if project_root:
+            try:
+                if os.path.commonpath([path, project_root]) == os.path.abspath(project_root):
+                    return os.path.relpath(path, project_root)
+            except Exception:
+                pass
+
+        return path
+
+    def _set_active_code_context(self, file_path=None, line_no=None, dirty=False):
+        self._active_code_file_path = file_path
+        self._active_code_line_no = line_no if file_path else None
+        self._is_code_dirty = bool(dirty and file_path)
+
+        if not file_path:
+            self.lbl_code_file.config(text="Sin fichero seleccionado")
+            self.btn_save_code.state(["disabled"])
+            return
+
+        reference = self._format_code_reference(file_path)
+        line_suffix = f" · línea {line_no}" if line_no else ""
+        dirty_prefix = "* " if self._is_code_dirty else ""
+        self.lbl_code_file.config(text=f"{dirty_prefix}{reference}{line_suffix}")
+        self.btn_save_code.state(["!disabled"])
+
+    def _sync_project_file_cache(self, file_path, content):
+        if not self.controller or not hasattr(self.controller, "project_manager"):
+            return
+
+        project_manager = self.controller.project_manager
+        normalized_target = os.path.normpath(os.path.abspath(file_path))
+
+        for file_data in project_manager.get_files():
+            if os.path.normpath(os.path.abspath(file_data.get("path", ""))) == normalized_target:
+                file_data["content"] = content
+                return
+
+        project_root = getattr(project_manager, "current_project_path", None)
+        if not project_root:
+            return
+
+        try:
+            project_root = os.path.abspath(project_root)
+            if os.path.commonpath([normalized_target, project_root]) != project_root:
+                return
+            rel_path = os.path.relpath(normalized_target, project_root)
+        except Exception:
+            return
+
+        project_manager.files.append({
+            "path": normalized_target,
+            "rel_path": rel_path,
+            "content": content,
+        })
+
+    def _schedule_code_highlight(self):
+        if self._code_highlight_job:
+            self.after_cancel(self._code_highlight_job)
+        self._code_highlight_job = self.after(250, self._apply_code_highlight)
+
+    def _apply_code_highlight(self):
+        self._code_highlight_job = None
+        if not self._active_code_file_path:
+            return
+        try:
+            arb_highlight_syntax(self.code_text, self._active_code_file_path)
+            self._normalize_code_text_fonts()
+        except Exception:
+            pass
+
+    def _on_code_text_modified(self, event=None):
+        try:
+            modified = self.code_text.edit_modified()
+        except Exception:
+            return
+
+        if not modified:
+            return
+
+        if self._active_code_file_path:
+            self._set_active_code_context(
+                self._active_code_file_path,
+                self._active_code_line_no,
+                dirty=True
+            )
+            self._schedule_code_highlight()
+
+        try:
+            self.code_text.edit_modified(False)
+        except Exception:
+            pass
+
+    def _save_active_code_file(self):
+        if not self._active_code_file_path:
+            return False
+
+        try:
+            content = self.code_text.get("1.0", "end-1c")
+            with open(self._active_code_file_path, "w", encoding="utf-8") as f:
+                f.write(content)
+            self._sync_project_file_cache(self._active_code_file_path, content)
+            self.code_text.edit_modified(False)
+            self._set_active_code_context(
+                self._active_code_file_path,
+                self._active_code_line_no,
+                dirty=False
+            )
+            logging.info(f"DocView: Guardado fichero fuente {self._active_code_file_path}")
+            return True
+        except Exception as e:
+            messagebox.showerror("Error", f"No se pudo guardar el fichero fuente: {e}")
+            return False
+
+    def _confirm_pending_code_changes(self):
+        if not self._active_code_file_path or not self._is_code_dirty:
+            return True
+
+        filename = os.path.basename(self._active_code_file_path)
+        response = messagebox.askyesnocancel(
+            "Guardar cambios",
+            f"Hay cambios sin guardar en '{filename}'. ¿Quieres guardarlos antes de continuar?"
+        )
+        if response is None:
+            return False
+        if response:
+            return self._save_active_code_file()
+        return True
+
+    def _on_save_code_shortcut(self, event=None):
+        self._save_active_code_file()
+        return "break"
+
+    def _on_undo_code_shortcut(self, event=None):
+        if str(self.code_text.cget("state")) != "normal":
+            return "break"
+        try:
+            self.code_text.edit_undo()
+        except tk.TclError:
+            return "break"
+        self._schedule_code_highlight()
+        return "break"
+
+    def _on_redo_code_shortcut(self, event=None):
+        if str(self.code_text.cget("state")) != "normal":
+            return "break"
+        try:
+            self.code_text.edit_redo()
+        except tk.TclError:
+            return "break"
+        self._schedule_code_highlight()
+        return "break"
 
     def _clear_code_match_highlight(self, event=None):
         """Removes the temporary yellow highlight when the user interacts with the code panel."""
@@ -1185,21 +2302,29 @@ class DocView(ttk.Frame):
 
     def _open_code_snippet(self, token):
         self._last_code_token = token
+        if not self._confirm_pending_code_changes():
+            return
+
         result = self._find_code_match(token)
         if not result:
             self._show_code_panel_message(f"No se encontró \"{token}\" en el proyecto.")
             return
 
-        file_path, line_no, start_line, end_line, snippet_text, nocase, match_start, match_end = result
+        file_path = result["file_path"]
+        line_no = result["line_no"]
+        file_content = result["content"]
+        match_start = result["match_start"]
+        match_end = result["match_end"]
         self._ensure_code_panel_visible()
-        base_root = os.getcwd()
-        if self.controller and hasattr(self.controller, "project_manager"):
-            base_root = self.controller.project_manager.current_project_path or base_root
 
         self.code_text.config(state="normal")
         self.code_text.delete("1.0", tk.END)
-        self.code_text.insert("1.0", snippet_text)
+        self.code_text.insert("1.0", file_content)
         arb_highlight_syntax(self.code_text, file_path)
+        self._normalize_code_text_fonts()
+        self.code_text.edit_reset()
+        self.code_text.edit_modified(False)
+        self._set_active_code_context(file_path, line_no, dirty=False)
 
         self.code_text.tag_remove("match_highlight", "1.0", tk.END)
         first_match_idx = None
@@ -1211,10 +2336,84 @@ class DocView(ttk.Frame):
         except Exception:
             first_match_idx = None
         self.code_text.tag_lower("match_highlight")
-
-        self.code_text.config(state="disabled")
         if first_match_idx:
             self.after_idle(lambda match_idx=first_match_idx: self._center_code_match(match_idx))
+        self.code_text.focus_set()
+
+    def _normalize_text_widget_fonts(self, widget):
+        try:
+            widget.configure(font=(self.code_font_family, self.code_font_size))
+        except Exception:
+            return
+
+        for tag_name in widget.tag_names():
+            try:
+                current_font = widget.tag_cget(tag_name, "font")
+            except Exception:
+                continue
+
+            if not current_font:
+                continue
+
+            try:
+                tag_font = tkfont.Font(font=current_font)
+                weight = tag_font.cget("weight")
+                slant = tag_font.cget("slant")
+                style_parts = []
+                if weight == "bold":
+                    style_parts.append("bold")
+                if slant == "italic":
+                    style_parts.append("italic")
+                font_spec = (self.code_font_family, self.code_font_size)
+                if style_parts:
+                    font_spec = (self.code_font_family, self.code_font_size, " ".join(style_parts))
+                widget.tag_configure(
+                    tag_name,
+                    font=font_spec
+                )
+            except Exception:
+                continue
+
+    def _normalize_code_text_fonts(self):
+        self._normalize_text_widget_fonts(self.code_text)
+
+    def _build_markdown_code_preview_path(self, block_info):
+        language_hint = (block_info.get("language_hint") or "").strip().lower()
+        extension_map = {
+            "py": ".py",
+            "python": ".py",
+            "js": ".js",
+            "javascript": ".js",
+            "jsx": ".jsx",
+            "ts": ".ts",
+            "typescript": ".ts",
+            "tsx": ".tsx",
+            "html": ".html",
+            "css": ".css",
+            "scss": ".scss",
+            "sass": ".sass",
+            "json": ".json",
+            "sql": ".sql",
+            "sh": ".sh",
+            "bash": ".sh",
+            "zsh": ".zsh",
+            "md": ".md",
+            "markdown": ".md",
+            "xml": ".xml",
+            "yaml": ".yml",
+            "yml": ".yml",
+            "php": ".php",
+            "java": ".java",
+            "c": ".c",
+            "cpp": ".cpp",
+            "csharp": ".cs",
+            "cs": ".cs",
+            "go": ".go",
+            "rs": ".rs",
+            "rust": ".rs",
+        }
+        extension = extension_map.get(language_hint, ".txt")
+        return f"markdown_block{extension}"
 
     def _find_code_match(self, token):
         token = (token or "").replace("\r", "").strip("\n")
@@ -1222,25 +2421,16 @@ class DocView(ttk.Frame):
             return None
         deadline = time.monotonic() + 7.0
 
-        margin = 6
-        if self.controller and hasattr(self.controller, "config_manager"):
-            try:
-                margin = int(self.controller.config_manager.get_arbitrary_step())
-            except Exception:
-                margin = 6
-        margin = max(1, min(margin, 200))
-
         def build_result(path, content, idx, end_idx, nocase):
             line_no = content.count("\n", 0, idx) + 1
-            lines = content.splitlines()
-            lines_with_endings = content.splitlines(keepends=True)
-            start_line = max(1, line_no - margin)
-            end_line = min(len(lines), line_no + margin)
-            snippet_abs_start = sum(len(line) for line in lines_with_endings[:start_line - 1])
-            snippet_text = "".join(lines_with_endings[start_line - 1:end_line])
-            match_start = max(0, idx - snippet_abs_start)
-            match_end = max(match_start, min(len(snippet_text), end_idx - snippet_abs_start))
-            return path, line_no, start_line, end_line, snippet_text, nocase, match_start, match_end
+            return {
+                "file_path": path,
+                "line_no": line_no,
+                "content": content,
+                "nocase": nocase,
+                "match_start": idx,
+                "match_end": end_idx,
+            }
 
         def find_in_content(path, content):
             if time.monotonic() > deadline:
@@ -1501,10 +2691,13 @@ class DocView(ttk.Frame):
         self._refresh_sections()
 
     def _refresh_sections(self):
+        self._refresh_doc_path_history()
         self.section_list.delete(0, tk.END)
         doc_dir = self._get_doc_root()
         if not doc_dir:
             self._last_selected_section = None
+            self.all_sections = []
+            self.filtered_sections = []
             self.available_md_files = []
             self.current_file_path = None
             self.cmb_files.config(values=[])
@@ -1524,11 +2717,11 @@ class DocView(ttk.Frame):
             return
 
         sections.sort(key=str.lower)
-        for section_name in sections:
-            self.section_list.insert(tk.END, section_name)
+        self.all_sections = sections
 
         if not sections:
             self._last_selected_section = None
+            self.filtered_sections = []
             self.available_md_files = []
             self.current_file_path = None
             self.cmb_files.config(values=[])
@@ -1546,10 +2739,66 @@ class DocView(ttk.Frame):
         else:
             target_section = sections[0]
 
-        idx = sections.index(target_section)
+        self._apply_section_filter(preferred_section=target_section, force_reload=True)
+
+    def _refresh_doc_path_history(self):
+        self.doc_path_options = {}
+        values = []
+        if self.controller and hasattr(self.controller, "get_existing_doc_directories"):
+            for path in self.controller.get_existing_doc_directories():
+                label = self._format_doc_path_option(path)
+                self.doc_path_options[label] = path
+                values.append(label)
+
+        self.cmb_doc_paths.config(values=values)
+
+        current_path = self._get_doc_root()
+        if current_path:
+            current_label = self._format_doc_path_option(current_path)
+            if current_label not in self.doc_path_options:
+                self.doc_path_options[current_label] = current_path
+                values.insert(0, current_label)
+                self.cmb_doc_paths.config(values=values)
+            self.cmb_doc_paths.set(current_label)
+        elif values:
+            self.cmb_doc_paths.set(values[0])
+        else:
+            self.cmb_doc_paths.set("")
+
+    def _format_doc_path_option(self, path):
+        path = os.path.normpath(path)
+        base_name = os.path.basename(path) or path
+        return f"{base_name}  ·  {path}"
+
+    def _apply_section_filter(self, preferred_section=None, force_reload=False):
+        query = self.section_search_entry.get().strip().lower() if hasattr(self, "section_search_entry") else ""
+        if query:
+            self.filtered_sections = [name for name in self.all_sections if query in name.lower()]
+        else:
+            self.filtered_sections = list(self.all_sections)
+
+        self.section_list.delete(0, tk.END)
+        for section_name in self.filtered_sections:
+            self.section_list.insert(tk.END, section_name)
+
+        if not self.filtered_sections:
+            self.section_list.selection_clear(0, tk.END)
+            return
+
+        target_section = None
+        if preferred_section in self.filtered_sections:
+            target_section = preferred_section
+        elif self._last_selected_section in self.filtered_sections:
+            target_section = self._last_selected_section
+        else:
+            target_section = self.filtered_sections[0]
+
+        idx = self.filtered_sections.index(target_section)
+        self.section_list.selection_clear(0, tk.END)
         self.section_list.selection_set(idx)
         self.section_list.activate(idx)
-        self._on_section_select(force_reload=True)
+        self.section_list.see(idx)
+        self._on_section_select(force_reload=force_reload)
 
     def _toggle_mode(self):
         """Toggles between Editor and Viewer modes."""
@@ -1603,9 +2852,9 @@ class DocView(ttk.Frame):
 
     def _update_sidebar_toggle(self):
         if self.is_fullscreen_mode:
-            self.btn_toggle_sidebar.state(["disabled"])
+            self.btn_toggle_sidebar.place_forget()
         else:
-            self.btn_toggle_sidebar.state(["!disabled"])
+            self._schedule_sidebar_toggle_position()
 
         if self.is_right_panel_visible:
             self.btn_toggle_sidebar.config(text=">")
@@ -1614,7 +2863,8 @@ class DocView(ttk.Frame):
 
     def _update_fullscreen_button(self):
         self.btn_toggle_fullscreen.config(
-            text="Normal" if self.is_fullscreen_mode else "Expandir"
+            image=self.icons.get("fullscreen_exit") if self.is_fullscreen_mode else self.icons.get("fullscreen_enter"),
+            text=""
         )
 
     def _toggle_fullscreen_mode(self):
@@ -1656,6 +2906,39 @@ class DocView(ttk.Frame):
         self._update_fullscreen_button()
         self.after_idle(self._set_code_sash)
 
+    def _schedule_sidebar_toggle_position(self, event=None):
+        self.after_idle(self._position_sidebar_toggle)
+
+    def _position_sidebar_toggle(self):
+        if self.is_fullscreen_mode or not getattr(self, "btn_toggle_sidebar", None):
+            return
+
+        try:
+            self.paned_window.update_idletasks()
+        except Exception:
+            return
+
+        btn_width = max(self.btn_toggle_sidebar.winfo_reqwidth(), self.btn_toggle_sidebar.winfo_width(), 1)
+        btn_height = max(self.btn_toggle_sidebar.winfo_reqheight(), self.btn_toggle_sidebar.winfo_height(), 1)
+        pane_width = max(self.paned_window.winfo_width(), btn_width)
+        pane_height = max(self.paned_window.winfo_height(), btn_height)
+
+        if self.is_right_panel_visible and len(self.paned_window.panes()) > 1:
+            try:
+                sash_x, _ = self.paned_window.sash_coord(0)
+                x_pos = sash_x + max(self.DRAG_SASH_WIDTH // 2, 1)
+            except tk.TclError:
+                x_pos = self.left_frame.winfo_width()
+        else:
+            x_pos = pane_width - max((btn_width // 2) + 2, 1)
+
+        y_pos = pane_height // 2
+        x_pos = max(btn_width // 2, min(x_pos, pane_width - (btn_width // 2)))
+        y_pos = max(btn_height // 2, min(y_pos, pane_height - (btn_height // 2)))
+
+        self.btn_toggle_sidebar.place(x=x_pos, y=y_pos, anchor="center")
+        self.btn_toggle_sidebar.lift()
+
     def _get_main_layout(self):
         parent = self.master
         while parent is not None:
@@ -1681,7 +2964,8 @@ class DocView(ttk.Frame):
                 self.is_dark_mode,
                 self.is_editor_mode,
                 self.code_sash_ratio,
-                self.is_fullscreen_mode
+                self.is_fullscreen_mode,
+                self.markdown_preview_zoom
             )
 
     # --- Markdown Highlighting & Rendering Logic ---
@@ -1699,7 +2983,7 @@ class DocView(ttk.Frame):
         w.tag_configure("MD_ITALIC", font=("Segoe UI", 12, "italic"))
         
         # Structure
-        w.tag_configure("MD_CODE", font=("Consolas", 11), foreground="#dcdcaa", background="#2d2d2d")
+        w.tag_configure("MD_CODE", font=(self.code_font_family, 11), foreground="#dcdcaa", background="#2d2d2d")
         w.tag_configure("MD_SYMBOL", foreground="#606060")
 
     def _on_content_change(self, event=None):
@@ -1839,7 +3123,7 @@ class DocView(ttk.Frame):
                 stack = env.setdefault("editable_wrapper_stack", [])
                 is_nested = len(stack) > 0
                 
-                block_id = self._register_editable_block(token, "bloque de código", content)
+                block_id = self._register_editable_block(token, "bloque de código", content, language_hint=language_hint)
                 button_html = self._build_edit_button_html(block_id) if not is_nested else ""
                 anchor_id = self._editable_blocks.get(block_id, {}).get("anchor_id", "")
                 highlighted = self._render_markdown_code_block(token.content, language_hint, self.is_dark_mode)
@@ -1890,9 +3174,9 @@ class DocView(ttk.Frame):
                 h3 {{ font-size: 18px; font-weight: 600; }}
                 a {{ color: {link_color}; text-decoration: underline; }}
                 p {{ margin-bottom: 16px; }}
-                code {{ font-family: Consolas, 'Courier New', monospace; background-color: {code_bg}; padding: 2px 4px; border-radius: 3px; font-size: 14px; color: {text_color}; }}
+                code {{ font-family: '{self.code_font_family}', 'Courier New', monospace; background-color: {code_bg}; padding: 2px 4px; border-radius: 3px; font-size: 14px; color: {text_color}; }}
                 a.code-link {{ text-decoration: none; }}
-                a.code-link .code-inline {{ font-family: Consolas, 'Courier New', monospace; background-color: {code_link_bg}; padding: 2px 4px; border-radius: 3px; font-size: 14px; color: {code_link_color}; border: 1px solid {border_color}; }}
+                a.code-link .code-inline {{ font-family: '{self.code_font_family}', 'Courier New', monospace; background-color: {code_link_bg}; padding: 2px 4px; border-radius: 3px; font-size: 14px; color: {code_link_color}; border: 1px solid {border_color}; }}
                 pre {{ background-color: {code_bg}; padding: 16px; border-radius: 6px; overflow: auto; margin-bottom: 16px; border: 1px solid {border_color}; }}
                 pre code {{ background-color: transparent; padding: 0; color: {text_color}; }}
                 pre.code-block {{
@@ -1903,7 +3187,7 @@ class DocView(ttk.Frame):
                 }}
                 pre.code-block code {{
                     display: block;
-                    font-family: Consolas, 'Courier New', monospace;
+                    font-family: '{self.code_font_family}', 'Courier New', monospace;
                     font-size: 14px;
                     line-height: 1.6;
                     white-space: pre;

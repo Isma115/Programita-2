@@ -7,6 +7,7 @@ from src.ui.styles import Styles
 import os
 import pyperclip
 import importlib
+import re
 
 class Controller:
     """
@@ -32,6 +33,7 @@ class Controller:
         self.project_manager = ProjectManager(self.config_manager)
         self.section_manager = SectionManager(self.project_manager)
         self.hotkey_listener = GlobalHotkeyListener(self)
+        self._doc_file_cache = {}
 
     def load_project_folder(self, path):
         """Loads a project folder and updates the UI."""
@@ -274,13 +276,6 @@ class Controller:
         print("Logic: Switching to Database View")
         self.app.layout.show_database_tab()
 
-    def show_prompting_view(self):
-        """
-        Switch the main content area to the Prompting view.
-        """
-        print("Logic: Switching to Prompting View")
-        self.app.layout.show_prompting_tab()
-
     def replace_region_from_clipboard(self, region_name, content):
         """
         Bridges the hotkey trigger to the project manager.
@@ -333,6 +328,10 @@ class Controller:
             return None
         return doc_dir
 
+    def get_existing_doc_directories(self):
+        """Returns current and historical documentation directories that still exist."""
+        return self.config_manager.get_existing_doc_directories()
+
     def _get_doc_sections(self):
         """Returns available documentation sections as [(name, abs_path), ...]."""
         doc_root = self._get_doc_root()
@@ -363,6 +362,124 @@ class Controller:
             return []
         files.sort(key=lambda path: os.path.relpath(path, section_path).lower())
         return files
+
+    def _read_doc_file_cached(self, path):
+        """Reads a documentation file using a tiny mtime-based cache."""
+        try:
+            stat = os.stat(path)
+        except Exception:
+            return ""
+
+        cached = self._doc_file_cache.get(path)
+        cache_key = (stat.st_mtime_ns, stat.st_size)
+        if cached and cached.get("key") == cache_key:
+            return cached.get("content", "")
+
+        try:
+            with open(path, "r", encoding="utf-8", errors="ignore") as fh:
+                content = fh.read()
+        except Exception:
+            return ""
+
+        self._doc_file_cache[path] = {
+            "key": cache_key,
+            "content": content,
+        }
+        return content
+
+    def search_documentation(self, query, limit=12):
+        """
+        Searches across every known documentation directory whose path still exists.
+        Returns ranked matches with enough metadata to open the document directly.
+        """
+        raw_query = (query or "").strip()
+        if not raw_query:
+            return {
+                "results": [],
+                "roots_checked": self.get_existing_doc_directories(),
+            }
+
+        normalized_query = " ".join(raw_query.lower().split())
+        if not normalized_query:
+            return {
+                "results": [],
+                "roots_checked": self.get_existing_doc_directories(),
+            }
+
+        doc_extensions = {".md", ".markdown", ".mdown", ".txt", ".rst", ".adoc"}
+        results = []
+        roots_checked = self.get_existing_doc_directories()
+
+        def build_snippet(content, start_idx, query_text):
+            start = max(start_idx - 80, 0)
+            end = min(start_idx + len(query_text) + 120, len(content))
+            snippet = content[start:end].replace("\n", " ").replace("\r", " ")
+            snippet = re.sub(r"\s+", " ", snippet).strip()
+            if start > 0:
+                snippet = "..." + snippet
+            if end < len(content):
+                snippet = snippet + "..."
+            return snippet
+
+        for doc_root in roots_checked:
+            for walk_root, _, filenames in os.walk(doc_root):
+                for filename in filenames:
+                    extension = os.path.splitext(filename)[1].lower()
+                    if extension not in doc_extensions:
+                        continue
+
+                    file_path = os.path.join(walk_root, filename)
+                    rel_path = os.path.relpath(file_path, doc_root)
+                    rel_path_lower = rel_path.lower()
+                    filename_lower = filename.lower()
+                    section_name = rel_path.split(os.sep, 1)[0] if os.sep in rel_path else ""
+
+                    content = self._read_doc_file_cached(file_path)
+                    content_lower = content.lower()
+
+                    path_match = normalized_query in rel_path_lower
+                    content_idx = content_lower.find(normalized_query)
+                    if not path_match and content_idx == -1:
+                        continue
+
+                    occurrences = content_lower.count(normalized_query) if content_idx != -1 else 0
+                    score = 0
+                    if normalized_query in filename_lower:
+                        score += 220
+                    if path_match:
+                        score += 140
+                    if section_name and normalized_query in section_name.lower():
+                        score += 80
+                    if content_idx != -1:
+                        score += 60
+                        score += min(occurrences, 8) * 12
+                        score += max(0, 40 - min(content_idx, 1200) // 30)
+
+                    results.append({
+                        "score": score,
+                        "query": raw_query,
+                        "path": file_path,
+                        "doc_root": doc_root,
+                        "doc_root_name": os.path.basename(doc_root.rstrip(os.sep)) or doc_root,
+                        "rel_path": rel_path,
+                        "section_name": section_name,
+                        "filename": filename,
+                        "snippet": build_snippet(content, max(content_idx, 0), normalized_query) if content_idx != -1 else rel_path,
+                        "match_count": occurrences if occurrences else (1 if path_match else 0),
+                    })
+
+        results.sort(
+            key=lambda item: (
+                -item["score"],
+                item["rel_path"].lower(),
+                item["doc_root"].lower(),
+            )
+        )
+
+        return {
+            "results": results[:limit],
+            "roots_checked": roots_checked,
+        }
 
     def get_all_searchable_assets(self):
         """

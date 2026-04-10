@@ -1,0 +1,1151 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Editor de Diagramas</title>
+  <style>
+    :root {
+      --bg-main: #0f141d;
+      --bg-panel: #171d29;
+      --bg-card: #1c2332;
+      --bg-soft: #232c3f;
+      --bg-softer: #2a3449;
+      --line: #2f3b54;
+      --line-strong: #42506f;
+      --text-main: #eef2f7;
+      --text-soft: #9aa7bc;
+      --accent: #4f8cff;
+      --accent-hover: #73a4ff;
+      --accent-2: #8b5cf6;
+      --danger: #e35d6a;
+      --canvas-grid: rgba(133, 157, 194, 0.12);
+      --canvas-cross: rgba(133, 157, 194, 0.18);
+      --canvas-bg: #111826;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    html, body {
+      margin: 0;
+      height: 100%;
+      background: var(--bg-main);
+      color: var(--text-main);
+      font-family: "Segoe UI", Arial, sans-serif;
+      overflow: hidden;
+      user-select: none;
+    }
+
+    body {
+      display: flex;
+      flex-direction: column;
+      min-height: 100vh;
+    }
+
+    button, input, textarea, select {
+      font: inherit;
+    }
+
+    .shell {
+      display: flex;
+      flex-direction: column;
+      gap: 14px;
+      height: 100vh;
+      padding: 18px;
+    }
+
+    .card {
+      background: linear-gradient(180deg, rgba(255,255,255,0.02), rgba(255,255,255,0)) , var(--bg-card);
+      border: 1px solid var(--line);
+      border-radius: 18px;
+      box-shadow: 0 18px 46px rgba(0, 0, 0, 0.22);
+    }
+
+    .topbar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 24px;
+      padding: 18px 20px;
+    }
+
+    .title-wrap {
+      min-width: 0;
+    }
+
+    .title {
+      font-size: 27px;
+      font-weight: 800;
+      letter-spacing: -0.03em;
+      margin: 0;
+    }
+
+    .subtitle {
+      margin: 6px 0 0;
+      color: var(--text-soft);
+      font-size: 14px;
+    }
+
+    .top-actions {
+      display: flex;
+      gap: 10px;
+      flex-wrap: wrap;
+    }
+
+    .action-btn {
+      border: 1px solid var(--line-strong);
+      background: var(--bg-soft);
+      color: var(--text-main);
+      padding: 11px 16px;
+      border-radius: 12px;
+      cursor: pointer;
+      transition: transform 0.18s ease, background 0.18s ease, border-color 0.18s ease;
+    }
+
+    .action-btn:hover {
+      transform: translateY(-1px);
+      border-color: var(--accent);
+      background: #2b3550;
+    }
+
+    .action-btn.primary {
+      background: linear-gradient(135deg, var(--accent), #2f6df5);
+      border-color: transparent;
+    }
+
+    .workspace {
+      display: grid;
+      grid-template-columns: 224px minmax(0, 1fr) 320px;
+      gap: 14px;
+      flex: 1 1 auto;
+      min-height: 0;
+    }
+
+    .toolbar,
+    .inspector {
+      padding: 16px;
+      min-height: 0;
+      overflow: auto;
+    }
+
+    .section-label {
+      color: var(--text-soft);
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: 0.16em;
+      margin: 0 0 10px;
+      text-transform: uppercase;
+    }
+
+    .tool-group {
+      margin-bottom: 18px;
+    }
+
+    .tool-button {
+      width: 100%;
+      text-align: left;
+      border: 1px solid var(--line);
+      background: var(--bg-soft);
+      color: var(--text-main);
+      border-radius: 14px;
+      padding: 14px 14px 13px;
+      cursor: pointer;
+      transition: background 0.18s ease, border-color 0.18s ease, transform 0.18s ease;
+      margin-bottom: 10px;
+    }
+
+    .tool-button:hover {
+      transform: translateY(-1px);
+      border-color: var(--accent);
+    }
+
+    .tool-button.active {
+      background: linear-gradient(135deg, rgba(79, 140, 255, 0.28), rgba(139, 92, 246, 0.22));
+      border-color: rgba(121, 155, 255, 0.9);
+    }
+
+    .tool-name {
+      display: block;
+      font-size: 14px;
+      font-weight: 700;
+      margin-bottom: 4px;
+    }
+
+    .tool-desc {
+      display: block;
+      color: var(--text-soft);
+      font-size: 12px;
+      line-height: 1.45;
+    }
+
+    .canvas-card {
+      display: flex;
+      flex-direction: column;
+      min-height: 0;
+      overflow: hidden;
+    }
+
+    .canvas-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+      padding: 16px 18px 12px;
+      border-bottom: 1px solid rgba(255,255,255,0.04);
+    }
+
+    .canvas-header h2 {
+      margin: 0;
+      font-size: 17px;
+      letter-spacing: -0.02em;
+    }
+
+    .canvas-caption {
+      color: var(--text-soft);
+      font-size: 13px;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .canvas-scroll {
+      position: relative;
+      flex: 1 1 auto;
+      min-height: 0;
+      overflow: auto;
+      background:
+        linear-gradient(var(--canvas-cross) 1px, transparent 1px),
+        linear-gradient(90deg, var(--canvas-cross) 1px, transparent 1px),
+        linear-gradient(var(--canvas-grid) 1px, transparent 1px),
+        linear-gradient(90deg, var(--canvas-grid) 1px, transparent 1px),
+        var(--canvas-bg);
+      background-size: 120px 120px, 120px 120px, 24px 24px, 24px 24px, auto;
+      background-position: -1px -1px, -1px -1px, -1px -1px, -1px -1px, 0 0;
+    }
+
+    #stage {
+      display: block;
+      width: 5600px;
+      height: 3600px;
+      background: transparent;
+    }
+
+    .inspector-title {
+      margin: 0;
+      font-size: 20px;
+      font-weight: 800;
+      letter-spacing: -0.03em;
+    }
+
+    .inspector-subtitle {
+      margin: 8px 0 0;
+      color: var(--text-soft);
+      font-size: 13px;
+      line-height: 1.5;
+    }
+
+    .prop-label {
+      display: block;
+      margin: 16px 0 8px;
+      font-size: 12px;
+      font-weight: 700;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      color: var(--text-soft);
+    }
+
+    .control,
+    .textarea {
+      width: 100%;
+      border: 1px solid var(--line);
+      background: var(--bg-soft);
+      color: var(--text-main);
+      border-radius: 12px;
+      padding: 12px 13px;
+      outline: none;
+      transition: border-color 0.18s ease, box-shadow 0.18s ease;
+    }
+
+    .control:focus,
+    .textarea:focus {
+      border-color: var(--accent);
+      box-shadow: 0 0 0 4px rgba(79, 140, 255, 0.18);
+    }
+
+    .textarea {
+      min-height: 108px;
+      resize: vertical;
+      line-height: 1.5;
+    }
+
+    .control-row {
+      display: grid;
+      grid-template-columns: 1fr 92px;
+      gap: 10px;
+    }
+
+    .toggle {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin-top: 12px;
+      color: var(--text-main);
+      font-size: 14px;
+    }
+
+    .toggle input {
+      accent-color: var(--accent);
+      width: 16px;
+      height: 16px;
+    }
+
+    .palette {
+      display: grid;
+      grid-template-columns: repeat(5, minmax(0, 1fr));
+      gap: 8px;
+    }
+
+    .color-chip {
+      height: 34px;
+      border-radius: 10px;
+      border: 1px solid rgba(255,255,255,0.1);
+      cursor: pointer;
+      transition: transform 0.14s ease, border-color 0.14s ease, box-shadow 0.14s ease;
+    }
+
+    .color-chip:hover {
+      transform: translateY(-1px);
+      border-color: rgba(255,255,255,0.28);
+      box-shadow: 0 8px 18px rgba(0,0,0,0.2);
+    }
+
+    .palette.disabled {
+      opacity: 0.34;
+      pointer-events: none;
+    }
+
+    .hint-box {
+      margin-top: 18px;
+      border-radius: 16px;
+      border: 1px solid var(--line);
+      background: var(--bg-soft);
+      padding: 14px;
+      color: var(--text-soft);
+      font-size: 13px;
+      line-height: 1.55;
+    }
+
+    .statusbar {
+      padding: 12px 18px;
+      font-size: 13px;
+      color: var(--text-soft);
+    }
+
+    .node-rect {
+      rx: 18;
+      ry: 18;
+      stroke-width: 2.4;
+      transition: filter 0.14s ease, stroke 0.14s ease;
+    }
+
+    .node.selected .node-rect {
+      stroke: var(--accent-2);
+      filter: drop-shadow(0 0 0.8rem rgba(139, 92, 246, 0.28));
+    }
+
+    .node.origin .node-rect {
+      stroke: var(--accent);
+      filter: drop-shadow(0 0 0.9rem rgba(79, 140, 255, 0.3));
+    }
+
+    .node-text-wrap {
+      width: 100%;
+      height: 100%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 12px;
+      text-align: center;
+      line-height: 1.35;
+      overflow: hidden;
+      pointer-events: none;
+      word-break: break-word;
+    }
+
+    .connector-path {
+      fill: none;
+      stroke-width: 3.5;
+      stroke-linecap: round;
+      stroke-linejoin: round;
+    }
+
+    .connector.selected .connector-path {
+      stroke-width: 5;
+      filter: drop-shadow(0 0 0.65rem rgba(139, 92, 246, 0.24));
+    }
+
+    .connector-label {
+      text-anchor: middle;
+      fill: var(--text-soft);
+      pointer-events: none;
+    }
+
+    .preview-rect {
+      fill: rgba(125, 211, 252, 0.12);
+      stroke: #7dd3fc;
+      stroke-width: 2;
+      stroke-dasharray: 12 8;
+      rx: 16;
+      ry: 16;
+    }
+
+    .empty-state {
+      opacity: 0.72;
+    }
+  </style>
+</head>
+<body>
+  <div class="shell">
+    <div class="card topbar">
+      <div class="title-wrap">
+        <h1 class="title">Creador visual de diagramas</h1>
+        <p class="subtitle">HTML, CSS y JS embebidos en una ventana Python con un lienzo amplio para flujos, relaciones y uniones.</p>
+      </div>
+      <div class="top-actions">
+        <button id="newCanvasBtn" class="action-btn" type="button">Nuevo lienzo</button>
+        <button id="deleteBtn" class="action-btn" type="button">Eliminar selección</button>
+        <button id="centerBtn" class="action-btn primary" type="button">Centrar lienzo</button>
+      </div>
+    </div>
+
+    <div class="workspace">
+      <aside class="card toolbar">
+        <div class="tool-group">
+          <p class="section-label">Edición</p>
+          <button class="tool-button" type="button" data-tool="select">
+            <span class="tool-name">Seleccionar</span>
+            <span class="tool-desc">Mover bloques, editar texto y ajustar propiedades.</span>
+          </button>
+        </div>
+
+        <div class="tool-group">
+          <p class="section-label">Bloques</p>
+          <button class="tool-button" type="button" data-tool="filled_rect">
+            <span class="tool-name">Cuadrado sólido</span>
+            <span class="tool-desc">Crea cajas principales con relleno y texto centrado.</span>
+          </button>
+          <button class="tool-button" type="button" data-tool="outline_rect">
+            <span class="tool-name">Cuadrado con borde</span>
+            <span class="tool-desc">Genera contenedores más ligeros para decisiones o notas.</span>
+          </button>
+        </div>
+
+        <div class="tool-group">
+          <p class="section-label">Conexiones</p>
+          <button class="tool-button" type="button" data-tool="arrow">
+            <span class="tool-name">Flecha</span>
+            <span class="tool-desc">Conecta dos bloques con una dirección clara.</span>
+          </button>
+          <button class="tool-button" type="button" data-tool="relation">
+            <span class="tool-name">Relación</span>
+            <span class="tool-desc">Usa una línea discontinua para dependencias o referencias.</span>
+          </button>
+          <button class="tool-button" type="button" data-tool="union">
+            <span class="tool-name">Unión</span>
+            <span class="tool-desc">Traza un conector ortogonal para bifurcaciones y ensamblajes.</span>
+          </button>
+        </div>
+      </aside>
+
+      <section class="card canvas-card">
+        <div class="canvas-header">
+          <div>
+            <h2>Lienzo de trabajo</h2>
+            <div class="canvas-caption">Arrastra sobre el fondo para crear bloques. Con conectores: haz clic en origen y luego en destino.</div>
+          </div>
+          <div id="selectionInfo" class="canvas-caption empty-state">Nada seleccionado</div>
+        </div>
+        <div id="canvasScroll" class="canvas-scroll">
+          <svg id="stage" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 5600 3600">
+            <defs>
+              <marker id="arrowHead" markerWidth="14" markerHeight="14" refX="11" refY="7" orient="auto">
+                <path d="M 0 0 L 14 7 L 0 14 z" fill="#6ab0ff"></path>
+              </marker>
+            </defs>
+            <g id="connectorLayer"></g>
+            <g id="nodeLayer"></g>
+            <g id="previewLayer"></g>
+          </svg>
+        </div>
+      </section>
+
+      <aside class="card inspector">
+        <h2 class="inspector-title" id="inspectorTitle">Nada seleccionado</h2>
+        <p class="inspector-subtitle" id="inspectorHint">Selecciona un bloque o una conexión para editar el texto, las fuentes y los colores.</p>
+
+        <label class="prop-label" for="textInput">Texto</label>
+        <textarea id="textInput" class="textarea" placeholder="Escribe aquí el texto del elemento"></textarea>
+
+        <label class="prop-label">Tipografía</label>
+        <div class="control-row">
+          <select id="fontFamily" class="control"></select>
+          <input id="fontSize" class="control" type="number" min="8" max="42" value="14">
+        </div>
+        <label class="toggle">
+          <input id="fontBold" type="checkbox">
+          <span>Texto en negrita</span>
+        </label>
+
+        <label class="prop-label">Relleno</label>
+        <div id="fillPalette" class="palette"></div>
+
+        <label class="prop-label">Borde / línea</label>
+        <div id="strokePalette" class="palette"></div>
+
+        <div class="hint-box">
+          <strong>Atajos rápidos</strong><br>
+          Supr elimina la selección.<br>
+          Doble clic sobre un bloque para pasar al texto en el panel derecho.<br>
+          El botón "Centrar lienzo" recoloca el scroll en la zona de trabajo principal.
+        </div>
+      </aside>
+    </div>
+
+    <div id="statusbar" class="card statusbar">Herramienta actual: Selección</div>
+  </div>
+
+  <script>
+    const SVG_NS = "http://www.w3.org/2000/svg";
+    const HTML_NS = "http://www.w3.org/1999/xhtml";
+    const COLORS = [
+      "#243042",
+      "#2d3b57",
+      "#394a6d",
+      "#0f766e",
+      "#b45309",
+      "#9f1239",
+      "#8b5cf6",
+      "#6ab0ff",
+      "#e5eefc",
+      "#111826"
+    ];
+    const FONT_OPTIONS = [
+      "Segoe UI",
+      "Arial",
+      "Verdana",
+      "Trebuchet MS",
+      "Georgia",
+      "Times New Roman",
+      "Consolas"
+    ];
+    const MIN_WIDTH = 132;
+    const MIN_HEIGHT = 78;
+
+    const els = {
+      stage: document.getElementById("stage"),
+      nodeLayer: document.getElementById("nodeLayer"),
+      connectorLayer: document.getElementById("connectorLayer"),
+      previewLayer: document.getElementById("previewLayer"),
+      canvasScroll: document.getElementById("canvasScroll"),
+      selectionInfo: document.getElementById("selectionInfo"),
+      inspectorTitle: document.getElementById("inspectorTitle"),
+      inspectorHint: document.getElementById("inspectorHint"),
+      textInput: document.getElementById("textInput"),
+      fontFamily: document.getElementById("fontFamily"),
+      fontSize: document.getElementById("fontSize"),
+      fontBold: document.getElementById("fontBold"),
+      fillPalette: document.getElementById("fillPalette"),
+      strokePalette: document.getElementById("strokePalette"),
+      statusbar: document.getElementById("statusbar"),
+      newCanvasBtn: document.getElementById("newCanvasBtn"),
+      deleteBtn: document.getElementById("deleteBtn"),
+      centerBtn: document.getElementById("centerBtn"),
+      toolButtons: Array.from(document.querySelectorAll("[data-tool]"))
+    };
+
+    const state = {
+      tool: "select",
+      nodes: [],
+      connectors: [],
+      selected: null,
+      connectorStart: null,
+      drag: null,
+      create: null,
+      renderQueued: false,
+      nodeSeq: 0,
+      connectorSeq: 0
+    };
+
+    function init() {
+      FONT_OPTIONS.forEach((font) => {
+        const option = document.createElement("option");
+        option.value = font;
+        option.textContent = font;
+        els.fontFamily.appendChild(option);
+      });
+
+      COLORS.forEach((color) => {
+        els.fillPalette.appendChild(makeColorChip(color, () => applyFill(color)));
+        els.strokePalette.appendChild(makeColorChip(color, () => applyStroke(color)));
+      });
+
+      els.toolButtons.forEach((button) => {
+        button.addEventListener("click", () => setTool(button.dataset.tool));
+      });
+      els.newCanvasBtn.addEventListener("click", clearCanvas);
+      els.deleteBtn.addEventListener("click", deleteSelection);
+      els.centerBtn.addEventListener("click", centerCanvas);
+      els.textInput.addEventListener("input", syncText);
+      els.fontFamily.addEventListener("change", syncFont);
+      els.fontSize.addEventListener("input", syncFont);
+      els.fontBold.addEventListener("change", syncFont);
+
+      els.stage.addEventListener("pointerdown", onPointerDown);
+      window.addEventListener("pointermove", onPointerMove);
+      window.addEventListener("pointerup", onPointerUp);
+      window.addEventListener("keydown", onKeyDown);
+
+      centerCanvas();
+      refreshToolButtons();
+      refreshInspector();
+      renderStage();
+      updateStatus();
+    }
+
+    function makeColorChip(color, onClick) {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.className = "color-chip";
+      button.style.background = color;
+      button.title = color;
+      button.addEventListener("click", onClick);
+      return button;
+    }
+
+    function setTool(tool) {
+      state.tool = tool;
+      state.connectorStart = null;
+      state.create = null;
+      state.drag = null;
+      refreshToolButtons();
+      updateSelectionInfo();
+      updateStatus();
+      scheduleRender();
+    }
+
+    function refreshToolButtons() {
+      els.toolButtons.forEach((button) => {
+        button.classList.toggle("active", button.dataset.tool === state.tool);
+      });
+    }
+
+    function centerCanvas() {
+      els.canvasScroll.scrollLeft = 820;
+      els.canvasScroll.scrollTop = 420;
+    }
+
+    function clearCanvas() {
+      state.nodes = [];
+      state.connectors = [];
+      state.selected = null;
+      state.connectorStart = null;
+      state.drag = null;
+      state.create = null;
+      refreshInspector();
+      updateSelectionInfo();
+      updateStatus("Lienzo reiniciado.");
+      scheduleRender();
+    }
+
+    function deleteSelection() {
+      if (!state.selected) return;
+      if (state.selected.kind === "node") {
+        const nodeId = state.selected.id;
+        state.nodes = state.nodes.filter((item) => item.id !== nodeId);
+        state.connectors = state.connectors.filter((item) => item.from !== nodeId && item.to !== nodeId);
+      } else {
+        state.connectors = state.connectors.filter((item) => item.id !== state.selected.id);
+      }
+      state.selected = null;
+      state.connectorStart = null;
+      refreshInspector();
+      updateSelectionInfo();
+      updateStatus("Elemento eliminado.");
+      scheduleRender();
+    }
+
+    function onKeyDown(event) {
+      const activeTag = document.activeElement ? document.activeElement.tagName : "";
+      if ((event.key === "Delete" || event.key === "Backspace") && activeTag !== "TEXTAREA" && activeTag !== "INPUT") {
+        deleteSelection();
+      }
+    }
+
+    function onPointerDown(event) {
+      const target = event.target.closest("[data-kind]");
+      const point = getSvgPoint(event);
+
+      if (state.tool === "select") {
+        if (target && target.dataset.kind === "node") {
+          select({ kind: "node", id: target.dataset.id });
+          const node = getNode(target.dataset.id);
+          state.drag = {
+            id: node.id,
+            pointerX: point.x,
+            pointerY: point.y,
+            startX: node.x,
+            startY: node.y
+          };
+          return;
+        }
+        if (target && target.dataset.kind === "connector") {
+          select({ kind: "connector", id: target.dataset.id });
+          return;
+        }
+        select(null);
+        return;
+      }
+
+      if (state.tool === "filled_rect" || state.tool === "outline_rect") {
+        if (target) return;
+        state.create = {
+          type: state.tool,
+          x1: point.x,
+          y1: point.y,
+          x2: point.x,
+          y2: point.y
+        };
+        scheduleRender();
+        return;
+      }
+
+      if (!target || target.dataset.kind !== "node") {
+        updateStatus("Selecciona un bloque para iniciar o terminar la conexión.");
+        return;
+      }
+
+      const nodeId = target.dataset.id;
+      if (!state.connectorStart) {
+        state.connectorStart = nodeId;
+        select({ kind: "node", id: nodeId });
+        updateStatus("Origen marcado. Ahora selecciona el bloque destino.");
+        scheduleRender();
+        return;
+      }
+
+      if (state.connectorStart === nodeId) {
+        state.connectorStart = null;
+        updateStatus("Origen de conexión cancelado.");
+        scheduleRender();
+        return;
+      }
+
+      createConnector(state.tool, state.connectorStart, nodeId);
+      state.connectorStart = null;
+    }
+
+    function onPointerMove(event) {
+      const point = getSvgPoint(event);
+
+      if (state.drag) {
+        const node = getNode(state.drag.id);
+        if (!node) return;
+        node.x = state.drag.startX + (point.x - state.drag.pointerX);
+        node.y = state.drag.startY + (point.y - state.drag.pointerY);
+        scheduleRender();
+        return;
+      }
+
+      if (state.create) {
+        state.create.x2 = point.x;
+        state.create.y2 = point.y;
+        scheduleRender();
+      }
+    }
+
+    function onPointerUp() {
+      if (state.drag) {
+        state.drag = null;
+        return;
+      }
+
+      if (!state.create) return;
+
+      const rect = normalizedRect(state.create.x1, state.create.y1, state.create.x2, state.create.y2);
+      state.create = null;
+      createNode(state.tool, rect);
+    }
+
+    function createNode(type, rect) {
+      state.nodeSeq += 1;
+      const node = {
+        id: `node_${state.nodeSeq}`,
+        type,
+        x: rect.x,
+        y: rect.y,
+        width: Math.max(MIN_WIDTH, rect.width),
+        height: Math.max(MIN_HEIGHT, rect.height),
+        text: "Nuevo bloque",
+        fill: type === "filled_rect" ? "#243042" : "#111826",
+        stroke: "#8b9bb4",
+        textColor: "#eef2f7",
+        fontFamily: "Segoe UI",
+        fontSize: 16,
+        fontWeight: type === "filled_rect" ? "700" : "500"
+      };
+      state.nodes.push(node);
+      select({ kind: "node", id: node.id });
+      updateStatus("Bloque creado.");
+      scheduleRender();
+    }
+
+    function createConnector(type, from, to) {
+      state.connectorSeq += 1;
+      const connector = {
+        id: `connector_${state.connectorSeq}`,
+        type,
+        from,
+        to,
+        color: "#6ab0ff",
+        text: "",
+        fontFamily: "Segoe UI",
+        fontSize: 13,
+        fontWeight: "500"
+      };
+      state.connectors.push(connector);
+      select({ kind: "connector", id: connector.id });
+      updateStatus("Conexión creada.");
+      scheduleRender();
+    }
+
+    function select(selection) {
+      state.selected = selection;
+      refreshInspector();
+      updateSelectionInfo();
+      updateStatus();
+      scheduleRender();
+    }
+
+    function syncText() {
+      const selected = getSelectedObject();
+      if (!selected) return;
+      selected.text = els.textInput.value;
+      scheduleRender();
+    }
+
+    function syncFont() {
+      const selected = getSelectedObject();
+      if (!selected) return;
+      selected.fontFamily = els.fontFamily.value;
+      selected.fontSize = clampNumber(Number(els.fontSize.value), 8, 42, 16);
+      selected.fontWeight = els.fontBold.checked ? "700" : "500";
+      scheduleRender();
+    }
+
+    function applyFill(color) {
+      if (!state.selected || state.selected.kind !== "node") return;
+      const node = getNode(state.selected.id);
+      if (!node) return;
+      node.fill = color;
+      scheduleRender();
+    }
+
+    function applyStroke(color) {
+      const selected = getSelectedObject();
+      if (!selected) return;
+      selected.stroke = color;
+      if (state.selected.kind === "connector") selected.color = color;
+      scheduleRender();
+    }
+
+    function refreshInspector() {
+      const selected = getSelectedObject();
+      const isNode = state.selected && state.selected.kind === "node";
+      const isConnector = state.selected && state.selected.kind === "connector";
+
+      if (!selected) {
+        els.inspectorTitle.textContent = "Nada seleccionado";
+        els.inspectorHint.textContent = "Selecciona un bloque o una conexión para editar el texto, las fuentes y los colores.";
+        els.textInput.value = "";
+        els.textInput.disabled = true;
+        els.fontFamily.disabled = true;
+        els.fontSize.disabled = true;
+        els.fontBold.disabled = true;
+        els.fillPalette.classList.add("disabled");
+        els.strokePalette.classList.add("disabled");
+        return;
+      }
+
+      els.textInput.disabled = false;
+      els.fontFamily.disabled = false;
+      els.fontSize.disabled = false;
+      els.fontBold.disabled = false;
+      els.strokePalette.classList.remove("disabled");
+      els.fillPalette.classList.toggle("disabled", !isNode);
+
+      if (isNode) {
+        els.inspectorTitle.textContent = selected.type === "filled_rect" ? "Cuadrado sólido" : "Cuadrado con borde";
+        els.inspectorHint.textContent = "Arrastra el bloque por el lienzo y ajusta aquí su texto, fuente, relleno y borde.";
+      } else if (isConnector) {
+        const names = { arrow: "Flecha", relation: "Relación", union: "Unión" };
+        els.inspectorTitle.textContent = names[selected.type] || "Conexión";
+        els.inspectorHint.textContent = "La conexión admite texto opcional, tipografía y color de línea.";
+      }
+
+      els.textInput.value = selected.text || "";
+      els.fontFamily.value = selected.fontFamily || "Segoe UI";
+      els.fontSize.value = selected.fontSize || 16;
+      els.fontBold.checked = String(selected.fontWeight) === "700";
+    }
+
+    function updateSelectionInfo() {
+      if (!state.selected) {
+        els.selectionInfo.textContent = "Nada seleccionado";
+        els.selectionInfo.classList.add("empty-state");
+        return;
+      }
+
+      els.selectionInfo.classList.remove("empty-state");
+      if (state.selected.kind === "node") {
+        const node = getNode(state.selected.id);
+        els.selectionInfo.textContent = node ? `Bloque seleccionado: ${shortText(node.text)}` : "Bloque seleccionado";
+      } else {
+        const connector = getConnector(state.selected.id);
+        const names = { arrow: "Flecha", relation: "Relación", union: "Unión" };
+        els.selectionInfo.textContent = connector ? `${names[connector.type] || "Conexión"} seleccionada` : "Conexión seleccionada";
+      }
+    }
+
+    function updateStatus(customText) {
+      if (customText) {
+        els.statusbar.textContent = customText;
+        return;
+      }
+      const names = {
+        select: "Selección",
+        filled_rect: "Cuadrado sólido",
+        outline_rect: "Cuadrado con borde",
+        arrow: "Flecha",
+        relation: "Relación",
+        union: "Unión"
+      };
+      let suffix = "";
+      if (state.connectorStart) {
+        suffix = " · Origen de conexión pendiente";
+      }
+      els.statusbar.textContent = `Herramienta actual: ${names[state.tool] || state.tool}${suffix}`;
+    }
+
+    function scheduleRender() {
+      if (state.renderQueued) return;
+      state.renderQueued = true;
+      requestAnimationFrame(() => {
+        state.renderQueued = false;
+        renderStage();
+      });
+    }
+
+    function renderStage() {
+      els.connectorLayer.replaceChildren();
+      els.nodeLayer.replaceChildren();
+      els.previewLayer.replaceChildren();
+
+      state.connectors.forEach((connector) => {
+        const from = getNode(connector.from);
+        const to = getNode(connector.to);
+        if (!from || !to) return;
+        els.connectorLayer.appendChild(buildConnectorElement(connector, from, to));
+      });
+
+      state.nodes.forEach((node) => {
+        els.nodeLayer.appendChild(buildNodeElement(node));
+      });
+
+      if (state.create) {
+        els.previewLayer.appendChild(buildPreviewElement(state.create));
+      }
+    }
+
+    function buildNodeElement(node) {
+      const group = createSvg("g");
+      group.classList.add("node");
+      if (state.selected && state.selected.kind === "node" && state.selected.id === node.id) {
+        group.classList.add("selected");
+      }
+      if (state.connectorStart === node.id) {
+        group.classList.add("origin");
+      }
+      group.dataset.kind = "node";
+      group.dataset.id = node.id;
+
+      const rect = createSvg("rect");
+      rect.classList.add("node-rect");
+      rect.setAttribute("x", node.x);
+      rect.setAttribute("y", node.y);
+      rect.setAttribute("width", node.width);
+      rect.setAttribute("height", node.height);
+      rect.setAttribute("fill", node.fill);
+      rect.setAttribute("stroke", node.stroke);
+
+      const foreign = createSvg("foreignObject");
+      foreign.setAttribute("x", node.x);
+      foreign.setAttribute("y", node.y);
+      foreign.setAttribute("width", node.width);
+      foreign.setAttribute("height", node.height);
+      foreign.style.pointerEvents = "none";
+
+      const textWrap = document.createElementNS(HTML_NS, "div");
+      textWrap.className = "node-text-wrap";
+      textWrap.textContent = node.text || "";
+      textWrap.style.color = node.textColor;
+      textWrap.style.fontFamily = node.fontFamily;
+      textWrap.style.fontSize = `${node.fontSize}px`;
+      textWrap.style.fontWeight = node.fontWeight;
+      foreign.appendChild(textWrap);
+
+      group.appendChild(rect);
+      group.appendChild(foreign);
+      return group;
+    }
+
+    function buildConnectorElement(connector, from, to) {
+      const group = createSvg("g");
+      group.classList.add("connector");
+      if (state.selected && state.selected.kind === "connector" && state.selected.id === connector.id) {
+        group.classList.add("selected");
+      }
+      group.dataset.kind = "connector";
+      group.dataset.id = connector.id;
+
+      const anchors = connectorAnchors(from, to);
+      const path = createSvg("path");
+      path.classList.add("connector-path");
+      path.setAttribute("d", connectorPath(connector.type, anchors.start, anchors.end));
+      path.setAttribute("stroke", connector.color || connector.stroke || "#6ab0ff");
+
+      if (connector.type === "arrow") {
+        path.setAttribute("marker-end", "url(#arrowHead)");
+      }
+      if (connector.type === "relation") {
+        path.setAttribute("stroke-dasharray", "12 10");
+      }
+
+      group.appendChild(path);
+
+      if (connector.text && connector.text.trim()) {
+        const label = createSvg("text");
+        label.classList.add("connector-label");
+        const labelPos = connectorLabelPosition(connector.type, anchors.start, anchors.end);
+        label.setAttribute("x", labelPos.x);
+        label.setAttribute("y", labelPos.y);
+        label.setAttribute("font-family", connector.fontFamily || "Segoe UI");
+        label.setAttribute("font-size", connector.fontSize || 13);
+        label.setAttribute("font-weight", connector.fontWeight || "500");
+        label.textContent = connector.text;
+        group.appendChild(label);
+      }
+
+      return group;
+    }
+
+    function buildPreviewElement(preview) {
+      const rect = normalizedRect(preview.x1, preview.y1, preview.x2, preview.y2);
+      const element = createSvg("rect");
+      element.classList.add("preview-rect");
+      element.setAttribute("x", rect.x);
+      element.setAttribute("y", rect.y);
+      element.setAttribute("width", Math.max(MIN_WIDTH, rect.width));
+      element.setAttribute("height", Math.max(MIN_HEIGHT, rect.height));
+      return element;
+    }
+
+    function connectorAnchors(from, to) {
+      const fromCenter = { x: from.x + from.width / 2, y: from.y + from.height / 2 };
+      const toCenter = { x: to.x + to.width / 2, y: to.y + to.height / 2 };
+      const dx = toCenter.x - fromCenter.x;
+      const dy = toCenter.y - fromCenter.y;
+
+      const start = Math.abs(dx) > Math.abs(dy)
+        ? { x: dx >= 0 ? from.x + from.width : from.x, y: fromCenter.y }
+        : { x: fromCenter.x, y: dy >= 0 ? from.y + from.height : from.y };
+
+      const end = Math.abs(dx) > Math.abs(dy)
+        ? { x: dx >= 0 ? to.x : to.x + to.width, y: toCenter.y }
+        : { x: toCenter.x, y: dy >= 0 ? to.y : to.y + to.height };
+
+      return { start, end };
+    }
+
+    function connectorPath(type, start, end) {
+      if (type === "union") {
+        const midX = (start.x + end.x) / 2;
+        return `M ${start.x} ${start.y} L ${midX} ${start.y} L ${midX} ${end.y} L ${end.x} ${end.y}`;
+      }
+      if (type === "relation") {
+        return `M ${start.x} ${start.y} L ${end.x} ${end.y}`;
+      }
+
+      const curveX = Math.max(60, Math.abs(end.x - start.x) * 0.35);
+      return `M ${start.x} ${start.y} C ${start.x + curveX} ${start.y}, ${end.x - curveX} ${end.y}, ${end.x} ${end.y}`;
+    }
+
+    function connectorLabelPosition(type, start, end) {
+      if (type === "union") {
+        const midX = (start.x + end.x) / 2;
+        return { x: midX, y: (start.y + end.y) / 2 - 12 };
+      }
+      return { x: (start.x + end.x) / 2, y: (start.y + end.y) / 2 - 12 };
+    }
+
+    function getSvgPoint(event) {
+      const point = els.stage.createSVGPoint();
+      point.x = event.clientX;
+      point.y = event.clientY;
+      return point.matrixTransform(els.stage.getScreenCTM().inverse());
+    }
+
+    function normalizedRect(x1, y1, x2, y2) {
+      const left = Math.min(x1, x2);
+      const top = Math.min(y1, y2);
+      return {
+        x: left,
+        y: top,
+        width: Math.abs(x2 - x1),
+        height: Math.abs(y2 - y1)
+      };
+    }
+
+    function getNode(id) {
+      return state.nodes.find((item) => item.id === id) || null;
+    }
+
+    function getConnector(id) {
+      return state.connectors.find((item) => item.id === id) || null;
+    }
+
+    function getSelectedObject() {
+      if (!state.selected) return null;
+      return state.selected.kind === "node" ? getNode(state.selected.id) : getConnector(state.selected.id);
+    }
+
+    function shortText(text) {
+      const value = (text || "").trim();
+      if (!value) return "Sin texto";
+      return value.length > 34 ? `${value.slice(0, 34)}...` : value;
+    }
+
+    function clampNumber(value, min, max, fallback) {
+      if (Number.isNaN(value)) return fallback;
+      return Math.max(min, Math.min(max, value));
+    }
+
+    function createSvg(tag) {
+      return document.createElementNS(SVG_NS, tag);
+    }
+
+    init();
+  </script>
+</body>
+</html>

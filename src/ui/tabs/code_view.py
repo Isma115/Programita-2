@@ -5,6 +5,7 @@ import threading
 import os
 import webbrowser
 from src.ui.styles import Styles
+from src.ui.tooltip import attach_tooltip
 
 class CodeView(ttk.Frame):
     """
@@ -90,6 +91,7 @@ class CodeView(ttk.Frame):
             command=lambda: self.controller.prev_project()
         )
         self.btn_prev_project.pack(side="left")
+        attach_tooltip(self.btn_prev_project, "Proyecto previo")
 
         self.lbl_project_name = ttk.Label(
             self.project_bar,
@@ -108,6 +110,7 @@ class CodeView(ttk.Frame):
             command=lambda: self.controller.next_project()
         )
         self.btn_next_project.pack(side="left")
+        attach_tooltip(self.btn_next_project, "Proyecto siguiente")
 
         self.btn_add_project = ttk.Button(
             self.project_bar,
@@ -117,6 +120,7 @@ class CodeView(ttk.Frame):
             command=self._on_add_project
         )
         self.btn_add_project.pack(side="left", padx=(6, 0))
+        attach_tooltip(self.btn_add_project, "Añadir proyecto")
 
         # Initialize project label
         self._update_project_label()
@@ -256,6 +260,7 @@ class CodeView(ttk.Frame):
             command=self._on_copy_prompt
         )
         self.btn_copy.pack(side="right", padx=(10, 0), anchor="n")
+        attach_tooltip(self.btn_copy, "Copiar prompt")
 
         # NOW pack the tree frame to fill the REMAINING space
         self.tree_frame.pack(side="top", fill="both", expand=True, padx=10)
@@ -1030,4 +1035,3 @@ class CodeView(ttk.Frame):
                 print(f"CodeView: Concatenated {file_data['rel_path']} to {result}")
             else:
                 messagebox.showerror("Error", f"No se pudo guardar: {result}")
-

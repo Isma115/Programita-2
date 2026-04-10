@@ -14,6 +14,7 @@ class Styles:
     COLOR_ACCENT_HOVER = "#4752c4"  # Darker blurple for hover
     COLOR_BORDER = "#2b2d31"        # Matches sidebar for seamless look
     COLOR_DIM = "#949ba4"           # Dimmed text
+    COLOR_PANE_DIVIDER = "#6b7280"  # Higher-contrast divider for draggable panes
     
     # Input/List Colors
     COLOR_INPUT_BG = "#313338"      # Slightly lighter than sidebar
@@ -91,16 +92,62 @@ class Styles:
             background=Styles.COLOR_BG_SIDEBAR,
             foreground=Styles.COLOR_DIM,
             font=Styles.FONT_BUTTON,
-            borderwidth=0,
+            borderwidth=1,
+            bordercolor="#3a3d44",
+            lightcolor="#343840",
+            darkcolor="#2f3238",
             focuscolor=Styles.COLOR_BG_SIDEBAR,
             padding=(20, 15),
-            relief="flat",
+            relief="solid",
             anchor="center" # Center the text
         )
         style.map(
             "Nav.TButton",
-            background=[("active", Styles.COLOR_SELECTION_BG), ("disabled", Styles.COLOR_BG_SIDEBAR), ("pressed", Styles.COLOR_BG_SIDEBAR)],   
+            background=[("active", Styles.COLOR_SELECTION_BG), ("disabled", Styles.COLOR_BG_SIDEBAR), ("pressed", Styles.COLOR_BG_SIDEBAR)],
+            bordercolor=[("active", "#515866"), ("pressed", "#4a5160"), ("disabled", "#353840")],
             foreground=[("active", "#ffffff"), ("disabled", Styles.COLOR_ACCENT), ("pressed", Styles.COLOR_ACCENT)]
+        )
+
+        style.configure(
+            "SidebarToggle.TButton",
+            background="#5f636b",
+            foreground="#f2f3f5",
+            font=("Segoe UI", 14, "bold"),
+            borderwidth=1,
+            bordercolor="#727780",
+            lightcolor="#79808a",
+            darkcolor="#565b64",
+            focuscolor="#5f636b",
+            padding=(8, 8),
+            relief="solid",
+            anchor="center"
+        )
+        style.map(
+            "SidebarToggle.TButton",
+            background=[("active", "#727780"), ("pressed", "#52565e"), ("disabled", "#4f5258")],
+            bordercolor=[("active", "#8b919a"), ("pressed", "#5f636b"), ("disabled", "#4f5258")],
+            foreground=[("active", "#ffffff"), ("pressed", "#ffffff"), ("disabled", "#c7c9ce")]
+        )
+
+        style.configure(
+            "FullscreenToggle.TButton",
+            background=Styles.COLOR_BG_SIDEBAR,
+            foreground=Styles.COLOR_FG_TEXT,
+            font=("Segoe UI", 14, "bold"),
+            borderwidth=1,
+            bordercolor="#3a3d44",
+            lightcolor="#343840",
+            darkcolor="#2f3238",
+            focuscolor=Styles.COLOR_BG_SIDEBAR,
+            padding=(10, 8),
+            relief="solid",
+            anchor="center"
+        )
+        style.map(
+            "FullscreenToggle.TButton",
+            background=[("active", Styles.COLOR_SELECTION_BG), ("pressed", Styles.COLOR_BG_SIDEBAR)],
+            bordercolor=[("active", "#515866"), ("pressed", "#4a5160")],
+            foreground=[("active", "#ffffff"), ("pressed", "#ffffff")]
         )
 
         # Action Button (Primary Call to Action)
@@ -109,14 +156,18 @@ class Styles:
             background=Styles.COLOR_ACCENT,
             foreground="#ffffff",
             font=Styles.FONT_BUTTON,
-            borderwidth=0,
+            borderwidth=1,
+            bordercolor="#6f7cf7",
+            lightcolor="#7a86fb",
+            darkcolor="#4d59d9",
             padding=(20, 10),
-            relief="flat",
+            relief="solid",
             anchor="center"
         )
         style.map(
             "Action.TButton",
-            background=[("active", Styles.COLOR_ACCENT_HOVER), ("pressed", Styles.COLOR_ACCENT)]
+            background=[("active", Styles.COLOR_ACCENT_HOVER), ("pressed", Styles.COLOR_ACCENT)],
+            bordercolor=[("active", "#8d98ff"), ("pressed", "#616df3")]
         )
 
         # Secondary Action Button (Cancel/Back - Matches Action geometry)
@@ -125,14 +176,18 @@ class Styles:
             background=Styles.COLOR_BG_SIDEBAR,
             foreground=Styles.COLOR_DIM,
             font=Styles.FONT_BUTTON,
-            borderwidth=0,
+            borderwidth=1,
+            bordercolor="#3a3d44",
+            lightcolor="#343840",
+            darkcolor="#2f3238",
             padding=(20, 10), # Matches Action.TButton
-            relief="flat",
+            relief="solid",
             anchor="center"
         )
         style.map(
             "Secondary.TButton",
-            background=[("active", Styles.COLOR_SELECTION_BG), ("disabled", Styles.COLOR_BG_SIDEBAR), ("pressed", Styles.COLOR_BG_SIDEBAR)],   
+            background=[("active", Styles.COLOR_SELECTION_BG), ("disabled", Styles.COLOR_BG_SIDEBAR), ("pressed", Styles.COLOR_BG_SIDEBAR)],
+            bordercolor=[("active", "#515866"), ("pressed", "#4a5160"), ("disabled", "#353840")],
             foreground=[("active", "#ffffff"), ("disabled", Styles.COLOR_ACCENT), ("pressed", Styles.COLOR_ACCENT)]
         )
         

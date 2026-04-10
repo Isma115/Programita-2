@@ -35,6 +35,15 @@ class ConfigManager:
         except Exception as e:
             print(f"ConfigManager: Error saving config: {e}")
 
+    def _normalize_path(self, path):
+        """Returns a normalized absolute path when possible."""
+        if not path:
+            return None
+        try:
+            return os.path.normpath(os.path.abspath(path))
+        except Exception:
+            return path
+
     def get_last_project(self):
         """Returns the path of the last opened project, or None."""
         return self.config.get("last_project")
@@ -69,12 +78,55 @@ class ConfigManager:
 
     def get_doc_path(self):
         """Returns the saved documentation folder path, or None."""
-        return self.config.get("doc_path")
+        return self._normalize_path(self.config.get("doc_path"))
 
     def set_doc_path(self, path):
         """Sets the documentation folder path and saves config."""
-        self.config["doc_path"] = path
+        normalized = self._normalize_path(path)
+        self.config["doc_path"] = normalized
+        if normalized:
+            history = self.get_doc_path_history()
+            if normalized in history:
+                history.remove(normalized)
+            history.insert(0, normalized)
+            self.config["doc_path_history"] = history
         self.save_config()
+
+    def get_doc_path_history(self):
+        """Returns the saved documentation folder history."""
+        history = self.config.get("doc_path_history", [])
+        if not isinstance(history, list):
+            history = []
+
+        ordered = []
+        seen = set()
+        current = self._normalize_path(self.config.get("doc_path"))
+
+        for path in history:
+            normalized = self._normalize_path(path)
+            if not normalized or normalized in seen:
+                continue
+            ordered.append(normalized)
+            seen.add(normalized)
+
+        if current and current not in seen:
+            ordered.insert(0, current)
+
+        return ordered
+
+    def get_existing_doc_directories(self):
+        """Returns the doc history entries whose directories still exist."""
+        existing = []
+        seen = set()
+
+        for path in self.get_doc_path_history():
+            if path in seen:
+                continue
+            seen.add(path)
+            if os.path.isdir(path):
+                existing.append(path)
+
+        return existing
 
     def get_prompting_path(self):
         """Returns the saved prompting folder path, or None."""
@@ -148,10 +200,18 @@ class ConfigManager:
             "is_dark_mode": False,
             "is_editor_mode": False,
             "code_sash_ratio": 0.7,
-            "is_fullscreen_mode": False
+            "is_fullscreen_mode": False,
+            "markdown_preview_zoom": 1.2
         })
 
-    def set_doc_view_settings(self, is_dark_mode, is_editor_mode, code_sash_ratio=None, is_fullscreen_mode=None):
+    def set_doc_view_settings(
+        self,
+        is_dark_mode,
+        is_editor_mode,
+        code_sash_ratio=None,
+        is_fullscreen_mode=None,
+        markdown_preview_zoom=None
+    ):
         """Sets the DocView settings and saves config."""
         settings = {
             "is_dark_mode": bool(is_dark_mode),
@@ -171,6 +231,17 @@ class ConfigManager:
         else:
             prev = self.config.get("doc_view_settings", {})
             settings["is_fullscreen_mode"] = bool(prev.get("is_fullscreen_mode", False))
+        if markdown_preview_zoom is not None:
+            try:
+                settings["markdown_preview_zoom"] = float(markdown_preview_zoom)
+            except Exception:
+                settings["markdown_preview_zoom"] = 1.2
+        else:
+            prev = self.config.get("doc_view_settings", {})
+            try:
+                settings["markdown_preview_zoom"] = float(prev.get("markdown_preview_zoom", 1.2))
+            except Exception:
+                settings["markdown_preview_zoom"] = 1.2
         self.config["doc_view_settings"] = settings
         self.save_config()
 

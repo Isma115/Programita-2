@@ -4,6 +4,7 @@ import tkinter.messagebox as messagebox
 import os
 import difflib
 from src.ui.styles import Styles
+from src.ui.tooltip import attach_tooltip
 
 class SectionCreationPopup(tk.Toplevel):
     def __init__(self, parent, controller, section_name=None, initial_files=None, initial_tables=None):
@@ -86,9 +87,13 @@ class SectionCreationPopup(tk.Toplevel):
         footer = ttk.Frame(self, style="Main.TFrame")
         footer.pack(fill="x", padx=10, pady=10)
         
-        ttk.Button(footer, text="Cancelar", style="Secondary.TButton", command=self.destroy).pack(side="right", padx=5)
+        btn_cancel = ttk.Button(footer, text="Cancelar", style="Secondary.TButton", command=self.destroy)
+        btn_cancel.pack(side="right", padx=5)
+        attach_tooltip(btn_cancel, "Cerrar ventana")
         btn_text = "Guardar Cambios" if self.original_section_name else "Crear Sección"
-        ttk.Button(footer, text=btn_text, style="Action.TButton", command=self._on_save).pack(side="right", padx=5)
+        btn_save = ttk.Button(footer, text=btn_text, style="Action.TButton", command=self._on_save)
+        btn_save.pack(side="right", padx=5)
+        attach_tooltip(btn_save, "Guardar sección")
 
         # If editing, populate files and tables
         if self.original_section_name:

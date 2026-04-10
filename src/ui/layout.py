@@ -1,10 +1,10 @@
 import tkinter as tk
 from tkinter import ttk
 from src.ui.styles import Styles
+from src.ui.tooltip import attach_tooltip
 from src.ui.tabs.code_view import CodeView
 from src.ui.tabs.doc_view import DocView
 from src.ui.tabs.database_view import DatabaseView
-from src.ui.tabs.prompting_view import PromptingView
 
 class MainLayout(ttk.Frame):
     """
@@ -34,8 +34,8 @@ class MainLayout(ttk.Frame):
         self._create_content_area()
         self.is_navbar_visible = True
 
-        # Initialize with Code View
-        self.show_code_tab()
+        # Initialize with Documentation View
+        self.show_docs_tab()
 
     def _create_navbar(self):
         """Creates the top navigation bar."""
@@ -47,20 +47,20 @@ class MainLayout(ttk.Frame):
         self.nav_buttons_frame = ttk.Frame(self.navbar, style="Sidebar.TFrame")
         self.nav_buttons_frame.pack(side="left", fill="x", expand=True) # expand to fill navbar
         
-        # Configure columns to distribute space equally (25% each)
+        # Configure columns to distribute space equally
         self.nav_buttons_frame.columnconfigure(0, weight=1)
         self.nav_buttons_frame.columnconfigure(1, weight=1)
         self.nav_buttons_frame.columnconfigure(2, weight=1)
-        self.nav_buttons_frame.columnconfigure(3, weight=1)
 
         # Tab Buttons
-        self.btn_code = ttk.Button(
+        self.btn_docs = ttk.Button(
             self.nav_buttons_frame,
-            text="Código",
+            text="Documentación",
             style="Nav.TButton",
-            command=self.controller.show_code_view
+            command=self.controller.show_docs_view
         )
-        self.btn_code.grid(row=0, column=0, sticky="nsew", padx=0, pady=0) 
+        self.btn_docs.grid(row=0, column=0, sticky="nsew", padx=0, pady=0)
+        attach_tooltip(self.btn_docs, "Ver docs")
 
         self.btn_database = ttk.Button(
             self.nav_buttons_frame,
@@ -69,22 +69,16 @@ class MainLayout(ttk.Frame):
             command=self.controller.show_database_view
         )
         self.btn_database.grid(row=0, column=1, sticky="nsew", padx=0, pady=0)
+        attach_tooltip(self.btn_database, "Ver BBDD")
 
-        self.btn_docs = ttk.Button(
+        self.btn_code = ttk.Button(
             self.nav_buttons_frame,
-            text="Documentación",
+            text="Código",
             style="Nav.TButton",
-            command=self.controller.show_docs_view
+            command=self.controller.show_code_view
         )
-        self.btn_docs.grid(row=0, column=2, sticky="nsew", padx=0, pady=0)
-
-        self.btn_prompting = ttk.Button(
-            self.nav_buttons_frame,
-            text="Prompting",
-            style="Nav.TButton",
-            command=self.controller.show_prompting_view
-        )
-        self.btn_prompting.grid(row=0, column=3, sticky="nsew", padx=0, pady=0)
+        self.btn_code.grid(row=0, column=2, sticky="nsew", padx=0, pady=0)
+        attach_tooltip(self.btn_code, "Ver código")
 
     def _create_content_area(self):
         """Creates the area where tab content will be displayed."""
@@ -95,7 +89,6 @@ class MainLayout(ttk.Frame):
         self.code_view = CodeView(self.content_frame)
         self.doc_view = DocView(self.content_frame)
         self.database_view = DatabaseView(self.content_frame)
-        self.prompting_view = PromptingView(self.content_frame)
 
     def show_code_tab(self):
         """Displays the Code view."""
@@ -107,7 +100,6 @@ class MainLayout(ttk.Frame):
         self.btn_code.state(["pressed", "disabled"]) 
         self.btn_docs.state(["!pressed", "!disabled"])
         self.btn_database.state(["!pressed", "!disabled"])
-        self.btn_prompting.state(["!pressed", "!disabled"])
         self.update_idletasks()
 
     def show_docs_tab(self):
@@ -119,7 +111,6 @@ class MainLayout(ttk.Frame):
         self.btn_code.state(["!pressed", "!disabled"])
         self.btn_docs.state(["pressed", "disabled"])
         self.btn_database.state(["!pressed", "!disabled"])
-        self.btn_prompting.state(["!pressed", "!disabled"])
         self.update_idletasks()
 
     def show_database_tab(self):
@@ -132,20 +123,6 @@ class MainLayout(ttk.Frame):
         self.btn_code.state(["!pressed", "!disabled"])
         self.btn_docs.state(["!pressed", "!disabled"])
         self.btn_database.state(["pressed", "disabled"])
-        self.btn_prompting.state(["!pressed", "!disabled"])
-        self.update_idletasks()
-
-    def show_prompting_tab(self):
-        """Displays the Prompting view."""
-        self._clear_content()
-        self.doc_view.on_tab_hidden()
-        self.set_navbar_visible(True)
-        self.prompting_view.pack(fill="both", expand=True)
-        # Update button states
-        self.btn_code.state(["!pressed", "!disabled"])
-        self.btn_docs.state(["!pressed", "!disabled"])
-        self.btn_database.state(["!pressed", "!disabled"])
-        self.btn_prompting.state(["pressed", "disabled"])
         self.update_idletasks()
 
     def _clear_content(self):
