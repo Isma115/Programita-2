@@ -39,50 +39,78 @@ class MainLayout(ttk.Frame):
 
     def _create_navbar(self):
         """Creates the top navigation bar."""
-        self.navbar = ttk.Frame(self, style="Sidebar.TFrame")
+        self.navbar = tk.Frame(self, bg=Styles.COLOR_DOC_TOOLBAR_BG, bd=0, highlightthickness=0)
         self.navbar.grid(row=0, column=0, sticky="ew")
 
         # Navigation Buttons Container
         # Buttons should take up the whole width
-        self.nav_buttons_frame = ttk.Frame(self.navbar, style="Sidebar.TFrame")
-        self.nav_buttons_frame.pack(side="left", fill="x", expand=True) # expand to fill navbar
+        self.nav_buttons_frame = tk.Frame(self.navbar, bg=Styles.COLOR_DOC_TOOLBAR_BG, bd=0, highlightthickness=0)
+        self.nav_buttons_frame.pack(side="left", fill="x", expand=True, padx=12, pady=10)
         
         # Configure columns to distribute space equally
         self.nav_buttons_frame.columnconfigure(0, weight=1)
         self.nav_buttons_frame.columnconfigure(1, weight=1)
         self.nav_buttons_frame.columnconfigure(2, weight=1)
 
-        # Tab Buttons
-        self.btn_docs = ttk.Button(
-            self.nav_buttons_frame,
-            text="Documentación",
-            style="Nav.TButton",
-            command=self.controller.show_docs_view
-        )
-        self.btn_docs.grid(row=0, column=0, sticky="nsew", padx=0, pady=0)
-        attach_tooltip(self.btn_docs, "Ver docs")
+        self.nav_tabs = {}
+        self._create_nav_tab(0, "docs", "Documentación", self.controller.show_docs_view, "Ver docs")
+        self._create_nav_tab(1, "database", "BBDD", self.controller.show_database_view, "Ver BBDD")
+        self._create_nav_tab(2, "code", "Código", self.controller.show_code_view, "Ver código")
 
-        self.btn_database = ttk.Button(
+    def _create_nav_tab(self, column, key, text, command, tooltip_text):
+        tab_frame = tk.Frame(
             self.nav_buttons_frame,
-            text="BBDD",
-            style="Nav.TButton",
-            command=self.controller.show_database_view
+            bg=Styles.COLOR_DOC_TOOLBAR_BG,
+            bd=0,
+            highlightthickness=0,
+            cursor="hand2"
         )
-        self.btn_database.grid(row=0, column=1, sticky="nsew", padx=0, pady=0)
-        attach_tooltip(self.btn_database, "Ver BBDD")
+        tab_frame.grid(row=0, column=column, sticky="nsew", padx=0, pady=0)
 
-        self.btn_code = ttk.Button(
-            self.nav_buttons_frame,
-            text="Código",
-            style="Nav.TButton",
-            command=self.controller.show_code_view
+        tab_label = tk.Label(
+            tab_frame,
+            text=text,
+            bg=Styles.COLOR_DOC_TOOLBAR_BG,
+            fg=Styles.COLOR_BUTTON_FG,
+            font=("Segoe UI", 17, "bold"),
+            bd=0,
+            padx=18,
+            pady=12,
+            cursor="hand2"
         )
-        self.btn_code.grid(row=0, column=2, sticky="nsew", padx=0, pady=0)
-        attach_tooltip(self.btn_code, "Ver código")
+        tab_label.pack(fill="both", expand=True)
+
+        for widget in (tab_frame, tab_label):
+            widget.bind("<Button-1>", lambda event, cmd=command: cmd())
+            widget.bind("<Enter>", lambda event, name=key: self._set_nav_hover(name, True))
+            widget.bind("<Leave>", lambda event, name=key: self._set_nav_hover(name, False))
+
+        attach_tooltip(tab_frame, tooltip_text)
+        self.nav_tabs[key] = {"frame": tab_frame, "label": tab_label}
+
+    def _set_nav_hover(self, key, is_hovered):
+        tab = self.nav_tabs.get(key)
+        if not tab:
+            return
+
+        if getattr(self, "_active_nav_tab", None) == key:
+            bg = Styles.COLOR_DOC_TOOLBAR_BG
+            fg = Styles.COLOR_ACCENT
+        else:
+            bg = Styles.COLOR_DOC_TOOLBAR_HOVER if is_hovered else Styles.COLOR_DOC_TOOLBAR_BG
+            fg = Styles.COLOR_BUTTON_FG_ACTIVE if is_hovered else Styles.COLOR_BUTTON_FG
+
+        tab["frame"].configure(bg=bg)
+        tab["label"].configure(bg=bg, fg=fg)
+
+    def _set_active_nav_tab(self, key):
+        self._active_nav_tab = key
+        for tab_key in self.nav_tabs:
+            self._set_nav_hover(tab_key, False)
 
     def _create_content_area(self):
         """Creates the area where tab content will be displayed."""
-        self.content_frame = ttk.Frame(self, style="Main.TFrame")
+        self.content_frame = tk.Frame(self, bg=Styles.COLOR_BG_MAIN, bd=0, highlightthickness=0)
         self.content_frame.grid(row=1, column=0, sticky="nsew")
 
         # Instantiate views
@@ -96,10 +124,7 @@ class MainLayout(ttk.Frame):
         self.doc_view.on_tab_hidden()
         self.set_navbar_visible(True)
         self.code_view.pack(fill="both", expand=True)
-        # Update button states (visual feedback)
-        self.btn_code.state(["pressed", "disabled"]) 
-        self.btn_docs.state(["!pressed", "!disabled"])
-        self.btn_database.state(["!pressed", "!disabled"])
+        self._set_active_nav_tab("code")
         self.update_idletasks()
 
     def show_docs_tab(self):
@@ -107,10 +132,7 @@ class MainLayout(ttk.Frame):
         self._clear_content()
         self.doc_view.pack(fill="both", expand=True)
         self.doc_view.on_tab_shown()
-         # Update button states
-        self.btn_code.state(["!pressed", "!disabled"])
-        self.btn_docs.state(["pressed", "disabled"])
-        self.btn_database.state(["!pressed", "!disabled"])
+        self._set_active_nav_tab("docs")
         self.update_idletasks()
 
     def show_database_tab(self):
@@ -119,10 +141,7 @@ class MainLayout(ttk.Frame):
         self.doc_view.on_tab_hidden()
         self.set_navbar_visible(True)
         self.database_view.pack(fill="both", expand=True)
-        # Update button states
-        self.btn_code.state(["!pressed", "!disabled"])
-        self.btn_docs.state(["!pressed", "!disabled"])
-        self.btn_database.state(["pressed", "disabled"])
+        self._set_active_nav_tab("database")
         self.update_idletasks()
 
     def _clear_content(self):

@@ -507,7 +507,7 @@ def create_styled_text_widget(parent, editable=True):
     configure_tags(txt)
     return txt
 
-def show_popup(clipboard_text, match_text, file_path, ratio, line_num):
+def show_popup(clipboard_text, match_text, file_path, ratio, line_num, app_instance=None):
     """
     Muestra popup de 3 paneles con estilo VS Code Highlighting.
     """
@@ -629,6 +629,29 @@ def show_popup(clipboard_text, match_text, file_path, ratio, line_num):
     txt_clip = create_styled_text_widget(content_frame, editable=False)
     txt_clip.insert("1.0", clipboard_text)
     highlight_syntax(txt_clip, file_path)  # Highlight con detección de lenguaje
+
+    def on_clip_right_click(event=None):
+        """Relanza Arbitrary Search con el texto seleccionado del panel izquierdo."""
+        if app_instance is None:
+            return "break"
+
+        try:
+            selected_text = txt_clip.get("sel.first", "sel.last").strip()
+        except tk.TclError:
+            logging.info("Arbitrary: Click derecho sin selección en el panel izquierdo.")
+            return "break"
+
+        if not selected_text:
+            logging.info("Arbitrary: La selección del panel izquierdo está vacía.")
+            return "break"
+
+        logging.info("Arbitrary: Nueva búsqueda lanzada desde selección del panel izquierdo.")
+        popup.after_idle(lambda: run_arbitrary_search_with_text(app_instance, selected_text))
+        return "break"
+
+    txt_clip.bind("<Button-2>", on_clip_right_click)
+    txt_clip.bind("<Button-3>", on_clip_right_click)
+    txt_clip.bind("<Control-Button-1>", on_clip_right_click)
     txt_clip.config(state="disabled")
     txt_clip.grid(row=1, column=0, sticky="nsew", padx=5, pady=5)
 
@@ -975,36 +998,39 @@ def show_file_picker_dialog(file_list):
     return result["value"]
 
 
-def run_arbitrary_search(app_instance):
+def _get_code_files_for_arbitrary_search(app_instance):
+    """Obtiene los ficheros objetivo de Arbitrary Search."""
+    code_files = []
+
+    # Prioridad: ficheros visibles/listados en CodeView
+    if hasattr(app_instance, 'layout') and hasattr(app_instance.layout, 'code_view'):
+        code_view = app_instance.layout.code_view
+        if hasattr(code_view, 'tree'):
+            for item_id in code_view.tree.get_children():
+                tags = code_view.tree.item(item_id, 'tags')
+                if tags:
+                    file_path = tags[0] if isinstance(tags, (list, tuple)) else tags
+                    if file_path and os.path.exists(file_path):
+                        code_files.append(file_path)
+
+    # Fallback: todos los ficheros procesados del proyecto
+    if not code_files:
+        if hasattr(app_instance, 'controller') and hasattr(app_instance.controller, 'project_manager'):
+            files_data = app_instance.controller.project_manager.get_files()
+            code_files = [f['path'] for f in files_data]
+            logging.info("Arbitrary: Usando todos los ficheros del proyecto (fallback).")
+
+    return code_files
+
+
+def run_arbitrary_search_with_text(app_instance, search_text):
     try:
-        clipboard_text = pyperclip.paste().strip()
-        if not clipboard_text:
-            logging.info("Arbitrary: Portapapeles vacío.")
+        search_text = (search_text or "").strip()
+        if not search_text:
+            logging.info("Arbitrary: Texto de búsqueda vacío.")
             return
 
-        code_files = []
-        
-        # Get files from the CodeView TreeView (only listed files, not entire project)
-        if hasattr(app_instance, 'layout') and hasattr(app_instance.layout, 'code_view'):
-            code_view = app_instance.layout.code_view
-            if hasattr(code_view, 'tree'):
-                # Get all items from the TreeView
-                for item_id in code_view.tree.get_children():
-                    # The full path is stored in the tags of each item
-                    tags = code_view.tree.item(item_id, 'tags')
-                    if tags:
-                        # tags is a tuple, first element is the full path
-                        file_path = tags[0] if isinstance(tags, (list, tuple)) else tags
-                        if file_path and os.path.exists(file_path):
-                            code_files.append(file_path)
-        
-        # Fallback to all project files if no files found in TreeView
-        if not code_files:
-            if hasattr(app_instance, 'controller') and hasattr(app_instance.controller, 'project_manager'):
-                files_data = app_instance.controller.project_manager.get_files()
-                code_files = [f['path'] for f in files_data]
-                logging.info("Arbitrary: Usando todos los ficheros del proyecto (fallback).")
-        
+        code_files = _get_code_files_for_arbitrary_search(app_instance)
         if not code_files:
              tk.messagebox.showwarning("Arbitrary", "No hay archivos de código procesados.")
              return
@@ -1016,13 +1042,13 @@ def run_arbitrary_search(app_instance):
 
         # El nuevo algoritmo de substring único determina el fichero automáticamente
         match, file_path, ratio, line_num = find_similar_region(
-            code_files, clipboard_text
+            code_files, search_text
         )
 
         app_instance.root.config(cursor="")
 
         if match and file_path:
-            show_popup(clipboard_text, match, file_path, ratio, line_num)
+            show_popup(search_text, match, file_path, ratio, line_num, app_instance=app_instance)
         else:
             logging.info("Arbitrary: Sin coincidencias exactas únicas.")
 
@@ -1030,6 +1056,15 @@ def run_arbitrary_search(app_instance):
         app_instance.root.config(cursor="")
         logging.error(f"Error: {e}")
         tk.messagebox.showerror("Error", str(e))
+
+
+def run_arbitrary_search(app_instance):
+    clipboard_text = pyperclip.paste().strip()
+    if not clipboard_text:
+        logging.info("Arbitrary: Portapapeles vacío.")
+        return
+
+    run_arbitrary_search_with_text(app_instance, clipboard_text)
 
 def process_smart_paste(app_instance):
     """

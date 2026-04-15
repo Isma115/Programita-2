@@ -58,7 +58,7 @@ except Exception:
 
 
 class VsCodeDarkStyle(Style):
-    background_color = "#1e1e1e"
+    background_color = "#0a1628"
     default_style = "#d4d4d4"
     styles = {
         Text: "#d4d4d4",
@@ -112,6 +112,7 @@ class DocView(ttk.Frame):
     MARKDOWN_PREVIEW_ZOOM_STEP = 0.1
     MARKDOWN_PREVIEW_ZOOM_MIN = 0.8
     MARKDOWN_PREVIEW_ZOOM_MAX = 2.2
+    DEFAULT_SECTIONS_PANEL_WIDTH = 340
     FULLSCREEN_ENTER_SVG = """
     <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="#f2f3f5" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round">
       <path d="M9 9L4 4"/>
@@ -172,6 +173,7 @@ class DocView(ttk.Frame):
         self.markdown_preview_fontscale = self.MARKDOWN_PREVIEW_FONTSCALE
         self.code_font_family = self._resolve_code_font_family()
         self.code_font_size = ARB_FONT_CODE[1] if ARB_FONT_CODE else 14
+        self.toolbar_surface_bg = Styles.COLOR_DOC_TOOLBAR_BG
 
         try:
             self.controller = parent.master.controller
@@ -324,7 +326,10 @@ class DocView(ttk.Frame):
             handlesize=self.DRAG_HANDLE_SIZE,
             showhandle=True,
             bg=Styles.COLOR_BG_MAIN,
-            sashrelief="flat"
+            sashrelief="flat",
+            bd=0,
+            borderwidth=0,
+            relief="flat"
         )
         self.paned_window.pack(fill="both", expand=True)
         self.paned_window.bind("<Configure>", self._schedule_sidebar_toggle_position, add="+")
@@ -335,86 +340,95 @@ class DocView(ttk.Frame):
         self.left_frame = ttk.Frame(self.paned_window, style="Main.TFrame")
         self.paned_window.add(self.left_frame, minsize=400, stretch="always")
 
-        # Header with actions
-        self.header_frame = ttk.Frame(self.left_frame, style="Main.TFrame")
-        self.header_frame.pack(side="top", fill="x", padx=10, pady=10)
+        # Header with actions - Toolbar style
+        self.header_frame = tk.Frame(
+            self.left_frame,
+            bg=self.toolbar_surface_bg,
+            bd=0,
+            highlightthickness=0
+        )
+        self.header_frame.pack(side="top", fill="x")
         
-        # Action Buttons Row
-        # Action Buttons Row
-        self.actions_row = ttk.Frame(self.header_frame, style="Main.TFrame")
-        self.actions_row.pack(side="top", fill="x")
+        # Action Buttons Row (Toolbar)
+        self.actions_row = tk.Frame(self.header_frame, bg=self.toolbar_surface_bg)
+        self.actions_row.pack(side="top", fill="x", padx=10, pady=8)
+
+        self.toolbar_buttons_group = self._create_toolbar_group(self.actions_row, side="left")
 
         self.btn_load = self._create_toolbar_button(
-            self.actions_row,
+            self.toolbar_buttons_group,
             side="left",
-            padx=(0, 10),
-            style="Action.TButton",
+            padx=0,
+            style="DocToolbarFlat.TButton",
             image=self.icons.get("folder_open"),
+            text="Abrir",
             command=self._on_load_docs,
             tooltip_text="Abrir docs"
         )
 
         self.btn_new = self._create_toolbar_button(
-            self.actions_row,
+            self.toolbar_buttons_group,
             side="left",
-            padx=5,
-            style="Action.TButton",
+            padx=0,
+            style="DocToolbarFlat.TButton",
             image=self.icons.get("file_plus"),
+            text="Nuevo",
             command=self._on_new_doc,
             tooltip_text="Nuevo doc"
         )
 
         self.btn_save = self._create_toolbar_button(
-            self.actions_row,
+            self.toolbar_buttons_group,
             side="left",
-            padx=5,
-            style="Action.TButton",
+            padx=0,
+            style="DocToolbarFlat.TButton",
             image=self.icons.get("save"),
+            text="Guardar",
             command=self._on_save_doc,
             tooltip_text="Guardar doc"
         )
 
         self.btn_prompt_template = self._create_toolbar_button(
-            self.actions_row,
+            self.toolbar_buttons_group,
             side="left",
-            padx=5,
-            style="Nav.TButton",
-            text="{}",
+            padx=0,
+            style="DocToolbarFlat.TButton",
+            text="Prompt",
             command=self._open_prompt_builder,
             tooltip_text="Crear prompt"
         )
 
         self.btn_delete = self._create_toolbar_button(
-            self.actions_row,
+            self.toolbar_buttons_group,
             side="left",
-            padx=5,
-            style="Secondary.TButton",
+            padx=0,
+            style="DocToolbarFlat.TButton",
             image=self.icons.get("delete"),
+            text="Borrar",
             command=self._on_delete_doc,
             tooltip_text="Borrar doc"
         )
 
+        # Search bar with magnifying glass icon
         self.search_shell = tk.Frame(
             self.actions_row,
-            bg=Styles.COLOR_BG_SIDEBAR,
-            highlightthickness=1,
-            highlightbackground=Styles.COLOR_SELECTION_BG,
-            highlightcolor=Styles.COLOR_ACCENT,
+            bg=self.toolbar_surface_bg,
+            highlightthickness=0,
             bd=0
         )
-        self.search_shell.pack(side="left", fill="x", expand=True, padx=(12, 10))
+        self.search_shell.pack(side="left", fill="x", expand=True, padx=(10, 0))
 
         self.doc_search_entry = tk.Entry(
             self.search_shell,
-            font=("Segoe UI", 15),
-            bg=Styles.COLOR_INPUT_BG,
+            font=("Segoe UI", 13),
+            bg=self.toolbar_surface_bg,
             fg=Styles.COLOR_INPUT_FG,
             insertbackground=Styles.COLOR_INPUT_FG,
             relief="flat",
             bd=0,
             highlightthickness=0
         )
-        self.doc_search_entry.pack(fill="x", padx=10, pady=(10, 6), ipady=10)
+        self.doc_search_entry.pack(side="left", fill="x", expand=True, padx=12, pady=5, ipady=3)
         self.doc_search_entry.bind("<FocusIn>", self._on_doc_search_focus_in)
         self.doc_search_entry.bind("<FocusOut>", self._on_doc_search_focus_out)
         self.doc_search_entry.bind("<KeyPress>", self._on_doc_search_key_press, add="+")
@@ -424,11 +438,11 @@ class DocView(ttk.Frame):
         self.doc_search_entry.bind("<Return>", self._open_selected_doc_search_result)
         self.doc_search_entry.bind("<Escape>", self._on_doc_search_escape)
 
-        self.doc_search_results_frame = tk.Frame(self.search_shell, bg=Styles.COLOR_BG_SIDEBAR)
+        self.doc_search_results_frame = tk.Frame(self.search_shell, bg=self.toolbar_surface_bg)
         self.doc_search_list = tk.Listbox(
             self.doc_search_results_frame,
             font=("Segoe UI", 12),
-            bg=Styles.COLOR_INPUT_BG,
+            bg=self.toolbar_surface_bg,
             fg=Styles.COLOR_FG_TEXT,
             selectbackground=Styles.COLOR_ACCENT,
             selectforeground="#ffffff",
@@ -450,7 +464,7 @@ class DocView(ttk.Frame):
             self.search_shell,
             text="",
             font=("Segoe UI", 10),
-            bg=Styles.COLOR_BG_SIDEBAR,
+            bg=self.toolbar_surface_bg,
             fg=Styles.COLOR_DIM,
             anchor="w"
         )
@@ -460,51 +474,55 @@ class DocView(ttk.Frame):
         # View Toggles
         mode_icon = self.icons.get("edit") if not self.is_editor_mode else self.icons.get("view")
         self.btn_mode = self._create_toolbar_button(
-            self.actions_row,
-            side="right",
-            padx=5,
-            style="Nav.TButton",
+            self.toolbar_buttons_group,
+            side="left",
+            padx=0,
+            style="DocToolbarFlat.TButton",
             image=mode_icon,
+            text="Editar" if not self.is_editor_mode else "Vista",
             command=self._toggle_mode,
             tooltip_text="Cambiar vista"
         )
 
         self.btn_diagrams = self._create_toolbar_button(
-            self.actions_row,
-            side="right",
-            padx=5,
-            style="Nav.TButton",
-            text="DG",
+            self.toolbar_buttons_group,
+            side="left",
+            padx=0,
+            style="DocToolbarFlat.TButton",
+            text="Diagrama",
             command=self._open_diagram_editor,
             tooltip_text="Crear diagrama"
         )
 
         theme_icon = self.icons.get("moon") if not self.is_dark_mode else self.icons.get("sun")
         self.btn_theme = self._create_toolbar_button(
-            self.actions_row,
-            side="right",
-            padx=5,
-            style="Nav.TButton",
+            self.toolbar_buttons_group,
+            side="left",
+            padx=0,
+            style="DocToolbarFlat.TButton",
             image=theme_icon,
+            text="Tema",
             command=self._toggle_theme,
             tooltip_text="Cambiar tema"
         )
 
         self.btn_toggle_fullscreen = self._create_toolbar_button(
-            self.actions_row,
-            side="right",
-            padx=5,
-            style="FullscreenToggle.TButton",
+            self.toolbar_buttons_group,
+            side="left",
+            padx=0,
+            style="DocToolbarFlat.TButton",
             image=self.icons.get("fullscreen_enter"),
+            text="Pantalla",
             command=self._toggle_fullscreen_mode,
             tooltip_text="Pantalla completa"
         )
 
         # File Selector for Multiple Matches
-        self.selector_row = ttk.Frame(self.header_frame, style="Main.TFrame")
-        self.selector_row.pack(side="top", fill="x", pady=(10, 0))
+        self.selector_row = tk.Frame(self.header_frame, bg=self.toolbar_surface_bg)
+        self.selector_row.pack(side="top", fill="x", padx=15, pady=(0, 6))
 
-        self.lbl_file_count = ttk.Label(self.selector_row, text="Documentos:", style="TLabel")
+        self.lbl_file_count = tk.Label(self.selector_row, text="Documentos:",
+            font=("Segoe UI", 12), bg=self.toolbar_surface_bg, fg=Styles.COLOR_DIM)
         self.lbl_file_count.pack(side="left", padx=(0, 10))
 
         self.cmb_files = ttk.Combobox(self.selector_row, state="readonly", width=40, font=("Segoe UI", 14))
@@ -514,7 +532,7 @@ class DocView(ttk.Frame):
         self.btn_copy_doc = ttk.Button(
             self.selector_row,
             text="Copiar",
-            style="Secondary.TButton",
+            style="ToolbarIcon.TButton",
             command=self._on_copy_doc_content
         )
         self.btn_copy_doc.pack(side="left", padx=(10, 0))
@@ -537,7 +555,10 @@ class DocView(ttk.Frame):
             handlesize=self.DRAG_HANDLE_SIZE,
             showhandle=True,
             bg=Styles.COLOR_PANE_DIVIDER,
-            sashrelief="raised"
+            sashrelief="flat",
+            bd=0,
+            borderwidth=0,
+            relief="flat"
         )
         self.content_pane.pack(fill="both", expand=True)
         self.content_pane.bind("<ButtonRelease-1>", self._on_content_pane_release)
@@ -651,8 +672,8 @@ class DocView(ttk.Frame):
         self._configure_markdown_tags()
 
         # --- Right Pane (Sections) ---
-        self.right_frame = ttk.Frame(self.paned_window, style="Sidebar.TFrame")
-        self.paned_window.add(self.right_frame, minsize=250, stretch="never")
+        self.right_frame = ttk.Frame(self.paned_window, style="Sidebar.TFrame", width=self.DEFAULT_SECTIONS_PANEL_WIDTH)
+        self.paned_window.add(self.right_frame, minsize=self.DEFAULT_SECTIONS_PANEL_WIDTH, stretch="never")
 
         self.btn_toggle_sidebar = ttk.Button(
             self.paned_window,
@@ -677,7 +698,7 @@ class DocView(ttk.Frame):
         self.cmb_doc_paths = ttk.Combobox(
             self.doc_paths_row,
             state="readonly",
-            font=("Segoe UI", 11)
+            font=("Segoe UI", 14, "bold")
         )
         self.cmb_doc_paths.pack(fill="x")
         self.cmb_doc_paths.bind("<<ComboboxSelected>>", self._on_doc_path_selected)
@@ -686,7 +707,7 @@ class DocView(ttk.Frame):
             self.right_top_frame,
             bg=Styles.COLOR_BG_SIDEBAR,
             highlightthickness=1,
-            highlightbackground=Styles.COLOR_SELECTION_BG,
+            highlightbackground=Styles.COLOR_BORDER,
             highlightcolor=Styles.COLOR_ACCENT,
             bd=0
         )
@@ -697,14 +718,14 @@ class DocView(ttk.Frame):
             text="Buscar sección",
             bg=Styles.COLOR_BG_SIDEBAR,
             fg=Styles.COLOR_DIM,
-            font=("Segoe UI", 10, "bold"),
+            font=("Segoe UI", 13, "bold"),
             anchor="w"
         )
         self.section_search_label.pack(fill="x", padx=10, pady=(8, 0))
 
         self.section_search_entry = tk.Entry(
             self.section_search_shell,
-            font=("Segoe UI", 12),
+            font=("Segoe UI", 15),
             bg=Styles.COLOR_INPUT_BG,
             fg=Styles.COLOR_INPUT_FG,
             insertbackground=Styles.COLOR_INPUT_FG,
@@ -752,6 +773,7 @@ class DocView(ttk.Frame):
         if self.controller:
             self._refresh_sections()
 
+        self.after_idle(self._set_default_sections_panel_width)
         self._update_sidebar_toggle()
         self._update_fullscreen_button()
         self.after_idle(self._position_sidebar_toggle)
@@ -767,7 +789,16 @@ class DocView(ttk.Frame):
         text="",
         tooltip_text=""
     ):
-        slot = tk.Frame(parent, bg=Styles.COLOR_BG_MAIN, width=72, height=72)
+        parent_bg = self.toolbar_surface_bg
+        slot_bg = self.toolbar_surface_bg if str(style).startswith("DocToolbarFlat") else parent_bg
+        has_label = bool(text)
+        slot_width = 42
+        if has_label and image:
+            slot_width = max(104, 56 + (len(text) * 8))
+        elif has_label:
+            slot_width = max(88, 34 + (len(text) * 8))
+
+        slot = tk.Frame(parent, bg=slot_bg, width=slot_width, height=38)
         slot.pack(side=side, padx=padx)
         slot.pack_propagate(False)
 
@@ -776,12 +807,23 @@ class DocView(ttk.Frame):
             image=image,
             text=text,
             style=style,
-            command=command
+            command=command,
+            compound="left"
         )
         button.pack(fill="both", expand=True)
         if tooltip_text:
             attach_tooltip(button, tooltip_text)
         return button
+
+    def _create_toolbar_group(self, parent, side):
+        group = tk.Frame(
+            parent,
+            bg=self.toolbar_surface_bg,
+            highlightthickness=0,
+            bd=0
+        )
+        group.pack(side=side, padx=0)
+        return group
 
     def _on_load_docs(self):
         path = filedialog.askdirectory()
@@ -1266,10 +1308,33 @@ class DocView(ttk.Frame):
             self.txt_content.insert("1.0", content)
             self.txt_content.edit_reset() # Clear undo stack
             
+            # Update breadcrumb
+            self._update_breadcrumb(file_path)
+            
             # Apply highlighting
             self._apply_markdown_rendering()
         except Exception as e:
             messagebox.showerror("Error", f"No se pudo leer: {e}")
+
+    def _update_breadcrumb(self, file_path=None):
+        """Updates the breadcrumb navigation label."""
+        parts = ["HidraSmart"]
+        
+        # Add section name
+        if self._last_selected_section:
+            parts.append(self._last_selected_section)
+        else:
+            parts.append("Documentos")
+        
+        # Add filename
+        if file_path:
+            parts.append(os.path.basename(file_path))
+        
+        breadcrumb_text = "  /  ".join(parts)
+        try:
+            self.breadcrumb_label.config(text=breadcrumb_text)
+        except Exception:
+            pass
 
     def _on_save_doc(self):
         if not self.current_file_path:
@@ -2843,10 +2908,11 @@ class DocView(ttk.Frame):
             self.is_right_panel_visible = False
         else:
             try:
-                self.paned_window.add(self.right_frame, minsize=250, stretch="never")
+                self.paned_window.add(self.right_frame, minsize=self.DEFAULT_SECTIONS_PANEL_WIDTH, stretch="never")
             except Exception:
                 pass
             self.is_right_panel_visible = True
+            self.after_idle(self._set_default_sections_panel_width)
 
         self._update_sidebar_toggle()
 
@@ -2888,10 +2954,11 @@ class DocView(ttk.Frame):
         else:
             if self._sidebar_visible_before_fullscreen and not self.is_right_panel_visible:
                 try:
-                    self.paned_window.add(self.right_frame, minsize=250, stretch="never")
+                    self.paned_window.add(self.right_frame, minsize=self.DEFAULT_SECTIONS_PANEL_WIDTH, stretch="never")
                 except Exception:
                     pass
                 self.is_right_panel_visible = True
+                self.after_idle(self._set_default_sections_panel_width)
             elif not self._sidebar_visible_before_fullscreen and self.is_right_panel_visible:
                 try:
                     self.paned_window.forget(self.right_frame)
@@ -2938,6 +3005,20 @@ class DocView(ttk.Frame):
 
         self.btn_toggle_sidebar.place(x=x_pos, y=y_pos, anchor="center")
         self.btn_toggle_sidebar.lift()
+
+    def _set_default_sections_panel_width(self):
+        if not self.is_right_panel_visible or len(self.paned_window.panes()) <= 1:
+            return
+        try:
+            self.paned_window.update_idletasks()
+            total_width = self.paned_window.winfo_width()
+            if total_width <= self.DEFAULT_SECTIONS_PANEL_WIDTH:
+                return
+            left_width = max(400, total_width - self.DEFAULT_SECTIONS_PANEL_WIDTH)
+            self.paned_window.sash_place(0, left_width, 0)
+            self.after_idle(self._position_sidebar_toggle)
+        except Exception:
+            pass
 
     def _get_main_layout(self):
         parent = self.master
@@ -3035,17 +3116,17 @@ class DocView(ttk.Frame):
         
         # 2. Render to Web View
         if self.is_dark_mode:
-            bg_color = "#0d1117"
-            text_color = "#c9d1d9"
-            link_color = "#6ab0ff" 
-            border_color = "#30363d"
-            code_bg = "#161b22"
-            header_border = "#30363d"
-            quote_color = "#8b949e"
-            table_bg = "#0d1117"
-            th_bg = "#161b22"
+            bg_color = "#0f1923"
+            text_color = "#e2e8f0"
+            link_color = "#2dd4bf" 
+            border_color = "#1e3a5f"
+            code_bg = "#0a1628"
+            header_border = "#1e3a5f"
+            quote_color = "#8899aa"
+            table_bg = "#0f1923"
+            th_bg = "#162234"
             code_link_color = "#f59e0b"
-            code_link_bg = "#2b1f10"
+            code_link_bg = "#1a1a0a"
         else:
             bg_color = "#ffffff"
             text_color = "#24292f"
@@ -3161,35 +3242,36 @@ class DocView(ttk.Frame):
             css = f"""
             <style>
                 body {{
-                    font-family: 'Segoe UI', sans-serif;
+                    font-family: 'Segoe UI', -apple-system, BlinkMacSystemFont, sans-serif;
                     font-size: 15px;
-                    line-height: 1.6;
+                    line-height: 1.7;
                     color: {text_color};
                     background-color: {bg_color};
-                    padding: 20px;
+                    padding: 28px 32px;
                 }}
-                h1, h2, h3 {{ color: {link_color}; border-bottom: 1px solid {header_border}; padding-bottom: 5px; margin-top: 24px; margin-bottom: 16px; }}
-                h1 {{ font-size: 24px; font-weight: 600; }}
-                h2 {{ font-size: 20px; font-weight: 600; }}
-                h3 {{ font-size: 18px; font-weight: 600; }}
-                a {{ color: {link_color}; text-decoration: underline; }}
+                h1 {{ color: {text_color}; font-size: 26px; font-weight: 700; border-bottom: 1px solid {header_border}; padding-bottom: 8px; margin-top: 28px; margin-bottom: 18px; }}
+                h2 {{ color: {text_color}; font-size: 20px; font-weight: 700; border-bottom: 1px solid {header_border}; padding-bottom: 5px; margin-top: 24px; margin-bottom: 14px; }}
+                h3 {{ color: {text_color}; font-size: 17px; font-weight: 700; margin-top: 20px; margin-bottom: 12px; }}
+                a {{ color: {link_color}; text-decoration: none; }}
+                a:hover {{ text-decoration: underline; }}
                 p {{ margin-bottom: 16px; }}
-                code {{ font-family: '{self.code_font_family}', 'Courier New', monospace; background-color: {code_bg}; padding: 2px 4px; border-radius: 3px; font-size: 14px; color: {text_color}; }}
+                strong {{ color: {text_color}; font-weight: 700; }}
+                code {{ font-family: '{self.code_font_family}', 'Courier New', monospace; background-color: {code_bg}; padding: 3px 6px; border-radius: 4px; font-size: 13px; color: {text_color}; }}
                 a.code-link {{ text-decoration: none; }}
-                a.code-link .code-inline {{ font-family: '{self.code_font_family}', 'Courier New', monospace; background-color: {code_link_bg}; padding: 2px 4px; border-radius: 3px; font-size: 14px; color: {code_link_color}; border: 1px solid {border_color}; }}
-                pre {{ background-color: {code_bg}; padding: 16px; border-radius: 6px; overflow: auto; margin-bottom: 16px; border: 1px solid {border_color}; }}
+                a.code-link .code-inline {{ font-family: '{self.code_font_family}', 'Courier New', monospace; background-color: {code_link_bg}; padding: 3px 6px; border-radius: 4px; font-size: 13px; color: {code_link_color}; border: 1px solid {border_color}; }}
+                pre {{ background-color: {code_bg}; padding: 18px; border-radius: 10px; overflow: auto; margin-bottom: 18px; border: 1px solid {border_color}; }}
                 pre code {{ background-color: transparent; padding: 0; color: {text_color}; }}
                 pre.code-block {{
                     background-color: {VsCodeDarkStyle.background_color if self.is_dark_mode else VsCodeLightStyle.background_color};
                     border: 1px solid {border_color};
-                    border-radius: 8px;
-                    padding: 18px;
+                    border-radius: 10px;
+                    padding: 20px;
                 }}
                 pre.code-block code {{
                     display: block;
                     font-family: '{self.code_font_family}', 'Courier New', monospace;
-                    font-size: 14px;
-                    line-height: 1.6;
+                    font-size: 13px;
+                    line-height: 1.65;
                     white-space: pre;
                 }}
                 .editable-block {{
@@ -3204,8 +3286,15 @@ class DocView(ttk.Frame):
                     padding-left: 0;
                 }}
                 .editable-code .edit-handle {{
-                    left: 8px;
-                    top: 8px;
+                    left: auto;
+                    right: 12px;
+                    top: 10px;
+                    border-radius: 8px;
+                    padding: 4px 10px;
+                    font-size: 12px;
+                    background-color: {border_color};
+                    color: {text_color};
+                    border: 1px solid {border_color};
                 }}
                 .edit-handle {{
                     position: absolute;
@@ -3225,12 +3314,14 @@ class DocView(ttk.Frame):
                     visibility: hidden;
                 }}
                 .editable-block:hover .edit-handle {{ visibility: visible; }}
-                blockquote {{ border-left: 4px solid {border_color}; padding-left: 16px; color: {quote_color}; margin-left: 0; margin-bottom: 16px; }}
+                blockquote {{ border-left: 4px solid {link_color}; padding-left: 16px; color: {quote_color}; margin-left: 0; margin-bottom: 16px; }}
+                ul, ol {{ margin-bottom: 16px; padding-left: 24px; }}
+                li {{ margin-bottom: 6px; }}
                 
                 /* Table styling optimized for tkhtml */
-                table {{ border-collapse: collapse; width: 100%; margin-bottom: 20px; border: 1px solid {border_color}; }}
-                th, td {{ border: 1px solid {border_color}; padding: 10px; text-align: left; }}
-                th {{ background-color: {th_bg}; color: {text_color}; font-weight: bold; }}
+                table {{ border-collapse: collapse; width: 100%; margin-bottom: 20px; border: 1px solid {border_color}; border-radius: 8px; }}
+                th, td {{ border: 1px solid {border_color}; padding: 10px 14px; text-align: left; }}
+                th {{ background-color: {th_bg}; color: {text_color}; font-weight: 700; }}
                 tr {{ background-color: {table_bg}; }}
             </style>
             """

@@ -15,7 +15,8 @@
     "project_directories": [
         "/Users/ismaelmoraledalopez/Documents/Azure-Irrigation-Web/HidraSmart-Irrigation-System",
         "/Users/ismaelmoraledalopez/Desktop/Programita 2",
-        "/Users/ismaelmoraledalopez/Desktop/pruebas/Iterador/TrustedSearch"
+        "/Users/ismaelmoraledalopez/Desktop/pruebas/Iterador/TrustedSearch",
+        "/Users/ismaelmoraledalopez/Desktop/SDD-Proyecto Aurora 2"
     ],
     "current_project_index": 0,
     "db_config": {
@@ -32,7 +33,7 @@
         "is_fullscreen_mode": false,
         "markdown_preview_zoom": 1.0
     },
-    "last_doc_section": "Gestor de Equipos",
-    "last_code_section": "Gestor de red",
+    "last_doc_section": "Catastro",
+    "last_code_section": "Catastro",
     "implementation_mode": false
 }

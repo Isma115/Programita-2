@@ -103,7 +103,7 @@ class Controller:
         self.config_manager.set_current_project_index(new_idx)
         self.load_project_folder(path)
 
-    def generate_prompt(self, user_text, selected_section=None, return_regions=False, file_limit=10, implementation_mode=False, file_paths=None):
+    def generate_prompt(self, user_text, selected_section=None, selected_subsection=None, return_regions=False, min_files=10, implementation_mode=False, file_paths=None):
         """
         Generates a prompt based on user text and selected files.
         """
@@ -114,8 +114,12 @@ class Controller:
             relevant_files = [files_map[p] for p in file_paths if p in files_map]
         else:
             if selected_section:
-                section_files_list = self.section_manager.get_files_in_section(selected_section)
-                # Filter all loaded files to just those in the section
+                # If a subsection is selected, use only its files
+                if selected_subsection:
+                    section_files_list = self.section_manager.get_files_in_subsection(selected_section, selected_subsection)
+                else:
+                    section_files_list = self.section_manager.get_files_in_section(selected_section)
+                # Filter all loaded files to just those in the section/subsection
                 all_files = self.project_manager.get_files()
                 
                 # Create a lookup for all files {path: file_obj} for O(1) access
@@ -128,11 +132,11 @@ class Controller:
                         relevant_files.append(files_map[path])
             else:
                 # Search everything using relevant files finding
-                relevant_files = self.project_manager.find_relevant_files(user_text)
+                relevant_files = self.project_manager.find_relevant_files(user_text, min_files=min_files)
         
         # Build Prompt
         prompt = f"Petición del Usuario: {user_text}\n\nArchivos de Contexto:\n"
-        for f in relevant_files[:file_limit]: # Limit to slider value
+        for f in relevant_files: # All relevant files according to min_files
             prompt += f"\n--- Archivo: {f['rel_path']} ---\n"
             prompt += f.get('content', '') + "\n"
         
@@ -223,20 +227,25 @@ class Controller:
             print(f"Controller: Error getting table samples: {e}")
             return ""
 
-    def get_relevant_files_for_ui(self, user_text, selected_section=None, extension=""):
+    def get_relevant_files_for_ui(self, user_text, selected_section=None, selected_subsection=None, extension="", min_files=0):
         """Helper to get relevant files for UI display."""
         all_files = self.project_manager.get_files()
         
-        # 1. Scope Filtering (Section or Global)
+        # 1. Scope Filtering (Section/Subsection or Global)
         if selected_section:
-            section_files_paths = self.section_manager.get_files_in_section(selected_section)
+            if selected_subsection:
+                # Use only the subsection's files
+                section_files_paths = self.section_manager.get_files_in_subsection(selected_section, selected_subsection)
+            else:
+                # Use all files from the parent section
+                section_files_paths = self.section_manager.get_files_in_section(selected_section)
             files_map = {f['path']: f for f in all_files}
             base_files = [files_map[p] for p in section_files_paths if p in files_map]
         else:
             if not user_text:
                 base_files = all_files
             else:
-                base_files = self.project_manager.find_relevant_files(user_text)
+                base_files = self.project_manager.find_relevant_files(user_text, min_files=min_files)
 
         # 2. Extension Filtering (Support multiple comma-separated extensions)
         if extension and extension.strip():
@@ -251,6 +260,8 @@ class Controller:
             
             if ext_list:
                 base_files = [f for f in base_files if any(f['rel_path'].lower().endswith(ext) for ext in ext_list)]
+        else:
+            base_files = [f for f in base_files if self.project_manager.is_default_code_file(f['rel_path'])]
             
         return base_files
 

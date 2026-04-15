@@ -15,7 +15,7 @@ class Application:
         Initialize the Application.
         """
         self.root = tk.Tk()
-        self.root.title("Programita 2 - Modular UI")
+        self.root.title("Programita 2")
         self.root.geometry("800x600")
         self.root.minsize(600, 400)
 
@@ -44,6 +44,7 @@ class Application:
         # Initialize UI (Layout)
         # Pass the controller to the layout so buttons can trigger actions
         self.layout = MainLayout(self.root, self.controller)
+        Styles.apply_soft_widget_chrome(self.root)
 
         # --- Global Hotkey: Ctrl+F / Cmd+F → Search Overlay ---
         self._search_overlay = None

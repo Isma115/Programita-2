@@ -33,6 +33,7 @@ class CodeView(ttk.Frame):
 
     # Max consecutive uses of the same AI before rotating
     MAX_CONSECUTIVE = 3
+    DEFAULT_SECTIONS_PANEL_WIDTH = 340
 
     AI_URLS = {
         "DeepSeek (R1/V3)": "https://chat.deepseek.com",
@@ -61,6 +62,8 @@ class CodeView(ttk.Frame):
              pass 
         
         self._last_selected_section = None
+        self._last_selected_subsection = None
+        self._visible_section_ids = []
 
         self._create_layout()
 
@@ -138,7 +141,7 @@ class CodeView(ttk.Frame):
         slider_frame = ttk.Frame(self.top_bar, style="Main.TFrame")
         slider_frame.pack(side="left", padx=20)
         
-        self.lbl_limit = ttk.Label(slider_frame, text="Límite: 100", style="TLabel")
+        self.lbl_limit = ttk.Label(slider_frame, text="Mín. Ficheros: 100", style="TLabel")
         self.lbl_limit.pack(side="left", padx=(0, 15))
         
         self.slider = ttk.Scale(
@@ -227,7 +230,7 @@ class CodeView(ttk.Frame):
         if hasattr(self, 'controller') and hasattr(self.controller, 'config_manager'):
             limit = self.controller.config_manager.get_file_limit()
             self.limit_var.set(limit)
-            self.lbl_limit.config(text=f"Límite: {int(limit)}")
+            self.lbl_limit.config(text=f"Mín. Ficheros: {int(limit)}")
 
         # 3. Prompt Area
         self.prompt_frame = ttk.Frame(self.left_frame, style="Main.TFrame")
@@ -267,8 +270,8 @@ class CodeView(ttk.Frame):
 
 
         # --- Right Pane (Sections) ---
-        self.right_frame = ttk.Frame(self.paned_window, style="Sidebar.TFrame")
-        self.paned_window.add(self.right_frame, minsize=250, stretch="never")
+        self.right_frame = ttk.Frame(self.paned_window, style="Sidebar.TFrame", width=self.DEFAULT_SECTIONS_PANEL_WIDTH)
+        self.paned_window.add(self.right_frame, minsize=self.DEFAULT_SECTIONS_PANEL_WIDTH, stretch="never")
 
         # Split Right Pane into Top (List) and Bottom (Checkbox area)
         self.right_top_frame = ttk.Frame(self.right_frame, style="Sidebar.TFrame")
@@ -283,41 +286,61 @@ class CodeView(ttk.Frame):
         lbl_sections = ttk.Label(self.right_top_frame, text="Secciones", style="Header.TLabel")
         lbl_sections.pack(fill="x")
 
-        # Section List
-        self.section_list = tk.Listbox(
-            self.right_top_frame, 
-            bg=Styles.COLOR_INPUT_BG, 
-            fg=Styles.COLOR_INPUT_FG, 
-            selectbackground=Styles.COLOR_ACCENT,
-            selectforeground="#ffffff",
-            borderwidth=0,
-            highlightthickness=0,
-            exportselection=0, # Prevent selection loss when focus changes
-            font=Styles.FONT_MAIN,
-            height=15
+        self.section_search_shell = tk.Frame(
+            self.right_top_frame,
+            bg=Styles.COLOR_BG_SIDEBAR,
+            highlightthickness=1,
+            highlightbackground=Styles.COLOR_BORDER,
+            highlightcolor=Styles.COLOR_ACCENT,
+            bd=0
         )
-        self.section_list.bind("<<ListboxSelect>>", self._on_section_select)
-        self.section_list.bind("<Button-1>", self._on_section_click)
-        self.section_list.pack(fill="both", expand=True, padx=5, pady=5)
+        self.section_search_shell.pack(fill="x", padx=8, pady=(8, 6))
+
+        self.section_search_label = tk.Label(
+            self.section_search_shell,
+            text="Buscar sección o subsección",
+            bg=Styles.COLOR_BG_SIDEBAR,
+            fg=Styles.COLOR_DIM,
+            font=("Segoe UI", 13, "bold"),
+            anchor="w"
+        )
+        self.section_search_label.pack(fill="x", padx=10, pady=(8, 0))
+
+        self.section_search_entry = tk.Entry(
+            self.section_search_shell,
+            font=("Segoe UI", 15),
+            bg=Styles.COLOR_INPUT_BG,
+            fg=Styles.COLOR_INPUT_FG,
+            insertbackground=Styles.COLOR_INPUT_FG,
+            relief="flat",
+            bd=0,
+            highlightthickness=0
+        )
+        self.section_search_entry.pack(fill="x", padx=10, pady=(6, 10), ipady=8)
+        self.section_search_entry.bind("<KeyRelease>", self._on_section_search_change)
+
+        # Section Tree (replaces Listbox for subsection hierarchy support)
+        self.section_tree = ttk.Treeview(
+            self.right_top_frame,
+            show="tree",
+            selectmode="browse",
+            style="Treeview"
+        )
+        self.section_tree.column("#0", stretch=True)
+        self.section_tree.bind("<<TreeviewSelect>>", self._on_section_select)
+        self.section_tree.bind("<Button-1>", self._on_section_click)
         
-        # Sección controls frame removed (redundant)
-
-        # Nueva Sección moved to context menu as requested
-
-
-        # Context Menu for Sections
-        self.context_menu = tk.Menu(self, tearoff=0)
-        self.context_menu.add_command(label="Nueva Sección", command=self._on_add_section)
-        self.context_menu.add_separator()
-        self.context_menu.add_command(label="Generar Prompt Docs", command=self._on_generate_docs)
-        self.context_menu.add_separator()
-        self.context_menu.add_command(label="Editar", command=self._on_edit_section)
-        self.context_menu.add_command(label="Eliminar", command=self._on_delete_section)
+        self.section_tree.tag_configure("section", font=("Segoe UI", 16, "bold"))
+        self.section_tree.tag_configure("subsection", font=("Segoe UI", 14))
+        
+        self.section_tree.pack(fill="both", expand=True, padx=5, pady=5)
+        
+        # Context menu is built dynamically in _show_context_menu
 
         # Bind Right Click (Mac & Windows/Linux)
-        self.section_list.bind("<Button-2>", self._show_context_menu) # Mac 2-finger click often maps to Button-2 or Button-3 depending on TK setup
-        self.section_list.bind("<Button-3>", self._show_context_menu)
-        self.section_list.bind("<Control-Button-1>", self._show_context_menu) # Mac Ctrl+Click
+        self.section_tree.bind("<Button-2>", self._show_context_menu)
+        self.section_tree.bind("<Button-3>", self._show_context_menu)
+        self.section_tree.bind("<Control-Button-1>", self._show_context_menu)
 
         
         # Custom Large Checkbox "Devolver regiones" 
@@ -410,6 +433,18 @@ class CodeView(ttk.Frame):
 
         # Initial sections load
         self._refresh_sections()
+        self.after_idle(self._set_default_sections_panel_width)
+
+    def _set_default_sections_panel_width(self):
+        try:
+            self.update_idletasks()
+            total_width = self.paned_window.winfo_width()
+            if total_width <= self.DEFAULT_SECTIONS_PANEL_WIDTH:
+                return
+            left_width = max(400, total_width - self.DEFAULT_SECTIONS_PANEL_WIDTH)
+            self.paned_window.sash_place(0, left_width, 0)
+        except Exception:
+            pass
 
     def _on_ai_selected(self, event=None):
         pass
@@ -530,7 +565,7 @@ class CodeView(ttk.Frame):
     def _on_limit_change(self, val):
         """Handle slider movement."""
         limit = int(float(val))
-        self.lbl_limit.config(text=f"Límite: {limit}")
+        self.lbl_limit.config(text=f"Mín. Ficheros: {limit}")
         
         # Update Config (Debouncing would be better but direct update is okay for now)
         if hasattr(self.controller, 'config_manager'):
@@ -568,19 +603,26 @@ class CodeView(ttk.Frame):
             self.tree.delete(item)
             
         if files is None:
-            # Fallback if controller not ready or just a full refresh
-            if hasattr(self.controller, 'project_manager'):
+            if hasattr(self, 'controller') and hasattr(self.controller, 'get_relevant_files_for_ui'):
+                text = self.txt_prompt.get("1.0", "end-1c").strip() if hasattr(self, 'txt_prompt') else ""
+                section, subsection = self._get_selected_section_info()
+                extension = self.ext_var.get() if hasattr(self, 'ext_var') else ""
+                min_files = int(self.limit_var.get()) if hasattr(self, 'limit_var') else 0
+                files = self.controller.get_relevant_files_for_ui(
+                    text,
+                    selected_section=section,
+                    selected_subsection=subsection,
+                    extension=extension,
+                    min_files=min_files
+                )
+            elif hasattr(self.controller, 'project_manager'):
                 files = self.controller.project_manager.get_files()
             else:
                 files = []
 
-        # Apply Limit
-        try:
-             limit = int(self.limit_var.get())
-        except:
-             limit = 20
-
-        for f in files[:limit]:
+        # We no longer apply a hard limit here; we show all files returned
+        # (the padding for minimum files is already handled in find_relevant_files)
+        for f in files:
             size_kb = f"{len(f['content']) / 1024:.1f} KB"
             # Format path to show only parent/filename
             rel_path = f['rel_path']
@@ -605,18 +647,19 @@ class CodeView(ttk.Frame):
         """Starts the search in a separate thread."""
         text = self.txt_prompt.get("1.0", "end-1c").strip()
         
-        selected_indices = self.section_list.curselection()
-        section = self.section_list.get(selected_indices[0]) if selected_indices else None
+        section, subsection = self._get_selected_section_info()
         
         extension = self.ext_var.get()
         
         # Run search in thread
-        threading.Thread(target=self._perform_search, args=(text, section, extension), daemon=True).start()
+        threading.Thread(target=self._perform_search, args=(text, section, subsection, extension), daemon=True).start()
 
-    def _perform_search(self, text, section, extension="Todos"):
+    def _perform_search(self, text, section, subsection=None, extension="Todos"):
         """Executes search logic (Thread Safe)."""
         try:
-            relevant_files = self.controller.get_relevant_files_for_ui(text, selected_section=section, extension=extension)
+            relevant_files = self.controller.get_relevant_files_for_ui(
+                text, selected_section=section, selected_subsection=subsection, extension=extension
+            )
             # Schedule UI update on main thread
             self.after(0, lambda: self._update_file_list_safe(relevant_files))
         except Exception as e:
@@ -627,16 +670,55 @@ class CodeView(ttk.Frame):
         self.refresh_file_list(files)
         self.update_idletasks()
 
-    def _on_section_select(self, event=None):
+    def _get_selected_section_info(self):
+        """Returns (section_name, subsection_name_or_None) from current Treeview selection."""
+        if not hasattr(self, 'section_tree'):
+            return None, None
+        selected = self.section_tree.selection()
+        if not selected:
+            return None, None
+        iid = selected[0]
+        if iid.startswith("SS:"):
+            # Subsection: "SS:ParentName::SubName"
+            rest = iid[3:]
+            parts = rest.split("::", 1)
+            if len(parts) == 2:
+                return parts[0], parts[1]
+        elif iid.startswith("S:"):
+            # Parent section: "S:SectionName"
+            return iid[2:], None
+        return None, None
+
+    def _build_section_iid(self, section_name, subsection_name=None):
+        """Builds stable tree item ids for sections and subsections."""
+        if not section_name:
+            return None
+        if subsection_name:
+            return f"SS:{section_name}::{subsection_name}"
+        return f"S:{section_name}"
+
+    def _on_section_search_change(self, event=None):
+        preferred_iid = None
+        selected = self.section_tree.selection() if hasattr(self, "section_tree") else ()
+        if selected:
+            preferred_iid = selected[0]
+        elif self._last_selected_section:
+            preferred_iid = self._build_section_iid(
+                self._last_selected_section,
+                self._last_selected_subsection
+            )
+        self._refresh_sections(preferred_iid=preferred_iid)
+
+    def _on_section_select(self, event=None, force_reload=False):
         """Trigger update when section selection changes."""
-        selected_indices = self.section_list.curselection()
-        section_name = self.section_list.get(selected_indices[0]) if selected_indices else None
+        section_name, subsection_name = self._get_selected_section_info()
         
         # Only reload if the selection has actually changed
-        if section_name == self._last_selected_section:
+        if not force_reload and section_name == self._last_selected_section and subsection_name == self._last_selected_subsection:
             return
             
         self._last_selected_section = section_name
+        self._last_selected_subsection = subsection_name
         
         # Save selection
         if section_name:
@@ -646,25 +728,16 @@ class CodeView(ttk.Frame):
         self._on_prompt_change()
 
     def _on_section_click(self, event):
-        """Handle clicks on the section list. Deselect if clicked on empty space."""
-        # Get index at click position
-        index = self.section_list.nearest(event.y)
-        
-        # Check if index is valid (list might be empty)
-        if index < 0: return
-
-        # Check if the click is actually inside the bounding box of the item
-        bbox = self.section_list.bbox(index)
-        if not bbox: return
-        
-        # bbox is (x, y, width, height)
-        y, height = bbox[1], bbox[3]
-        
-        # If clicked below the last item
-        if event.y > y + height:
-            self.section_list.selection_clear(0, tk.END)
-            self._on_section_select() # Update filter
-            return "break" # Prevent default selection behavior if any
+        """Handle clicks on the section tree. Deselect if clicked on empty space."""
+        iid = self.section_tree.identify_row(event.y)
+        if not iid or iid == "EMPTY_DESELECT":
+            # Clicked on empty space - deselect
+            selected = self.section_tree.selection()
+            if selected:
+                self.section_tree.selection_remove(*selected)
+            self._on_section_select(force_reload=True)
+            if iid == "EMPTY_DESELECT":
+                return "break"
 
     def _on_copy_prompt(self, event=None):
         # If triggered by event, prevent default behavior (newline)
@@ -677,9 +750,8 @@ class CodeView(ttk.Frame):
             messagebox.showwarning("Aviso", "Escribe un mensaje primero.")
             return
 
-        # Check selected section
-        selected_indices = self.section_list.curselection()
-        section = self.section_list.get(selected_indices[0]) if selected_indices else None
+        # Check selected section/subsection
+        section, subsection = self._get_selected_section_info()
         
         # Check return regions
         return_regions = self.var_return_regions.get()
@@ -689,25 +761,21 @@ class CodeView(ttk.Frame):
 
         # Get file limit from slider
         try:
-            file_limit = int(self.limit_var.get())
+            min_files = int(self.limit_var.get())
         except:
-            file_limit = 10
+            min_files = 10
 
-        # Get exact paths shown in the treeview to ensure prompt matches the UI list
-        displayed_files = []
-        for item in self.tree.get_children():
-            tags = self.tree.item(item, 'tags')
-            if tags:
-                file_path = tags[0] if isinstance(tags, (list, tuple)) else tags
-                displayed_files.append(file_path)
+        selected_files_data = self._get_files_for_prompt()
+        selected_file_paths = [f['path'] for f in selected_files_data]
 
         prompt = self.controller.generate_prompt(
             text, 
-            selected_section=section, 
+            selected_section=section,
+            selected_subsection=subsection,
             return_regions=return_regions, 
-            file_limit=file_limit, 
+            min_files=min_files, 
             implementation_mode=implementation_mode,
-            file_paths=displayed_files
+            file_paths=selected_file_paths
         )
         
         # Save prompt to file in Documents
@@ -727,29 +795,18 @@ class CodeView(ttk.Frame):
                 selected_ai = self._get_auto_ai()
             
             if selected_ai == "🤖 Agente":
-                # --- Modo Agente: mensaje + instrucciones agente + @fichero refs ---
-                file_refs = []
-                for item in self.tree.get_children():
-                    tags = self.tree.item(item, 'tags')
-                    if tags:
-                        file_path = tags[0] if isinstance(tags, (list, tuple)) else tags
-                        filename = os.path.basename(file_path)
-                        file_refs.append(f"@{filename}")
-                
-                clipboard_content = text
-                if return_regions:
-                    clipboard_content += "\n\nIMPORTANTE: Primero, lista todas las regiones que necesitan modificación. Después, devuelve SOLO las regiones modificadas COMPLETAS. Solo las regiones que necesitaron modificación, y deben estar completas. No devuelvas código sin cambios."
-                if implementation_mode:
-                    clipboard_content += "\n\nINSTRUCCIONES DE IMPLEMENTACIÓN:"
-                    clipboard_content += "\n1. Realiza TODAS las modificaciones necesarias en el código."
-                    clipboard_content += "\n2. Si es necesario crear, mover o eliminar ficheros o carpetas, proporciona los COMANDOS DE CONSOLA exactos a ejecutar."
-                    clipboard_content += "\n3. Todos los comandos deben ejecutarse desde la RAÍZ del proyecto."
-                if file_refs:
-                    clipboard_content += "\n\nFicheros que podrían estar relacionados: " + " ".join(file_refs)
+                clipboard_content = self._build_agent_clipboard_prompt(
+                    text=text,
+                    selected_files=selected_files_data,
+                    selected_section=section,
+                    selected_subsection=subsection,
+                    return_regions=return_regions,
+                    implementation_mode=implementation_mode
+                )
                 
                 self.clipboard_clear()
                 self.clipboard_append(clipboard_content)
-                print(f"Agente: Prompt copiado con {len(file_refs)} referencias de ficheros")
+                print(f"Agente: Prompt copiado con {len(selected_files_data)} ficheros priorizados")
             else:
                 # --- Modo normal: mensaje + instrucciones regiones ---
                 clipboard_content = text
@@ -776,45 +833,134 @@ class CodeView(ttk.Frame):
         except Exception as e:
             messagebox.showerror("Error", f"No se pudo guardar el fichero:\n{e}")
 
+    def _get_files_for_prompt(self):
+        """Returns selected files or, if none selected, all visible files in the tree."""
+        items_to_process = self.tree.selection() or self.tree.get_children()
+        if not items_to_process:
+            return []
+
+        all_files = self.controller.project_manager.get_files()
+        files_map = {f['path']: f for f in all_files}
+        selected_files_data = []
+
+        for item in items_to_process:
+            tags = self.tree.item(item, 'tags')
+            if not tags:
+                continue
+
+            file_path = tags[0] if isinstance(tags, (list, tuple)) else tags
+            if file_path in files_map:
+                selected_files_data.append(files_map[file_path])
+
+        return selected_files_data
+
+    def _build_agent_clipboard_prompt(
+        self,
+        text,
+        selected_files,
+        selected_section=None,
+        selected_subsection=None,
+        return_regions=False,
+        implementation_mode=False
+    ):
+        """Builds a clipboard prompt tailored for coding agents."""
+        lines = [
+            "Actúa como un agente de código senior, pragmático y orientado a resolver la tarea en una sola pasada siempre que sea posible.",
+            "",
+            "TAREA:",
+            text
+        ]
+
+        if selected_section:
+            scope = f"Sección prioritaria: {selected_section}"
+            if selected_subsection:
+                scope += f" > {selected_subsection}"
+            lines.extend(["", scope])
+
+        lines.extend([
+            "",
+            "PRIORIDAD DE LECTURA Y CAMBIO:",
+            "1. Lee primero y con prioridad absoluta los ficheros listados abajo.",
+            "2. Intenta localizar y resolver la tarea dentro de esos ficheros o en sus dependencias directas inmediatas.",
+            "3. Modifica primero esos ficheros si ahí está solución más rápida y correcta.",
+            "4. Solo si en esos ficheros no está código relevante o falta contexto imprescindible, busca en otras partes del proyecto.",
+            "5. Si necesitas salir de lista prioritaria, sigue imports, llamadas, referencias o archivos vecinos directamente conectados con esos ficheros."
+        ])
+
+        if selected_files:
+            lines.extend(["", "FICHEROS PRIORITARIOS (léelos antes que nada):"])
+            for index, file_data in enumerate(selected_files, start=1):
+                lines.append(f"{index}. {file_data['rel_path']}")
+        else:
+            lines.extend([
+                "",
+                "FICHEROS PRIORITARIOS:",
+                "No hay ficheros seleccionados o visibles. Empieza por localizar el punto mínimo necesario para resolver la tarea."
+            ])
+
+        lines.extend([
+            "",
+            "FORMA DE TRABAJO:",
+            "- Prioriza solución rápida, concreta y correcta.",
+            "- No hagas exploración amplia si ya encuentras solución en lista prioritaria.",
+            "- Antes de modificar, identifica qué archivos vas a tocar.",
+            "- Si hay varias opciones, elige la menos invasiva compatible con la tarea."
+        ])
+
+        if implementation_mode:
+            lines.extend([
+                "",
+                "INSTRUCCIONES DE IMPLEMENTACIÓN:",
+                "1. Realiza TODAS las modificaciones necesarias en el código.",
+                "2. Si es necesario crear, mover o eliminar ficheros o carpetas, proporciona los COMANDOS DE CONSOLA exactos a ejecutar.",
+                "3. Todos los comandos deben ejecutarse desde la RAÍZ del proyecto."
+            ])
+
+        if return_regions:
+            lines.extend([
+                "",
+                "IMPORTANTE:",
+                "Primero, lista todas las regiones que necesitan modificación. Después, devuelve SOLO las regiones modificadas COMPLETAS. Solo las regiones que necesitaron modificación, y deben estar completas. No devuelvas código sin cambios."
+            ])
+
+        return "\n".join(lines)
+
     def _show_context_menu(self, event):
-        """Shows the context menu on right click."""
+        """Shows the appropriate context menu on right click."""
         try:
-            # Get index at click position
-            index = self.section_list.nearest(event.y)
+            iid = self.section_tree.identify_row(event.y)
             
-            # If clicked on empty space, show menu without selection (for adding new)
-            if index < 0:
-                self.section_list.selection_clear(0, tk.END)
-                try:
-                    self.context_menu.tk_popup(event.x_root, event.y_root)
-                finally:
-                    self.context_menu.grab_release()
-                return
-
-            # Check if the click is actually inside the bounding box of the item
-            bbox = self.section_list.bbox(index)
+            # Build context menu dynamically based on what was clicked
+            menu = tk.Menu(self, tearoff=0)
             
-            # If clicked below items (bbox is None or y > item_end)
-            if not bbox or event.y > bbox[1] + bbox[3]:
-                 self.section_list.selection_clear(0, tk.END)
-                 try:
-                    self.context_menu.tk_popup(event.x_root, event.y_root)
-                 finally:
-                    self.context_menu.grab_release()
-                 return
+            if not iid:
+                # Clicked on empty space - only show "Nueva Sección"
+                menu.add_command(label="Nueva Sección", command=self._on_add_section)
+            else:
+                # Select the item
+                self.section_tree.selection_set(iid)
+                self._on_section_select()
+                
+                if iid.startswith("S:"):
+                    # Parent section context menu
+                    menu.add_command(label="Nueva Sección", command=self._on_add_section)
+                    menu.add_command(label="Nueva Subsección", command=self._on_add_subsection)
+                    menu.add_separator()
+                    menu.add_command(label="Generar Prompt Docs", command=self._on_generate_docs)
+                    menu.add_separator()
+                    menu.add_command(label="Editar Sección", command=self._on_edit_section)
+                    menu.add_command(label="Eliminar Sección", command=self._on_delete_section)
+                elif iid.startswith("SS:"):
+                    # Subsection context menu
+                    menu.add_command(label="Editar Subsección", command=self._on_edit_subsection)
+                    menu.add_command(label="Eliminar Subsección", command=self._on_delete_subsection)
+                    menu.add_separator()
+                    menu.add_command(label="Generar Prompt Docs", command=self._on_generate_docs)
             
-            # Select the item
-            self.section_list.selection_clear(0, tk.END)
-            self.section_list.selection_set(index)
-            self.section_list.activate(index)
-            self._on_section_select() # Update filter
-
-            # Show menu
             try:
-                self.context_menu.tk_popup(event.x_root, event.y_root)
+                menu.tk_popup(event.x_root, event.y_root)
             finally:
-                # Make sure to release the grab
-                self.context_menu.grab_release()
+                menu.grab_release()
         except Exception as e:
             print(f"Error showing context menu: {e}")
 
@@ -830,12 +976,11 @@ class CodeView(ttk.Frame):
             messagebox.showerror("Error", f"Error abriendo popup: {e}")
 
     def _on_edit_section(self):
-        selected_indices = self.section_list.curselection()
-        if not selected_indices: 
+        section_name, _ = self._get_selected_section_info()
+        if not section_name:
             messagebox.showwarning("Aviso", "Selecciona una sección para editar.")
             return
             
-        section_name = self.section_list.get(selected_indices[0])
         files = self.controller.section_manager.get_files_in_section(section_name)
         tables = self.controller.section_manager.get_tables_in_section(section_name)
         
@@ -849,11 +994,52 @@ class CodeView(ttk.Frame):
             messagebox.showerror("Error", f"Error abriendo popup: {e}")
 
     def _on_delete_section(self):
-        selected_indices = self.section_list.curselection()
-        if not selected_indices: return
+        section_name, _ = self._get_selected_section_info()
+        if not section_name: return
         
-        name = self.section_list.get(selected_indices[0])
-        self.controller.section_manager.delete_section(name)
+        self.controller.section_manager.delete_section(section_name)
+        self._refresh_sections()
+
+    def _on_add_subsection(self):
+        """Opens popup to create a subsection within the selected parent section."""
+        section_name, _ = self._get_selected_section_info()
+        if not section_name:
+            messagebox.showwarning("Aviso", "Selecciona una sección padre primero.")
+            return
+        
+        from src.ui.popups.subsection_creation_popup import SubsectionCreationPopup
+        try:
+            popup = SubsectionCreationPopup(self, self.controller, section_name)
+            self.wait_window(popup)
+            self._refresh_sections()
+        except Exception as e:
+            print(f"Error opening subsection popup: {e}")
+            messagebox.showerror("Error", f"Error abriendo popup: {e}")
+
+    def _on_edit_subsection(self):
+        """Opens popup to edit the selected subsection."""
+        section_name, sub_name = self._get_selected_section_info()
+        if not section_name or not sub_name:
+            messagebox.showwarning("Aviso", "Selecciona una subsección para editar.")
+            return
+        
+        files = self.controller.section_manager.get_files_in_subsection(section_name, sub_name)
+        
+        from src.ui.popups.subsection_creation_popup import SubsectionCreationPopup
+        try:
+            popup = SubsectionCreationPopup(self, self.controller, section_name, sub_name=sub_name, initial_files=files)
+            self.wait_window(popup)
+            self._refresh_sections()
+        except Exception as e:
+            print(f"Error opening subsection edit popup: {e}")
+            messagebox.showerror("Error", f"Error abriendo popup: {e}")
+
+    def _on_delete_subsection(self):
+        """Deletes the selected subsection."""
+        section_name, sub_name = self._get_selected_section_info()
+        if not section_name or not sub_name: return
+        
+        self.controller.section_manager.delete_subsection(section_name, sub_name)
         self._refresh_sections()
 
     def _on_generate_docs(self):
@@ -927,24 +1113,77 @@ class CodeView(ttk.Frame):
             print(f"Error generating docs prompt: {e}")
             messagebox.showerror("Error", f"Error generando prompt: {e}")
 
-    def _refresh_sections(self):
-        self.section_list.delete(0, tk.END)
+    def _refresh_sections(self, preferred_iid=None, force_reload=False):
+        # Clear existing tree items
+        for item in self.section_tree.get_children():
+            self.section_tree.delete(item)
+
+        self._visible_section_ids = []
+        query = self.section_search_entry.get().strip().lower() if hasattr(self, "section_search_entry") else ""
         sections = self.controller.section_manager.get_sections()
         for s in sections:
-            self.section_list.insert(tk.END, s)
-            
+            subsections = self.controller.section_manager.get_subsections(s)
+
+            if query:
+                section_matches = query in s.lower()
+                matching_subsections = [sub for sub in subsections if query in sub.lower()]
+                if not section_matches and not matching_subsections:
+                    continue
+                visible_subsections = subsections if section_matches else matching_subsections
+            else:
+                visible_subsections = subsections
+
+            # Insert parent section
+            parent_iid = self._build_section_iid(s)
+            self.section_tree.insert("", "end", iid=parent_iid, text=f"{s}", open=True, tags=("section",))
+
+            self._visible_section_ids.append(parent_iid)
+
+            # Insert subsections as children
+            for sub in visible_subsections:
+                sub_iid = self._build_section_iid(s, sub)
+                self.section_tree.insert(parent_iid, "end", iid=sub_iid, text=f"{sub}", tags=("subsection",))
+
+        # Insert dummy empty space at the end to allow deselection
+        self.section_tree.insert("", "end", iid="EMPTY_DESELECT", text=" ", tags=("subsection",))
+
+        selection_candidates = []
+        if preferred_iid:
+            selection_candidates.append(preferred_iid)
+        if self._last_selected_section:
+            selection_candidates.append(
+                self._build_section_iid(self._last_selected_section, self._last_selected_subsection)
+            )
+            selection_candidates.append(self._build_section_iid(self._last_selected_section))
+
         # Restore last selection
         if hasattr(self.controller, 'config_manager'):
             last_section = self.controller.config_manager.get_last_code_section()
             if last_section:
-                try:
-                    # Find index
-                    idx = sections.index(last_section)
-                    self.section_list.selection_set(idx)
-                    self.section_list.activate(idx)
-                    self._on_section_select() # Trigger update
-                except ValueError:
-                    pass # Section no longer exists
+                selection_candidates.append(self._build_section_iid(last_section))
+
+        if self._visible_section_ids:
+            selection_candidates.append(self._visible_section_ids[0])
+
+        target_iid = None
+        for iid in selection_candidates:
+            if iid and self.section_tree.exists(iid):
+                target_iid = iid
+                break
+
+        current_selection = self.section_tree.selection()
+        if current_selection:
+            self.section_tree.selection_remove(*current_selection)
+
+        if target_iid:
+            self.section_tree.selection_set(target_iid)
+            self.section_tree.see(target_iid)
+            parent_iid = self.section_tree.parent(target_iid)
+            if parent_iid:
+                self.section_tree.item(parent_iid, open=True)
+            self._on_section_select(force_reload=force_reload)
+        else:
+            self._on_section_select(force_reload=True)
 
     def _on_file_double_click(self, event):
         """

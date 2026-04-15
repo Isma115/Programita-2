@@ -26,6 +26,7 @@ class ProjectManager:
         '.sh', '.bash', '.zsh', '.fish', '.bat', '.cmd', '.ps1', '.psm1', '.psd1',
         '.dockerignore', '.editorconfig'
     }
+    DEFAULT_HIDDEN_CODE_EXTENSIONS = {'.json', '.jsonc'}
     CODE_FILENAMES = {
         'Dockerfile', 'Containerfile', 'Makefile', 'CMakeLists.txt',
         'Jenkinsfile', 'Procfile', 'Rakefile', 'Gemfile', 'Podfile',
@@ -88,6 +89,15 @@ class ProjectManager:
         ext = os.path.splitext(basename)[1].lower()
         return ext in cls.CODE_EXTENSIONS or basename in cls.CODE_FILENAMES
 
+    @classmethod
+    def is_default_code_file(cls, filename):
+        """Returns True if the file should appear in Code view with no explicit extension filter."""
+        basename = os.path.basename(filename)
+        ext = os.path.splitext(basename)[1].lower()
+        if basename in cls.CODE_FILENAMES:
+            return True
+        return ext in cls.CODE_EXTENSIONS and ext not in cls.DEFAULT_HIDDEN_CODE_EXTENSIONS
+
     def get_directory_tree(self):
         """
         Generates a text representation of the project's directory tree.
@@ -134,7 +144,7 @@ class ProjectManager:
         _build_tree(self.current_project_path)
         return "\n".join(lines)
 
-    def find_relevant_files(self, user_query, relevant_files_subset=None):
+    def find_relevant_files(self, user_query, relevant_files_subset=None, min_files=0):
         """
         Finds files that are most relevant to the user_query.
         This is a simple heuristic based on keyword overlap.
@@ -143,6 +153,7 @@ class ProjectManager:
             user_query: The user's text description.
             relevant_files_subset: Optional list of file dicts to search within. 
                                    If None, searches all project files.
+            min_files: The minimum number of files to return (pads with score 0 files if needed).
         
         Returns:
             List of file dicts sorted by relevance.
@@ -173,14 +184,19 @@ class ProjectManager:
                     count = content_lower.count(token)
                     score += min(count, 5) 
             
-            if score > 0:
-                scored_files.append((score, file))
+            scored_files.append((score, file))
 
         # Sort by score descending
         scored_files.sort(key=lambda x: x[0], reverse=True)
         
-        # Return just the file objects
-        return [f[1] for f in scored_files]
+        # Take all files with score > 0
+        relevant = [f[1] for f in scored_files if f[0] > 0]
+        
+        # If we have less than min_files matching files, pad with the rest
+        if len(relevant) < min_files:
+            relevant = [f[1] for f in scored_files][:min_files]
+            
+        return relevant
 
     def replace_region(self, region_name, new_content):
         """
