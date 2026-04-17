@@ -155,6 +155,15 @@ class ConfigManager:
         self.config["return_regions"] = bool(value)
         self.save_config()
 
+    def get_return_structures(self):
+        """Returns whether to return complete modified structures, defaulting to False."""
+        return self.config.get("return_structures", False)
+
+    def set_return_structures(self, value):
+        """Sets whether to return complete modified structures and saves config."""
+        self.config["return_structures"] = bool(value)
+        self.save_config()
+
     def get_enable_hotkeys(self):
         """Returns whether global hotkeys are enabled, defaulting to True."""
         return self.config.get("enable_hotkeys", True)
@@ -263,11 +272,13 @@ class ConfigManager:
         self.config["last_doc_section"] = section_name
         self.save_config()
 
-    def get_implementation_mode(self):
-        """Returns whether implementation mode is enabled, defaulting to False."""
-        return self.config.get("implementation_mode", False)
+    def get_last_doc_file(self):
+        """Returns the last loaded document file path."""
+        return self.config.get("last_doc_file")
 
-    def set_implementation_mode(self, value):
-        """Sets whether implementation mode is enabled and saves config."""
-        self.config["implementation_mode"] = bool(value)
+    def set_last_doc_file(self, file_path):
+        """Sets the last loaded document file path and saves config."""
+        self.config["last_doc_file"] = self._normalize_path(file_path)
         self.save_config()
+
+

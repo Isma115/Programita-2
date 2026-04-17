@@ -33,6 +33,8 @@ class MainLayout(ttk.Frame):
         self._create_navbar()
         self._create_content_area()
         self.is_navbar_visible = True
+        self._responsive_after_id = None
+        self.bind("<Configure>", self._on_layout_resize)
 
         # Initialize with Documentation View
         self.show_docs_tab()
@@ -87,6 +89,45 @@ class MainLayout(ttk.Frame):
 
         attach_tooltip(tab_frame, tooltip_text)
         self.nav_tabs[key] = {"frame": tab_frame, "label": tab_label}
+
+    def _on_layout_resize(self, event=None):
+        if event is not None and event.widget is not self:
+            return
+
+        if self._responsive_after_id:
+            self.after_cancel(self._responsive_after_id)
+        self._responsive_after_id = self.after(40, self._apply_responsive_layout)
+
+    def _apply_responsive_layout(self):
+        self._responsive_after_id = None
+        width = max(self.winfo_width(), 1)
+
+        if width < 820:
+            font_size = Styles.scale_size(13)
+            padx = Styles.scale_size(12)
+            pady = Styles.scale_size(8)
+            outer_padx = Styles.scale_size(8)
+            outer_pady = Styles.scale_size(6)
+        elif width < 1080:
+            font_size = Styles.scale_size(15)
+            padx = Styles.scale_size(14)
+            pady = Styles.scale_size(10)
+            outer_padx = Styles.scale_size(10)
+            outer_pady = Styles.scale_size(8)
+        else:
+            font_size = Styles.scale_size(17)
+            padx = Styles.scale_size(18)
+            pady = Styles.scale_size(12)
+            outer_padx = Styles.scale_size(12)
+            outer_pady = Styles.scale_size(10)
+
+        self.nav_buttons_frame.pack_configure(padx=outer_padx, pady=outer_pady)
+        for tab in self.nav_tabs.values():
+            tab["label"].configure(
+                font=("Segoe UI", font_size, "bold"),
+                padx=padx,
+                pady=pady
+            )
 
     def _set_nav_hover(self, key, is_hovered):
         tab = self.nav_tabs.get(key)

@@ -102,12 +102,17 @@ class GlobalHotkeyListener:
                 threading.Thread(target=self.handle_trigger, daemon=True).start()
 
     def handle_trigger(self):
-        from src.addons import Arbitrary_sus
+        from src.addons import Arbitrary_sus, structure_header_replace
         try:
-            print("GlobalHotkeyListener: Shift + Left Click triggered. Delegating to Smart Paste.")
+            print("GlobalHotkeyListener: Shift + Left Click triggered. Running structure match before Arbitrary.")
             # Schedule on main thread to be safe with UI
             if self.controller and self.controller.app and self.controller.app.root:
-                 self.controller.app.root.after(0, lambda: Arbitrary_sus.process_smart_paste(self.controller.app))
+                def _dispatch():
+                    handled = structure_header_replace.process_structure_header_replace(self.controller.app)
+                    if not handled:
+                        Arbitrary_sus.process_smart_paste(self.controller.app)
+
+                self.controller.app.root.after(0, _dispatch)
         except Exception as e:
             print(f"GlobalHotkeyListener: Error handling trigger: {e}")
 

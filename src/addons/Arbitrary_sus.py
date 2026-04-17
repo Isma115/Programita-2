@@ -1,5 +1,6 @@
 import tkinter as tk
 from tkinter import ttk, messagebox
+import tkinter.font as tkfont
 import os
 import pyperclip
 import logging
@@ -116,7 +117,9 @@ VSCODE_TOKEN_COLORS = {
     Token.Error:                    {"fg": "#f44747"},
 }
 
-FONT_CODE = ("Consolas", 14) 
+# Fuente de código forzada a Menlo (estilo VS Code en Mac)
+FONT_CODE_FAMILY = "Menlo"
+FONT_CODE = (FONT_CODE_FAMILY, 14)
 FONT_UI = ("Segoe UI", 14) # Aumentado tamano base a 14
 
 def _load_file_contents(file_list):
@@ -146,10 +149,10 @@ def find_unique_substring(search_text, loaded_files, min_len=20, max_len=None, s
     Algoritmo de búsqueda por coincidencia exacta única.
 
     Estrategia:
-    - Toma substrings de tamaño creciente del texto del portapapeles.
-    - Para cada tamaño, prueba múltiples posiciones de inicio (inicio, centro, fin).
-    - Busca ese substring exacto en todos los ficheros cargados.
-    - Cuando exactamente 1 fichero contiene el substring → coincidencia única encontrada.
+    - Prueba substrings de diferentes tamaños y posiciones del texto.
+    - Registra TODOS los resultados únicos encontrados.
+    - Devuelve el resultado que haya usado el substring MÁS LARGO.
+      Si hay empate en longitud, prefiere el de mayor posición de inicio.
     - Devuelve (match_text, file_path, line_num) o (None, None, -1) si no se encuentra.
 
     Parámetros:
@@ -165,13 +168,20 @@ def find_unique_substring(search_text, loaded_files, min_len=20, max_len=None, s
     min_len = min(min_len, text_len)
     max_len = min(max_len, text_len)
 
-    logging.info(f"🔎 [Arbitrary] Buscando substring único. Texto: {text_len} chars, "
+    logging.info(f"[Arbitrary] Buscando substring único (modo: máxima longitud). Texto: {text_len} chars, "
                  f"rango [{min_len}..{max_len}], step={step}")
 
-    best_result = None  # (substring, file_path, line_num)
-    best_len = 0
+    # Coleccionar todos los candidatos únicos
+    best_substring = None
+    best_file_path = None
+    best_line_num = -1
+    best_len = -1
 
-    for substr_len in range(min_len, max_len + 1, step):
+    for substr_len in range(max_len, min_len - 1, -step):
+        # Si ya tenemos un resultado con longitud mayor, no hay nada mejor en este nivel
+        if best_len >= substr_len:
+            break
+
         # Posiciones de inicio a probar: inicio, 1/4, centro, 3/4, fin
         positions = set()
         positions.add(0)
@@ -197,28 +207,34 @@ def find_unique_substring(search_text, loaded_files, min_len=20, max_len=None, s
                     matching_files.append(file_path)
 
             if len(matching_files) == 1:
-                # ¡Coincidencia única encontrada!
-                file_path = matching_files[0]
-                content = next(c for fp, c in loaded_files if fp == file_path)
-
-                # Calcular número de línea
-                idx = content.find(substring)
-                line_num = content[:idx].count('\n') + 1
-
-                logging.info(
-                    f"✅ [Arbitrary] Substring único encontrado! "
-                    f"Len={substr_len}, pos={start}, fichero={os.path.basename(file_path)}, "
-                    f"línea={line_num}"
-                )
-                # Guardamos el mejor resultado (mayor substring único)
+                # Coincidencia única encontrada - es candidata si es más larga que la actual
                 if substr_len > best_len:
+                    file_path = matching_files[0]
+                    content = next(c for fp, c in loaded_files if fp == file_path)
+                    idx = content.find(substring)
+                    line_num = content[:idx].count('\n') + 1
+
+                    best_substring = substring
+                    best_file_path = file_path
+                    best_line_num = line_num
                     best_len = substr_len
-                    best_result = (substring, file_path, line_num)
 
-    if best_result:
-        return best_result
+                    logging.info(
+                        f"[Arbitrary] Candidato único encontrado: "
+                        f"Len={substr_len}, pos={start}, fichero={os.path.basename(file_path)}, "
+                        f"línea={line_num}"
+                    )
+                    # En este nivel de longitud ya encontramos uno, dejamos de probar posiciones
+                    break
 
-    logging.info("⚠️ [Arbitrary] No se encontró substring único. Sin coincidencias.")
+    if best_substring and best_file_path:
+        logging.info(
+            f"[Arbitrary] Mejor resultado seleccionado: "
+            f"Len={best_len}, fichero={os.path.basename(best_file_path)}, línea={best_line_num}"
+        )
+        return best_substring, best_file_path, best_line_num
+
+    logging.info("[Arbitrary] No se encontró substring único en el rango especificado.")
     return None, None, -1
 
 
@@ -245,28 +261,19 @@ def find_similar_region(file_list, search_text, step=None, forced_file=None):
     if forced_file:
         # Filtrar solo el fichero forzado
         loaded_files = [(fp, c) for fp, c in loaded_files if fp == forced_file]
-        logging.info(f"🎯 [Arbitrary] Fichero forzado: {os.path.basename(forced_file)}")
+        logging.info(f"[Arbitrary] Fichero forzado: {os.path.basename(forced_file)}")
 
+    # Parámetros optimizados según sugerencia: buscar de 30 hacia abajo hasta 10
+    # Usamos un paso (step) pequeño para mayor precisión en la bajada
     text_len = len(search_text)
-
-    # Parámetros adaptativos según tamaño del texto
-    if text_len < 50:
-        min_len = max(10, text_len // 2)
-        substr_step = 5
-    elif text_len < 200:
-        min_len = 20
-        substr_step = 10
-    elif text_len < 1000:
-        min_len = 30
-        substr_step = 15
-    else:
-        min_len = 40
-        substr_step = 20
+    max_search_len = min(text_len, 30)
+    min_search_len = 10
+    substr_step = 2 # Paso fino para encontrar el fragmento más grande posible
 
     substring, file_path, line_num = find_unique_substring(
         search_text, loaded_files,
-        min_len=min_len,
-        max_len=text_len,
+        min_len=min_search_len,
+        max_len=max_search_len,
         step=substr_step
     )
 
@@ -298,14 +305,13 @@ def identify_best_file(file_list, search_text):
     )
 
     if file_path:
-        logging.info(f"👉 [Arbitrary] Fichero identificado: {os.path.basename(file_path)} (Score: 1.0)")
+        logging.info(f"[Arbitrary] Fichero identificado: {os.path.basename(file_path)} (Score: 1.0)")
         return file_path, 1.0
 
-    logging.info("👉 [Arbitrary] No se pudo identificar fichero único.")
+    logging.info("[Arbitrary] No se pudo identificar fichero único.")
     return None, 0
 
 def get_match_context(file_path, match_text, approximate_line_num, margin=150):
-    """(Sin cambios funcionales - extracción de contexto)"""
     try:
         with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
             content = f.read()
@@ -345,7 +351,7 @@ def get_match_context(file_path, match_text, approximate_line_num, margin=150):
         return full_block, context_start, context_end, start_idx
 
     except Exception as e:
-        logging.error(f"❌ Error obteniendo contexto: {e}")
+        logging.error(f"Error obteniendo contexto: {e}")
         return None, 0, 0, 0
 
 def apply_replacement(file_path, start_idx, end_idx, new_content):
@@ -364,10 +370,10 @@ def apply_replacement(file_path, start_idx, end_idx, new_content):
         with open(file_path, 'w', encoding='utf-8') as f:
             f.write(final_content)
             
-        logging.info(f"✅ Archivo modificado: {file_path}")
+        logging.info(f"Archivo modificado: {file_path}")
         return True
     except Exception as e:
-        logging.error(f"❌ Error escribiendo archivo: {e}")
+        logging.error(f"Error escribiendo archivo: {e}")
         messagebox.showerror("Error", f"No se pudo guardar el archivo: {e}")
         return False
 
@@ -408,11 +414,10 @@ def configure_tags(text_widget):
     """
     for token_type, style_dict in VSCODE_TOKEN_COLORS.items():
         tag_name = _get_token_tag_name(token_type)
-        config = {}
+        config = {"font": FONT_CODE}  # <-- Forzar fuente de código unificada
         if "fg" in style_dict:
             config["foreground"] = style_dict["fg"]
         if style_dict.get("bold"):
-            # Crear font con bold
             config["font"] = (FONT_CODE[0], FONT_CODE[1], "bold")
         if style_dict.get("italic"):
             config["font"] = (FONT_CODE[0], FONT_CODE[1], "italic")
@@ -497,14 +502,18 @@ def create_styled_text_widget(parent, editable=True):
         fg=THEME["fg"], 
         relief="flat", 
         wrap="none",
-        insertbackground=THEME["cursor"], # Color del cursor
+        insertbackground=THEME["cursor"],
         selectbackground=THEME["select_bg"],
-        undo=True,              # Habilitar pila de undo/redo
-        maxundo=-1,             # Historial ilimitado
-        autoseparators=True     # Separadores automáticos entre acciones
+        undo=True,
+        maxundo=-1,
+        autoseparators=True
     )
-    # Configurar tags inicialmente
+    # Configurar tags después de crear el widget
     configure_tags(txt)
+    
+    # FORZAR que la fuente base se mantenga para texto sin tags
+    txt.tag_configure("default", font=FONT_CODE, foreground=THEME["fg"])
+    
     return txt
 
 def show_popup(clipboard_text, match_text, file_path, ratio, line_num, app_instance=None):
@@ -597,19 +606,22 @@ def show_popup(clipboard_text, match_text, file_path, ratio, line_num, app_insta
         # Confirmación automática
         success = apply_replacement(file_path, state["start_idx"], state["end_idx"], new_content)
         if success:
+            if app_instance and hasattr(app_instance, "controller"):
+                app_instance.controller.refresh_cached_file_content(file_path)
+            if app_instance and hasattr(app_instance, "layout") and hasattr(app_instance.layout, "code_view"):
+                app_instance.layout.code_view.refresh_file_list()
             # messagebox.showinfo("Éxito", "Actualizado.") # Removed popup
             popup.destroy()
 
-    # Cancel button (Rightmost)
-    tk.Button(
-        control_frame, text="❌ Cancelar", command=popup.destroy, 
-        bg="#f44336", fg="black", font=FONT_UI, padx=10, pady=2
-    ).pack(side="right", padx=5)
-
-    # Accept button (Left of Cancel)
     tk.Button(
         control_frame, text="✅ Aceptar y Sustituir", command=on_accept, 
         bg="#6a9955", fg="black", font=FONT_UI, padx=10, pady=2
+    ).pack(side="right", padx=5)
+
+    # Cancel button (Rightmost - legacy, maybe should be removed but kept for safety)
+    tk.Button(
+        control_frame, text="❌ Cancelar", command=popup.destroy, 
+        bg="#f44336", fg="black", font=FONT_UI, padx=10, pady=2
     ).pack(side="right", padx=5)
 
     # Content Grid
@@ -675,9 +687,10 @@ def show_popup(clipboard_text, match_text, file_path, ratio, line_num, app_insta
     scroll_edit.grid(row=1, column=1, sticky="nse", pady=5)
     txt_edit.config(yscrollcommand=scroll_edit.set)
 
+    def clear_match_highlight(event=None):
+        txt_edit.tag_remove("match_highlight", "1.0", tk.END)
 
-
-
+    txt_edit.bind("<Button-1>", clear_match_highlight)
     
     def on_edit_change(event=None):
         """Re-highlighter con debounce simple"""
@@ -851,7 +864,7 @@ def show_popup(clipboard_text, match_text, file_path, ratio, line_num, app_insta
             start_index = f"{match_start_line}.{match_start_col}"
             end_index = f"{match_end_line}.{match_end_col}"
             
-            txt_edit.tag_configure("match_highlight", background="#2d2d2d")
+            txt_edit.tag_configure("match_highlight", background="#fff9c4", foreground="#111827")
             txt_edit.tag_add("match_highlight", start_index, end_index)
             # Ensure match_highlight is below syntax tags so colors are preserved
             txt_edit.tag_lower("match_highlight")
@@ -1013,13 +1026,6 @@ def _get_code_files_for_arbitrary_search(app_instance):
                     if file_path and os.path.exists(file_path):
                         code_files.append(file_path)
 
-    # Fallback: todos los ficheros procesados del proyecto
-    if not code_files:
-        if hasattr(app_instance, 'controller') and hasattr(app_instance.controller, 'project_manager'):
-            files_data = app_instance.controller.project_manager.get_files()
-            code_files = [f['path'] for f in files_data]
-            logging.info("Arbitrary: Usando todos los ficheros del proyecto (fallback).")
-
     return code_files
 
 
@@ -1032,7 +1038,7 @@ def run_arbitrary_search_with_text(app_instance, search_text):
 
         code_files = _get_code_files_for_arbitrary_search(app_instance)
         if not code_files:
-             tk.messagebox.showwarning("Arbitrary", "No hay archivos de código procesados.")
+             tk.messagebox.showwarning("Arbitrary", "No hay archivos listados en la sección de Código.")
              return
 
         logging.info(f"Arbitrary: Buscando en {len(code_files)} ficheros listados.")
@@ -1112,7 +1118,7 @@ def process_smart_paste(app_instance):
                 break
         
         if region_name:
-             logging.info(f"📋 Smart Paste: Detectada región '{region_name}' en portapapeles.")
+             logging.info(f"Smart Paste: Detectada región '{region_name}' en portapapeles.")
              
              if hasattr(app_instance, 'controller'):
                  success = app_instance.controller.replace_region_from_clipboard(region_name, content)
@@ -1123,11 +1129,11 @@ def process_smart_paste(app_instance):
              return
 
         # 2. Fallback: Sustitución Manual
-        logging.info("📋 Smart Paste: No es región, lanzando búsqueda arbitraria.")
+        logging.info("Smart Paste: No es región, lanzando búsqueda arbitraria.")
         run_arbitrary_search(app_instance)
 
     except Exception as e:
-        logging.error(f"❌ Error en Smart Paste: {e}")
+        logging.error(f"Error en Smart Paste: {e}")
         tk.messagebox.showerror("Error", f"Error procesando portapapeles: {e}")
 
 def is_console_command(text):
@@ -1264,7 +1270,7 @@ def execute_clipboard_command(app_instance, command):
             if not cwd:
                 cwd = os.getcwd()
 
-            logging.info(f"🚀 Ejecutando comando en {cwd}: {command}")
+            logging.info(f"Ejecutando comando en {cwd}: {command}")
             
             # Ejecutar
             # Usamos shell=True para permitir pipes y &&, aunque sea menos seguro, 
@@ -1284,7 +1290,7 @@ def execute_clipboard_command(app_instance, command):
             if error:
                 msg += f"\n\nErrores/Warnings:\n{error}"
                 
-            logging.info(f"✅ Comando terminado. Return code: {result.returncode}")
+            logging.info(f"Comando terminado. Return code: {result.returncode}")
             
             # Mostrar resultado en UI (thread-safe ish con tkinter message box, 
             # a veces da problemas desde threads, pero messagebox suele bloquear 

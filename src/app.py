@@ -16,8 +16,14 @@ class Application:
         """
         self.root = tk.Tk()
         self.root.title("Programita 2")
-        self.root.geometry("800x600")
-        self.root.minsize(600, 400)
+        screen_w = self.root.winfo_screenwidth()
+        screen_h = self.root.winfo_screenheight()
+        initial_w = min(max(int(screen_w * 0.88), 980), screen_w)
+        initial_h = min(max(int(screen_h * 0.85), 720), screen_h)
+        pos_x = max((screen_w - initial_w) // 2, 0)
+        pos_y = max((screen_h - initial_h) // 3, 0)
+        self.root.geometry(f"{initial_w}x{initial_h}+{pos_x}+{pos_y}")
+        self.root.minsize(760, 520)
 
         # Initialize Logic (Controller loads config and updates Style constants)
         self.controller = Controller(self)

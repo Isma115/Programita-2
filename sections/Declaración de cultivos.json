@@ -1,0 +1,13 @@
+{
+    "files": [
+        "/Users/ismaelmoraledalopez/Documents/Azure-Irrigation-Web/HidraSmart-Irrigation-System/frontend/public/styles/gestor-consumos/declaracion-cultivos.module.css",
+        "/Users/ismaelmoraledalopez/Documents/Azure-Irrigation-Web/HidraSmart-Irrigation-System/frontend/public/styles/gestor-riego/DeclaracionCultivos.css",
+        "/Users/ismaelmoraledalopez/Documents/Azure-Irrigation-Web/HidraSmart-Irrigation-System/frontend/public/styles/gestor-consumos/declaracion-cultivos.module.css",
+        "/Users/ismaelmoraledalopez/Documents/Azure-Irrigation-Web/HidraSmart-Irrigation-System/frontend/src/components/gestor-cultivos/declaracion-cultivos/DeclaracionCultivosPopups.jsx",
+        "/Users/ismaelmoraledalopez/Documents/Azure-Irrigation-Web/HidraSmart-Irrigation-System/frontend/src/components/gestor-cultivos/declaracion-cultivos/DeclaracionCultivosPopups.module.css",
+        "/Users/ismaelmoraledalopez/Documents/Azure-Irrigation-Web/HidraSmart-Irrigation-System/frontend/src/components/gestor-cultivos/declaracion-cultivos/DeclaracionCultivosUtils.jsx",
+        "/Users/ismaelmoraledalopez/Documents/Azure-Irrigation-Web/HidraSmart-Irrigation-System/frontend/src/components/gestor-cultivos/declaracion-cultivos/DeclaracionCultivos.jsx"
+    ],
+    "tables": [],
+    "subsections": {}
+}

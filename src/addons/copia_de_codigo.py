@@ -168,10 +168,10 @@ def run(app, args):
                         files_copied += 1
         
         # Show success message
-        result_msg = f"✅ Copia de código completada:\n"
-        result_msg += f"   📁 Destino: {dest_path}\n"
-        result_msg += f"   📄 Archivos copiados: {files_copied}\n"
-        result_msg += f"   📂 Directorios creados: {dirs_created}"
+        result_msg = f"Copia de código completada:\n"
+        result_msg += f"   Destino: {dest_path}\n"
+        result_msg += f"   Archivos copiados: {files_copied}\n"
+        result_msg += f"   Directorios creados: {dirs_created}"
         
         messagebox.showinfo(
             "Copia de Código",

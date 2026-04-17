@@ -41,7 +41,7 @@ except Exception:
         "cursor": "#aeafad",
         "select_bg": "#264f78",
     }
-    ARB_FONT_CODE = ("Consolas", 14)
+    ARB_FONT_CODE = ("Menlo", 14)
     def arb_create_styled_text_widget(parent):
         return tk.Text(
             parent,
@@ -143,7 +143,6 @@ class DocView(ttk.Frame):
         
         self.controller = None
         self.current_file_path = None
-        self.available_md_files = [] # Files matching the selected section
         self.highlight_timer = None   # For debounce
         self.is_dark_mode = False     # Default to Light
         self.is_editor_mode = False   # Default to Viewer (False=Viewer, True=Editor)
@@ -157,17 +156,8 @@ class DocView(ttk.Frame):
         self._pending_web_view_scroll = None
         self._pending_web_view_fragment = None
         self._code_highlight_job = None
-        self._doc_search_job = None
         self._active_code_file_path = None
-        self._active_code_line_no = None
-        self._is_code_dirty = False
-        self.doc_search_results = []
-        self.doc_search_selected_index = 0
-        self.doc_search_placeholder = "Buscar..."
-        self._doc_search_placeholder_active = False
         self.diagram_editor_window = None
-        self.all_sections = []
-        self.filtered_sections = []
         self.doc_path_options = {}
         self.markdown_preview_zoom = self.MARKDOWN_PREVIEW_ZOOM
         self.markdown_preview_fontscale = self.MARKDOWN_PREVIEW_FONTSCALE
@@ -398,78 +388,8 @@ class DocView(ttk.Frame):
             tooltip_text="Crear prompt"
         )
 
-        self.btn_delete = self._create_toolbar_button(
-            self.toolbar_buttons_group,
-            side="left",
-            padx=0,
-            style="DocToolbarFlat.TButton",
-            image=self.icons.get("delete"),
-            text="Borrar",
-            command=self._on_delete_doc,
-            tooltip_text="Borrar doc"
-        )
-
-        # Search bar with magnifying glass icon
-        self.search_shell = tk.Frame(
-            self.actions_row,
-            bg=self.toolbar_surface_bg,
-            highlightthickness=0,
-            bd=0
-        )
-        self.search_shell.pack(side="left", fill="x", expand=True, padx=(10, 0))
-
-        self.doc_search_entry = tk.Entry(
-            self.search_shell,
-            font=("Segoe UI", 13),
-            bg=self.toolbar_surface_bg,
-            fg=Styles.COLOR_INPUT_FG,
-            insertbackground=Styles.COLOR_INPUT_FG,
-            relief="flat",
-            bd=0,
-            highlightthickness=0
-        )
-        self.doc_search_entry.pack(side="left", fill="x", expand=True, padx=12, pady=5, ipady=3)
-        self.doc_search_entry.bind("<FocusIn>", self._on_doc_search_focus_in)
-        self.doc_search_entry.bind("<FocusOut>", self._on_doc_search_focus_out)
-        self.doc_search_entry.bind("<KeyPress>", self._on_doc_search_key_press, add="+")
-        self.doc_search_entry.bind("<KeyRelease>", self._on_doc_search_key_release)
-        self.doc_search_entry.bind("<Down>", lambda event: self._move_doc_search_selection(1))
-        self.doc_search_entry.bind("<Up>", lambda event: self._move_doc_search_selection(-1))
-        self.doc_search_entry.bind("<Return>", self._open_selected_doc_search_result)
-        self.doc_search_entry.bind("<Escape>", self._on_doc_search_escape)
-
-        self.doc_search_results_frame = tk.Frame(self.search_shell, bg=self.toolbar_surface_bg)
-        self.doc_search_list = tk.Listbox(
-            self.doc_search_results_frame,
-            font=("Segoe UI", 12),
-            bg=self.toolbar_surface_bg,
-            fg=Styles.COLOR_FG_TEXT,
-            selectbackground=Styles.COLOR_ACCENT,
-            selectforeground="#ffffff",
-            activestyle="none",
-            borderwidth=0,
-            highlightthickness=0,
-            height=6
-        )
-        self.doc_search_list.pack(fill="x", padx=10, pady=(0, 6))
-        self.doc_search_list.bind("<<ListboxSelect>>", self._on_doc_search_listbox_select)
-        self.doc_search_list.bind("<ButtonRelease-1>", self._open_selected_doc_search_result)
-        self.doc_search_list.bind("<Double-Button-1>", self._open_selected_doc_search_result)
-        self.doc_search_list.bind("<Return>", self._open_selected_doc_search_result)
-        self.doc_search_list.bind("<Escape>", self._on_doc_search_escape)
-        self.doc_search_list.bind("<Up>", lambda event: self._move_doc_search_selection(-1))
-        self.doc_search_list.bind("<Down>", lambda event: self._move_doc_search_selection(1))
-
-        self.doc_search_status = tk.Label(
-            self.search_shell,
-            text="",
-            font=("Segoe UI", 10),
-            bg=self.toolbar_surface_bg,
-            fg=Styles.COLOR_DIM,
-            anchor="w"
-        )
-
-        self._set_doc_search_placeholder()
+        # Rename and Delete buttons moved to the Treeview sidebar
+        # Search bar removed as requested
 
         # View Toggles
         mode_icon = self.icons.get("edit") if not self.is_editor_mode else self.icons.get("view")
@@ -517,27 +437,27 @@ class DocView(ttk.Frame):
             tooltip_text="Pantalla completa"
         )
 
-        # File Selector for Multiple Matches
+        # File Selector for Multiple Matches - HIDDEN as it is redundant now
         self.selector_row = tk.Frame(self.header_frame, bg=self.toolbar_surface_bg)
-        self.selector_row.pack(side="top", fill="x", padx=15, pady=(0, 6))
+        # self.selector_row.pack(side="top", fill="x", padx=15, pady=(0, 6))
 
         self.lbl_file_count = tk.Label(self.selector_row, text="Documentos:",
             font=("Segoe UI", 12), bg=self.toolbar_surface_bg, fg=Styles.COLOR_DIM)
-        self.lbl_file_count.pack(side="left", padx=(0, 10))
+        # self.lbl_file_count.pack(side="left", padx=(0, 10))
 
         self.cmb_files = ttk.Combobox(self.selector_row, state="readonly", width=40, font=("Segoe UI", 14))
-        self.cmb_files.pack(side="left", fill="x", expand=True)
+        # self.cmb_files.pack(side="left", fill="x", expand=True)
         self.cmb_files.bind("<<ComboboxSelected>>", self._on_file_selected_via_combo)
 
-        self.btn_copy_doc = ttk.Button(
-            self.selector_row,
-            text="Copiar",
-            style="ToolbarIcon.TButton",
-            command=self._on_copy_doc_content
-        )
-        self.btn_copy_doc.pack(side="left", padx=(10, 0))
-        self.btn_copy_doc.state(["disabled"])
-        attach_tooltip(self.btn_copy_doc, "Copiar doc")
+        # self.btn_copy_doc = ttk.Button(
+        #    self.actions_row, # Moved to main toolbar
+        #    text="Copiar",
+        #    style="ToolbarIcon.TButton",
+        #    command=self._on_copy_doc_content
+        #)
+        #self.btn_copy_doc.pack(side="right", padx=(10, 0))
+        #self.btn_copy_doc.state(["disabled"])
+        #attach_tooltip(self.btn_copy_doc, "Copiar contenido del documento")
         
         # Increase dropdown list font size
         self.master.option_add('*TCombobox*Listbox.font', ("Segoe UI", 14))
@@ -661,7 +581,7 @@ class DocView(ttk.Frame):
         self.code_scroll = ttk.Scrollbar(self.code_body, orient="vertical", command=self.code_text.yview)
         self.code_scroll.pack(side="right", fill="y")
         self.code_text.configure(yscrollcommand=self.code_scroll.set)
-        self.code_text.tag_configure("match_highlight", background="#facc15", foreground="#111827")
+        self.code_text.tag_configure("match_highlight", background="#fff9c4", foreground="#111827")
         self.code_text.config(state="disabled")
         self.btn_save_code.state(["disabled"])
 
@@ -675,15 +595,18 @@ class DocView(ttk.Frame):
         self.right_frame = ttk.Frame(self.paned_window, style="Sidebar.TFrame", width=self.DEFAULT_SECTIONS_PANEL_WIDTH)
         self.paned_window.add(self.right_frame, minsize=self.DEFAULT_SECTIONS_PANEL_WIDTH, stretch="never")
 
-        self.btn_toggle_sidebar = ttk.Button(
+        # [MODIFICACIÓN] Reemplazar ttk.Button por tk.Label para un control más preciso del ancho
+        self.btn_toggle_sidebar = tk.Label(
             self.paned_window,
-            text=">",
-            width=2,
-            style="SidebarToggle.TButton",
-            command=self._toggle_sidebar,
-            takefocus=False
+            text="›",
+            font=("Segoe UI", 14, "bold"),
+            fg=Styles.COLOR_BUTTON_FG,
+            bg=Styles.COLOR_DOC_TOOLBAR_BG,
+            cursor="hand2",
+            width=2,  # Ancho en caracteres
+            anchor="center"
         )
-        self.btn_toggle_sidebar.place(x=0, y=0, anchor="center")
+        self.btn_toggle_sidebar.bind("<Button-1>", lambda e: self._toggle_sidebar())
         attach_tooltip(self.btn_toggle_sidebar, "Alternar panel")
 
         self.right_top_frame = ttk.Frame(self.right_frame, style="Sidebar.TFrame")
@@ -736,22 +659,24 @@ class DocView(ttk.Frame):
         self.section_search_entry.pack(fill="x", padx=10, pady=(6, 10), ipady=8)
         self.section_search_entry.bind("<KeyRelease>", self._on_section_search_change)
 
-        self.section_list = tk.Listbox(
-            self.right_top_frame, 
-            bg=Styles.COLOR_INPUT_BG, 
-            fg=Styles.COLOR_INPUT_FG, 
-            selectbackground=Styles.COLOR_ACCENT,
-            selectforeground="#ffffff",
-            borderwidth=0,
-            highlightthickness=0,
-            exportselection=0,
-            font=Styles.FONT_MAIN,
-            height=15
+        # Section Tree (replaces Listbox for hierarchical support)
+        self.section_tree = ttk.Treeview(
+            self.right_top_frame,
+            show="tree",
+            selectmode="browse",
+            style="Treeview"
         )
-        self.section_list.bind("<<ListboxSelect>>", self._on_section_select)
-        self.section_list.bind("<Button-1>", self._on_section_click)
-        self.section_list.pack(fill="both", expand=True, padx=5, pady=5)
+        self.section_tree.column("#0", stretch=True)
+        self.section_tree.bind("<<TreeviewSelect>>", self._on_section_select)
+        self.section_tree.bind("<Button-1>", self._on_section_click)
         
+        # Tags for different file types and folders
+        self.section_tree.tag_configure("folder", font=("Segoe UI", 16, "bold"), foreground=Styles.COLOR_ACCENT)
+        self.section_tree.tag_configure("md", font=("Segoe UI", 14))
+        self.section_tree.tag_configure("document", font=("Segoe UI", 14), foreground=Styles.COLOR_DIM)
+        
+        self.section_tree.pack(fill="both", expand=True, padx=5, pady=5)
+                
         btn_frame = ttk.Frame(self.right_top_frame, style="Sidebar.TFrame")
         btn_frame.pack(fill="x", padx=5, pady=5)
         
@@ -766,12 +691,37 @@ class DocView(ttk.Frame):
         self.context_menu.add_command(label="Eliminar", command=self._on_delete_section)
 
         # Bind Right Click (Mac & Windows/Linux)
-        self.section_list.bind("<Button-2>", self._show_context_menu)
-        self.section_list.bind("<Button-3>", self._show_context_menu)
-        self.section_list.bind("<Control-Button-1>", self._show_context_menu)
+        self.section_tree.bind("<Button-2>", self._show_context_menu)
+        self.section_tree.bind("<Button-3>", self._show_context_menu)
+        self.section_tree.bind("<Control-Button-1>", self._show_context_menu)
 
         if self.controller:
             self._refresh_sections()
+
+        # Footer controls for the sidebar
+        footer_btn_frame = ttk.Frame(self.right_top_frame, style="Sidebar.TFrame")
+        footer_btn_frame.pack(fill="x", side="bottom", padx=5, pady=5)
+
+        ttk.Button(
+            footer_btn_frame,
+            text="Nueva Carpeta",
+            style="ToolbarIcon.TButton",
+            command=self._on_add_section
+        ).pack(side="left", padx=2)
+
+        ttk.Button(
+            footer_btn_frame,
+            text="Renombrar",
+            style="ToolbarIcon.TButton",
+            command=self._on_edit_section
+        ).pack(side="left", padx=2)
+
+        ttk.Button(
+            footer_btn_frame,
+            text="Eliminar",
+            style="ToolbarIcon.TButton",
+            command=self._on_delete_section
+        ).pack(side="left", padx=2)
 
         self.after_idle(self._set_default_sections_panel_width)
         self._update_sidebar_toggle()
@@ -960,64 +910,12 @@ class DocView(ttk.Frame):
         self._apply_markdown_preview_scale()
         return "break"
 
-    def _set_doc_search_placeholder(self):
-        if self.doc_search_entry.get():
-            return
-        self.doc_search_entry.insert(0, self.doc_search_placeholder)
-        self.doc_search_entry.config(fg=Styles.COLOR_DIM)
-        self._doc_search_placeholder_active = True
-
-    def _clear_doc_search_placeholder(self):
-        if not self._doc_search_placeholder_active:
-            return
-        self.doc_search_entry.delete(0, tk.END)
-        self.doc_search_entry.config(fg=Styles.COLOR_INPUT_FG)
-        self._doc_search_placeholder_active = False
-
-    def _on_doc_search_focus_in(self, event=None):
-        self._clear_doc_search_placeholder()
-
-    def _on_doc_search_key_press(self, event=None):
-        if not self._doc_search_placeholder_active:
-            return None
-
-        ignored = {
-            "Shift_L", "Shift_R", "Control_L", "Control_R", "Alt_L", "Alt_R",
-            "Meta_L", "Meta_R", "Caps_Lock", "Tab", "Left", "Right",
-            "Up", "Down", "Return", "Escape"
-        }
-        if event and event.keysym in ignored:
-            return None
-
-        if event and event.keysym in {"BackSpace", "Delete"}:
-            self._clear_doc_search_placeholder()
-            return "break"
-
-        if event and event.char:
-            self._clear_doc_search_placeholder()
-        return None
-
-    def _on_doc_search_focus_out(self, event=None):
-        self.after(120, self._restore_doc_search_placeholder_if_needed)
-
-    def _restore_doc_search_placeholder_if_needed(self):
-        try:
-            focus_widget = self.focus_get()
-        except Exception:
-            focus_widget = None
-        if focus_widget in (self.doc_search_entry, self.doc_search_list):
-            return
-        if self.doc_search_entry.get().strip():
-            return
-        self._set_doc_search_placeholder()
-
-    def _on_doc_search_key_release(self, event=None):
-        if event and event.keysym in {"Up", "Down", "Return", "Escape"}:
-            return
-        self._schedule_doc_search()
-
     def _on_section_search_change(self, event=None):
-        self._apply_section_filter(preferred_section=self._last_selected_section)
+        preferred_path = None
+        selected = self.section_tree.selection()
+        if selected:
+            preferred_path = selected[0]
+        self._refresh_sections(preferred_path=preferred_path)
 
     def _on_doc_path_selected(self, event=None):
         selected_label = self.cmb_doc_paths.get().strip()
@@ -1032,145 +930,6 @@ class DocView(ttk.Frame):
         if self.controller and hasattr(self.controller, "config_manager"):
             self.controller.config_manager.set_doc_path(selected_path)
         self._refresh_sections()
-
-    def _schedule_doc_search(self):
-        if self._doc_search_job:
-            self.after_cancel(self._doc_search_job)
-        self._doc_search_job = self.after(180, self._run_doc_search)
-
-    def _run_doc_search(self):
-        self._doc_search_job = None
-        if self._doc_search_placeholder_active:
-            self._clear_doc_search_results()
-            return
-
-        query = self.doc_search_entry.get().strip()
-        if not query:
-            self._clear_doc_search_results()
-            return
-
-        if not self.controller or not hasattr(self.controller, "search_documentation"):
-            self._clear_doc_search_results()
-            return
-
-        payload = self.controller.search_documentation(query, limit=12)
-        self.doc_search_results = payload.get("results", [])
-        self.doc_search_selected_index = 0
-
-        roots_checked = payload.get("roots_checked", [])
-        self.doc_search_list.delete(0, tk.END)
-
-        if self.doc_search_results:
-            for result in self.doc_search_results:
-                self.doc_search_list.insert(tk.END, self._format_doc_search_result(result))
-
-            self.doc_search_results_frame.pack(fill="x")
-            self.doc_search_status.config(
-                text=f"{len(self.doc_search_results)} sugerencias · {len(roots_checked)} carpetas vigentes del historial"
-            )
-            self.doc_search_status.pack(fill="x", padx=10, pady=(0, 8))
-            self.doc_search_list.selection_clear(0, tk.END)
-            self.doc_search_list.selection_set(0)
-            self.doc_search_list.activate(0)
-        else:
-            self.doc_search_results_frame.pack_forget()
-            self.doc_search_status.config(
-                text=f"Sin coincidencias en {len(roots_checked)} carpetas vigentes del historial"
-            )
-            self.doc_search_status.pack(fill="x", padx=10, pady=(0, 8))
-
-    def _format_doc_search_result(self, result):
-        rel_path = result.get("rel_path", "")
-        root_name = result.get("doc_root_name", "")
-        snippet = result.get("snippet", "").strip()
-        return f"{rel_path} [{root_name}] · {snippet}"
-
-    def _clear_doc_search_results(self):
-        self.doc_search_results = []
-        self.doc_search_selected_index = 0
-        self.doc_search_list.delete(0, tk.END)
-        self.doc_search_results_frame.pack_forget()
-        self.doc_search_status.pack_forget()
-
-    def _move_doc_search_selection(self, step):
-        if not self.doc_search_results:
-            return "break"
-
-        max_index = len(self.doc_search_results) - 1
-        self.doc_search_selected_index = max(0, min(max_index, self.doc_search_selected_index + step))
-        self.doc_search_list.selection_clear(0, tk.END)
-        self.doc_search_list.selection_set(self.doc_search_selected_index)
-        self.doc_search_list.activate(self.doc_search_selected_index)
-        self.doc_search_list.see(self.doc_search_selected_index)
-        return "break"
-
-    def _on_doc_search_listbox_select(self, event=None):
-        selection = self.doc_search_list.curselection()
-        if selection:
-            self.doc_search_selected_index = selection[0]
-
-    def _on_doc_search_escape(self, event=None):
-        if self._doc_search_job:
-            self.after_cancel(self._doc_search_job)
-            self._doc_search_job = None
-        self.doc_search_entry.delete(0, tk.END)
-        self.doc_search_entry.config(fg=Styles.COLOR_INPUT_FG)
-        self._doc_search_placeholder_active = False
-        self._clear_doc_search_results()
-        self._set_doc_search_placeholder()
-        return "break"
-
-    def _open_selected_doc_search_result(self, event=None):
-        if not self.doc_search_results:
-            return "break"
-
-        if event is not None:
-            selection = self.doc_search_list.curselection()
-            if selection:
-                self.doc_search_selected_index = selection[0]
-
-        if self.doc_search_selected_index >= len(self.doc_search_results):
-            return "break"
-
-        self._open_doc_search_result(self.doc_search_results[self.doc_search_selected_index])
-        return "break"
-
-    def _open_doc_search_result(self, result):
-        file_path = result.get("path")
-        doc_root = result.get("doc_root")
-        section_name = result.get("section_name")
-
-        if not file_path or not os.path.isfile(file_path):
-            messagebox.showwarning("Aviso", "El documento ya no existe en disco.")
-            self._schedule_doc_search()
-            return
-
-        if doc_root and self.controller and hasattr(self.controller, "config_manager"):
-            self.controller.config_manager.set_doc_path(doc_root)
-
-        self.doc_search_entry.delete(0, tk.END)
-        self.doc_search_entry.config(fg=Styles.COLOR_INPUT_FG)
-        self._doc_search_placeholder_active = False
-        self._clear_doc_search_results()
-        self._set_doc_search_placeholder()
-        self.section_search_entry.delete(0, tk.END)
-
-        self._refresh_sections()
-
-        if section_name:
-            sections = list(self.section_list.get(0, tk.END))
-            if section_name in sections:
-                index = sections.index(section_name)
-                self.section_list.selection_clear(0, tk.END)
-                self.section_list.selection_set(index)
-                self.section_list.activate(index)
-                self._last_selected_section = section_name
-                if self.controller and hasattr(self.controller, "config_manager"):
-                    self.controller.config_manager.set_last_doc_section(section_name)
-                self._find_markdown_files(section_name, selected_file_path=file_path)
-                return
-
-        self._display_file_content(file_path)
 
     def _get_doc_root(self):
         if not self.controller or not hasattr(self.controller, "config_manager"):
@@ -1197,82 +956,45 @@ class DocView(ttk.Frame):
         return False
 
     def _on_section_select(self, event=None, force_reload=False):
-        selected_indices = self.section_list.curselection()
-        if not selected_indices:
-            self._last_selected_section = None
-            self._display_message("Selecciona una sección.")
-            self.cmb_files.config(values=[])
-            self.cmb_files.set("")
+        selected_items = self.section_tree.selection()
+        if not selected_items:
+            # self._display_message("Selecciona un documento o carpeta.")
             return
             
-        section_name = self.section_list.get(selected_indices[0])
+        item_id = selected_items[0]
+        item_data = self.section_tree.item(item_id)
+        path = item_id # Item ID is the full path
         
-        # Only reload if the selection has actually changed
-        if section_name == self._last_selected_section and not force_reload:
-            return
-            
-        self._last_selected_section = section_name
-        
-        # Save selection
-        if self.controller and hasattr(self.controller, 'config_manager'):
-            self.controller.config_manager.set_last_doc_section(section_name)
-            
-        self._find_markdown_files(section_name)
-
-    def _find_markdown_files(self, section_name, selected_file_path=None):
-        """Loads .md files from the selected section folder."""
-        section_dir = self._get_section_dir(section_name)
-        if not section_dir:
-            self._display_message("⚠️ Carga una carpeta de documentación.")
-            self.cmb_files.config(values=[])
-            self.cmb_files.set("")
-            self.current_file_path = None
-            self.available_md_files = []
-            return
-        if not os.path.isdir(section_dir):
-            self._display_message(f"⚠️ No existe la carpeta de sección '{section_name}'.")
-            self.cmb_files.config(values=[])
-            self.cmb_files.set("")
-            self.current_file_path = None
-            self.available_md_files = []
+        if not path or not os.path.exists(path):
             return
 
-        self.available_md_files = []
-        try:
-            for root, _, files in os.walk(section_dir):
-                for file in files:
-                    if file.lower().endswith('.md'):
-                        self.available_md_files.append(os.path.join(root, file))
-        except Exception as e:
-            logging.error(f"Search error: {e}")
+        if os.path.isdir(path):
+            # It's a directory - toggle expansion
+            if self.section_tree.item(item_id, "open"):
+                self.section_tree.item(item_id, open=False)
+            else:
+                self.section_tree.item(item_id, open=True)
+            return
 
-        self.available_md_files.sort(
-            key=lambda path: os.path.relpath(path, section_dir).lower()
-        )
+        # It's a file
+        if self.controller and hasattr(self.controller, "config_manager"):
+            self.controller.config_manager.set_last_doc_file(path)
 
-        # Update Combo
-        basenames = [os.path.relpath(f, section_dir) for f in self.available_md_files]
-        self.cmb_files.config(values=basenames)
-        
-        if self.available_md_files:
-            selected_index = 0
-            if selected_file_path:
-                normalized_target = os.path.normpath(selected_file_path)
-                for idx, path in enumerate(self.available_md_files):
-                    if os.path.normpath(path) == normalized_target:
-                        selected_index = idx
-                        break
-            self.cmb_files.current(selected_index)
-            self._display_file_content(self.available_md_files[selected_index])
+        ext = os.path.splitext(path)[1].lower()
+        if ext == '.md':
+            self._display_file_content(path)
         else:
-            self.cmb_files.set("")
-            self._display_message(f"Sin documentos para '{section_name}'.")
-            self.current_file_path = None
+            # Other file types: open with system default
+            try:
+                import webbrowser
+                webbrowser.open(path)
+            except Exception as e:
+                logging.error(f"Error opening file {path}: {e}")
+                messagebox.showerror("Error", f"No se pudo abrir el archivo: {e}")
 
     def _on_file_selected_via_combo(self, event=None):
-        idx = self.cmb_files.current()
-        if idx >= 0:
-            self._display_file_content(self.available_md_files[idx])
+        """Redundant with the tree."""
+        pass
 
     def _on_copy_doc_content(self):
         if not self.current_file_path:
@@ -1301,7 +1023,7 @@ class DocView(ttk.Frame):
                 content = f.read()
             
             self.current_file_path = file_path
-            self.btn_copy_doc.state(["!disabled"])
+            #self.btn_copy_doc.state(["!disabled"])
             self.txt_content.config(state="normal")
             self.txt_content.delete("1.0", tk.END)
             # Use empty content if file is empty to ensure editable state
@@ -1416,18 +1138,6 @@ class DocView(ttk.Frame):
             self._find_markdown_files(section_name, selected_file_path=file_path)
         except Exception as e:
             messagebox.showerror("Error", f"No se pudo crear: {e}")
-
-    def _on_delete_doc(self):
-        if not self.current_file_path: return
-        
-        fname = os.path.basename(self.current_file_path)
-        if messagebox.askyesno("Confirmar Borrado", f"¿Estás seguro de que quieres borrar '{fname}'?"):
-            try:
-                os.remove(self.current_file_path)
-                logging.info(f"DocView: Borrado {self.current_file_path}")
-                self._on_section_select(force_reload=True) # Refresh
-            except Exception as e:
-                messagebox.showerror("Error", f"No se pudo borrar: {e}")
 
     def _build_documentation_prompt(self, functionality_name):
         functionality_name = (functionality_name or "").strip()
@@ -1696,7 +1406,7 @@ class DocView(ttk.Frame):
         self.txt_content.delete("1.0", tk.END)
         self.txt_content.insert("1.0", message)
         self.txt_content.config(state="disabled")
-        self.btn_copy_doc.state(["disabled"])
+        #self.btn_copy_doc.state(["disabled"])
 
         # Determine Colors based on mode (or default to light for message)
         # We can respect the current mode
@@ -2583,228 +2293,194 @@ class DocView(ttk.Frame):
         return None
 
     def _on_section_click(self, event):
-        index = self.section_list.nearest(event.y)
-        if index < 0: return
-        bbox = self.section_list.bbox(index)
-        if not bbox: return
-        y, height = bbox[1], bbox[3]
-        if event.y > y + height:
-            self.section_list.selection_clear(0, tk.END)
-            self._on_section_select()
+        """Handle clicks on the section tree. Deselect if clicked on empty space."""
+        iid = self.section_tree.identify_row(event.y)
+        if not iid:
+            # Clicked on empty space - deselect
+            selected = self.section_tree.selection()
+            if selected:
+                self.section_tree.selection_remove(*selected)
             return "break"
 
     def _show_context_menu(self, event):
         """Shows the context menu on right click."""
         try:
-            # Get index at click position
-            index = self.section_list.nearest(event.y)
-            
-            # If clicked on empty space, show menu without selection (for adding new)
-            if index < 0:
-                self.section_list.selection_clear(0, tk.END)
+            iid = self.section_tree.identify_row(event.y)
+            if iid:
+                # Clicked on an item - select it and show menu
+                self.section_tree.selection_set(iid)
                 try:
                     self.context_menu.tk_popup(event.x_root, event.y_root)
                 finally:
                     self.context_menu.grab_release()
-                return
-
-            # Check if the click is actually inside the bounding box of the item
-            bbox = self.section_list.bbox(index)
-            
-            # If clicked below items (bbox is None or y > item_end)
-            if not bbox or event.y > bbox[1] + bbox[3]:
-                 self.section_list.selection_clear(0, tk.END)
-                 try:
+            else:
+                # Clicked on empty space - clear selection and show menu (for adding new)
+                self.section_tree.selection_remove(*self.section_tree.selection())
+                try:
                     self.context_menu.tk_popup(event.x_root, event.y_root)
-                 finally:
+                finally:
                     self.context_menu.grab_release()
-                 return
-            
-            # Select the item
-            self.section_list.selection_clear(0, tk.END)
-            self.section_list.selection_set(index)
-            self.section_list.activate(index)
-            self._on_section_select() # Update filter
-
-            # Show menu
-            try:
-                self.context_menu.tk_popup(event.x_root, event.y_root)
-            finally:
-                # Make sure to release the grab
-                self.context_menu.grab_release()
         except Exception as e:
-            print(f"Error showing context menu: {e}")
+            logging.error(f"Error showing documentation context menu: {e}")
 
     def _on_add_section(self):
-        doc_dir = self._get_doc_root()
-        if not doc_dir:
+        doc_root = self._get_doc_root()
+        if not doc_root:
             messagebox.showwarning("Aviso", "Primero carga una carpeta de documentación.")
             return
 
-        section_name = simpledialog.askstring("Nueva Sección", "Nombre de la nueva sección:")
+        # Try to get selected folder as parent
+        selected = self.section_tree.selection()
+        parent_dir = doc_root
+        if selected:
+            path = selected[0]
+            if os.path.isdir(path):
+                parent_dir = path
+            else:
+                parent_dir = os.path.dirname(path)
+
+        section_name = simpledialog.askstring("Nueva Carpeta", "Nombre de la nueva carpeta:")
         if not section_name:
             return
         section_name = section_name.strip()
-        if not section_name:
-            messagebox.showwarning("Aviso", "El nombre de la sección no puede estar vacío.")
-            return
-        if self._has_path_separator(section_name):
-            messagebox.showwarning("Aviso", "El nombre de la sección no puede contener separadores de ruta.")
+        if not section_name or self._has_path_separator(section_name):
+            messagebox.showwarning("Aviso", "Nombre inválido.")
             return
 
-        section_dir = os.path.join(doc_dir, section_name)
+        section_dir = os.path.join(parent_dir, section_name)
         if os.path.exists(section_dir):
-            messagebox.showwarning("Aviso", "Esa sección ya existe.")
+            messagebox.showwarning("Aviso", "Ya existe.")
             return
 
         try:
             os.makedirs(section_dir, exist_ok=False)
-            self._refresh_sections()
-            sections = list(self.section_list.get(0, tk.END))
-            if section_name in sections:
-                idx = sections.index(section_name)
-                self.section_list.selection_clear(0, tk.END)
-                self.section_list.selection_set(idx)
-                self.section_list.activate(idx)
-                self._on_section_select(force_reload=True)
+            self._refresh_sections(preferred_path=section_dir)
         except Exception as e:
-            messagebox.showerror("Error", f"No se pudo crear la sección: {e}")
+            messagebox.showerror("Error", f"No se pudo crear: {e}")
 
     def _on_edit_section(self):
-        selected_indices = self.section_list.curselection()
-        if not selected_indices:
-            messagebox.showwarning("Aviso", "Selecciona una sección para editar.")
+        selected = self.section_tree.selection()
+        if not selected:
+            messagebox.showwarning("Aviso", "Selecciona una carpeta o archivo para renombrar.")
             return
 
-        doc_dir = self._get_doc_root()
-        if not doc_dir:
-            messagebox.showwarning("Aviso", "Primero carga una carpeta de documentación.")
-            return
-
-        old_name = self.section_list.get(selected_indices[0])
-        new_name = simpledialog.askstring("Renombrar Sección", "Nuevo nombre:", initialvalue=old_name)
+        old_path = selected[0]
+        old_name = os.path.basename(old_path)
+        new_name = simpledialog.askstring("Renombrar", "Nuevo nombre:", initialvalue=old_name)
         if not new_name:
             return
         new_name = new_name.strip()
-        if not new_name:
-            messagebox.showwarning("Aviso", "El nombre de la sección no puede estar vacío.")
-            return
-        if self._has_path_separator(new_name):
-            messagebox.showwarning("Aviso", "El nombre de la sección no puede contener separadores de ruta.")
-            return
-        if new_name == old_name:
+        if not new_name or self._has_path_separator(new_name) or new_name == old_name:
             return
 
-        old_path = os.path.join(doc_dir, old_name)
-        new_path = os.path.join(doc_dir, new_name)
+        new_path = os.path.join(os.path.dirname(old_path), new_name)
         if os.path.exists(new_path):
-            messagebox.showwarning("Aviso", "Ya existe otra sección con ese nombre.")
+            messagebox.showwarning("Aviso", "Ya existe.")
             return
 
         try:
             os.rename(old_path, new_path)
-            self._refresh_sections()
-            sections = list(self.section_list.get(0, tk.END))
-            if new_name in sections:
-                idx = sections.index(new_name)
-                self.section_list.selection_clear(0, tk.END)
-                self.section_list.selection_set(idx)
-                self.section_list.activate(idx)
-                self._on_section_select(force_reload=True)
+            self._refresh_sections(preferred_path=new_path)
         except Exception as e:
-            messagebox.showerror("Error", f"No se pudo renombrar la sección: {e}")
+            messagebox.showerror("Error", f"No se pudo renombrar: {e}")
 
     def _on_delete_section(self):
-        selected_indices = self.section_list.curselection()
-        if not selected_indices:
+        selected = self.section_tree.selection()
+        if not selected:
             return
 
-        doc_dir = self._get_doc_root()
-        if not doc_dir:
-            messagebox.showwarning("Aviso", "Primero carga una carpeta de documentación.")
-            return
-
-        name = self.section_list.get(selected_indices[0])
-        section_dir = os.path.join(doc_dir, name)
-        if not os.path.isdir(section_dir):
-            self._refresh_sections()
-            return
+        path = selected[0]
+        name = os.path.basename(path)
+        is_dir = os.path.isdir(path)
 
         confirm = messagebox.askyesno(
-            "Eliminar sección",
-            f"¿Eliminar la sección '{name}' y todos sus documentos?"
+            "Eliminar",
+            f"¿Estás seguro de que quieres eliminar '{name}'?"
         )
         if not confirm:
             return
 
         try:
-            shutil.rmtree(section_dir)
+            if is_dir:
+                shutil.rmtree(path)
+            else:
+                os.remove(path)
+            
+            if self.current_file_path == path:
+                self.current_file_path = None
+                self._display_message("Documento eliminado.")
+                
+            self._refresh_sections()
         except Exception as e:
-            messagebox.showerror("Error", f"No se pudo eliminar la sección: {e}")
-            return
+            messagebox.showerror("Error", f"No se pudo eliminar: {e}")
 
-        if self._last_selected_section == name:
-            self._last_selected_section = None
-            if self.controller and hasattr(self.controller, "config_manager"):
-                self.controller.config_manager.set_last_doc_section("")
-            self.current_file_path = None
-            self.available_md_files = []
-            self.cmb_files.config(values=[])
-            self.cmb_files.set("")
-            self._display_message("Selecciona una sección.")
-
-        self._refresh_sections()
-
-    def _refresh_sections(self):
+    def _refresh_sections(self, preferred_path=None):
         self._refresh_doc_path_history()
-        self.section_list.delete(0, tk.END)
-        doc_dir = self._get_doc_root()
-        if not doc_dir:
-            self._last_selected_section = None
-            self.all_sections = []
-            self.filtered_sections = []
-            self.available_md_files = []
-            self.current_file_path = None
-            self.cmb_files.config(values=[])
-            self.cmb_files.set("")
+        
+        # Clear existing
+        try:
+            for item in self.section_tree.get_children():
+                self.section_tree.delete(item)
+        except Exception:
+            pass
+            
+        doc_root = self._get_doc_root()
+        if not doc_root:
             self._display_message("⚠️ Carga una carpeta de documentación.")
             return
 
-        sections = []
+        self._build_tree(doc_root, "")
+        
+        if not preferred_path:
+            if not self.current_file_path and self.controller and hasattr(self.controller, "config_manager"):
+                preferred_path = self.controller.config_manager.get_last_doc_file()
+            else:
+                preferred_path = self.current_file_path
+                
+        if preferred_path and self.section_tree.exists(preferred_path):
+            self.section_tree.selection_set(preferred_path)
+            self.section_tree.see(preferred_path)
+            if not self.current_file_path and os.path.isfile(preferred_path):
+                self._on_section_select()
+
+    def _build_tree(self, root_path, parent_id):
+        """Recursively builds the Treeview structure."""
         try:
-            for name in os.listdir(doc_dir):
-                full_path = os.path.join(doc_dir, name)
-                if os.path.isdir(full_path):
-                    sections.append(name)
+            if not os.path.isdir(root_path): return
+            items = os.listdir(root_path)
+            # Sort items: directories first, then files
+            items.sort(key=lambda x: (not os.path.isdir(os.path.join(root_path, x)), x.lower()))
+            
+            query = self.section_search_entry.get().strip().lower() if hasattr(self, "section_search_entry") else ""
+
+            for name in items:
+                if name.startswith('.'): continue
+                full_path = os.path.join(root_path, name)
+                is_dir = os.path.isdir(full_path)
+                
+                # Check for supported extensions
+                ext = os.path.splitext(name)[1].lower()
+                supported_exts = {'.md', '.pdf', '.doc', '.docx', '.xls', '.xlsx', '.txt', '.png', '.jpg', '.jpeg'}
+                
+                if not is_dir and ext not in supported_exts:
+                    continue
+
+                if is_dir:
+                    # Create node
+                    node_id = full_path
+                    self.section_tree.insert(parent_id, "end", iid=node_id, text=f"📁 {name}", tags=("folder",), open=bool(query))
+                    self._build_tree(full_path, node_id)
+                    
+                    # If query is active and this folder has no children after recursion, and doesn't match itself, remove it
+                    if query and query not in name.lower() and not self.section_tree.get_children(node_id):
+                        self.section_tree.delete(node_id)
+                else:
+                    if not query or query in name.lower():
+                        icon = "📝 " if ext == ".md" else "📄 "
+                        tag = "md" if ext == ".md" else "document"
+                        self.section_tree.insert(parent_id, "end", iid=full_path, text=f"{icon}{name}", tags=(tag,))
         except Exception as e:
-            logging.error(f"Error loading section folders: {e}")
-            self._display_message("⚠️ No se pudieron cargar las secciones.")
-            return
-
-        sections.sort(key=str.lower)
-        self.all_sections = sections
-
-        if not sections:
-            self._last_selected_section = None
-            self.filtered_sections = []
-            self.available_md_files = []
-            self.current_file_path = None
-            self.cmb_files.config(values=[])
-            self.cmb_files.set("")
-            self._display_message("No hay secciones en la carpeta de documentación.")
-            return
-
-        # Restore last selection, fallback to first section
-        last_section = None
-        if self.controller and hasattr(self.controller, "config_manager"):
-            last_section = self.controller.config_manager.get_last_doc_section()
-
-        if last_section in sections:
-            target_section = last_section
-        else:
-            target_section = sections[0]
-
-        self._apply_section_filter(preferred_section=target_section, force_reload=True)
+            logging.error(f"Error building tree for {root_path}: {e}")
 
     def _refresh_doc_path_history(self):
         self.doc_path_options = {}
@@ -2836,34 +2512,8 @@ class DocView(ttk.Frame):
         return f"{base_name}  ·  {path}"
 
     def _apply_section_filter(self, preferred_section=None, force_reload=False):
-        query = self.section_search_entry.get().strip().lower() if hasattr(self, "section_search_entry") else ""
-        if query:
-            self.filtered_sections = [name for name in self.all_sections if query in name.lower()]
-        else:
-            self.filtered_sections = list(self.all_sections)
-
-        self.section_list.delete(0, tk.END)
-        for section_name in self.filtered_sections:
-            self.section_list.insert(tk.END, section_name)
-
-        if not self.filtered_sections:
-            self.section_list.selection_clear(0, tk.END)
-            return
-
-        target_section = None
-        if preferred_section in self.filtered_sections:
-            target_section = preferred_section
-        elif self._last_selected_section in self.filtered_sections:
-            target_section = self._last_selected_section
-        else:
-            target_section = self.filtered_sections[0]
-
-        idx = self.filtered_sections.index(target_section)
-        self.section_list.selection_clear(0, tk.END)
-        self.section_list.selection_set(idx)
-        self.section_list.activate(idx)
-        self.section_list.see(idx)
-        self._on_section_select(force_reload=force_reload)
+        """Filtering is now integrated into _refresh_sections."""
+        self._refresh_sections()
 
     def _toggle_mode(self):
         """Toggles between Editor and Viewer modes."""

@@ -103,7 +103,16 @@ class Controller:
         self.config_manager.set_current_project_index(new_idx)
         self.load_project_folder(path)
 
-    def generate_prompt(self, user_text, selected_section=None, selected_subsection=None, return_regions=False, min_files=10, implementation_mode=False, file_paths=None):
+    def generate_prompt(
+        self,
+        user_text,
+        selected_section=None,
+        selected_subsection=None,
+        return_regions=False,
+        return_structures=False,
+        min_files=10,
+        file_paths=None
+    ):
         """
         Generates a prompt based on user text and selected files.
         """
@@ -148,21 +157,19 @@ class Controller:
                 if table_samples:
                     prompt += f"\n\nMuestras de Base de Datos:\n{table_samples}"
         
-        # Implementation mode: include directory tree and implementation instructions
-        if implementation_mode:
-            dir_tree = self.project_manager.get_directory_tree()
-            if dir_tree:
-                prompt += f"\n\n--- Árbol de Directorios del Proyecto ---\n{dir_tree}\n"
+
             
-            prompt += "\n\nINSTRUCCIONES DE IMPLEMENTACIÓN:"
-            prompt += "\n1. Realiza TODAS las modificaciones necesarias en el código."
-            prompt += "\n2. Si es necesario crear, mover o eliminar ficheros o carpetas, proporciona los COMANDOS DE CONSOLA exactos a ejecutar."
-            prompt += "\n3. Todos los comandos deben ejecutarse desde la RAÍZ del proyecto."
-            prompt += "\n4. Formato de comandos: agrúpalos en un bloque al final con el título '## Comandos de Consola'."
-            prompt += "\n5. Usa comandos compatibles con el sistema operativo del usuario (macOS/Linux: mkdir, rm, mv, cp, touch)."
-            
-        if return_regions:
+        if return_structures:
+            prompt += (
+                "\n\nIMPORTANTE: Devuelve SOLO las estructuras completas o bloques completos que hayan necesitado "
+                "modificación. Cada estructura debe incluir su cabecera y cuerpo completos. Si el cambio afecta "
+                "a XML, HTML u otro lenguaje de etiquetas, devuelve el nodo o bloque de etiquetas completo "
+                "modificado. No devuelvas fragmentos parciales ni código sin cambios."
+            )
+        elif return_regions:
             prompt += "\n\nIMPORTANTE: Primero, lista todas las regiones que necesitan modificación. Después, devuelve SOLO las regiones modificadas COMPLETAS. Solo las regiones que necesitaron modificación, y deben estar completas. No devuelvas código sin cambios."
+        else:
+            prompt += "\n\nIMPORTANTE: Indica cada cambio realizado con un comentario dentro del código que incluya exactamente la palabra: [MODIFICACIÓN]. Devuelve ÚNICAMENTE el código que ha sido modificado, omitiendo las partes que no han cambiado."
             
         return prompt
 
@@ -240,12 +247,9 @@ class Controller:
                 # Use all files from the parent section
                 section_files_paths = self.section_manager.get_files_in_section(selected_section)
             files_map = {f['path']: f for f in all_files}
-            base_files = [files_map[p] for p in section_files_paths if p in files_map]
+            pool = [files_map[p] for p in section_files_paths if p in files_map]
         else:
-            if not user_text:
-                base_files = all_files
-            else:
-                base_files = self.project_manager.find_relevant_files(user_text, min_files=min_files)
+            pool = all_files
 
         # 2. Extension Filtering (Support multiple comma-separated extensions)
         if extension and extension.strip():
@@ -259,11 +263,18 @@ class Controller:
                     ext_list.append(e)
             
             if ext_list:
-                base_files = [f for f in base_files if any(f['rel_path'].lower().endswith(ext) for ext in ext_list)]
+                pool = [f for f in pool if any(f['rel_path'].lower().endswith(ext) for ext in ext_list)]
         else:
-            base_files = [f for f in base_files if self.project_manager.is_default_code_file(f['rel_path'])]
+            pool = [f for f in pool if self.project_manager.is_default_code_file(f['rel_path'])]
             
-        return base_files
+        # 3. Search and Min Files Padding
+        if not user_text:
+            # No query: if min_files is set and pool is smaller, return as-is (already all scoped files).
+            # If pool is larger than min_files, still return the full pool (no truncation — min means minimum).
+            return pool
+        else:
+            # find_relevant_files scores and ranks files, then pads up to min_files from the pool
+            return self.project_manager.find_relevant_files(user_text, relevant_files_subset=pool, min_files=min_files)
 
     def show_code_view(self):
         """
@@ -312,6 +323,26 @@ class Controller:
                     'rel_path': f['rel_path']
                 }
         return None
+
+    def refresh_cached_file_content(self, path, content=None):
+        """
+        Refreshes the in-memory cache for a project file after an external write.
+        Returns True if the file belonged to the loaded project.
+        """
+        if content is None:
+            try:
+                with open(path, "r", encoding="utf-8", errors="ignore") as fh:
+                    content = fh.read()
+            except Exception as e:
+                print(f"Controller: Error refreshing cache for {path}: {e}")
+                return False
+
+        for f in self.project_manager.get_files():
+            if f['path'] == path:
+                f['content'] = content
+                return True
+
+        return False
 
     def save_content_to_codigo_txt(self, content, append=False):
         """Saves or appends content to ~/Documents/codigo.txt."""

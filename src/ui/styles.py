@@ -7,6 +7,8 @@ class Styles:
     HidraSmart Dark Blue Theme - Professional IDE-like appearance.
     """
     
+    UI_SCALE = 0.90
+
     # ── HidraSmart Dark Blue Palette ──
     COLOR_BG_MAIN = "#0a1220"        # Deep navy background
     COLOR_BG_SIDEBAR = "#101a2d"     # Slightly lighter navy for sidebars/toolbar
@@ -41,16 +43,62 @@ class Styles:
 
     # Fonts
     FONT_FAMILY = "Segoe UI"
-    FONT_MAIN = ("Segoe UI", 18, "bold")        
-    FONT_HEADER = ("Segoe UI", 20, "bold")
-    FONT_CODE = ("Consolas", 14)       
-    FONT_BUTTON = ("Segoe UI", 18, "bold")
-    FONT_BREADCRUMB = ("Segoe UI", 12)
+    BASE_FONT_MAIN = ("Segoe UI", 18, "bold")
+    BASE_FONT_HEADER = ("Segoe UI", 20, "bold")
+    BASE_FONT_CODE = ("Consolas", 14)
+    BASE_FONT_BUTTON = ("Segoe UI", 18, "bold")
+    BASE_FONT_BREADCRUMB = ("Segoe UI", 12)
+    FONT_MAIN = BASE_FONT_MAIN
+    FONT_HEADER = BASE_FONT_HEADER
+    FONT_CODE = BASE_FONT_CODE
+    FONT_BUTTON = BASE_FONT_BUTTON
+    FONT_BREADCRUMB = BASE_FONT_BREADCRUMB
 
     # Rounded corner radius
     CORNER_RADIUS = 8
     SOFT_EDGE_BORDER = 1
-    SOFT_EDGE_PADDING = 4
+    BASE_SOFT_EDGE_PADDING = 4
+    SOFT_EDGE_PADDING = BASE_SOFT_EDGE_PADDING
+
+    @staticmethod
+    def scale_size(value):
+        try:
+            return max(int(round(float(value) * Styles.UI_SCALE)), 1)
+        except Exception:
+            return value
+
+    @staticmethod
+    def scale_padding(value):
+        if isinstance(value, (tuple, list)):
+            return tuple(Styles.scale_size(v) for v in value)
+        return Styles.scale_size(value)
+
+    @staticmethod
+    def scale_font(font_value):
+        if not isinstance(font_value, (tuple, list)) or len(font_value) < 2:
+            return font_value
+
+        family = font_value[0]
+        size = font_value[1]
+        rest = tuple(font_value[2:])
+
+        if not isinstance(size, (int, float)):
+            return tuple(font_value)
+
+        return (family, max(int(round(size * Styles.UI_SCALE)), 1), *rest)
+
+    @staticmethod
+    def apply_tk_scaling(root):
+        if getattr(root, "_programita_tk_scaled", False):
+            return
+
+        try:
+            current_scaling = float(root.tk.call("tk", "scaling"))
+            root.tk.call("tk", "scaling", current_scaling * Styles.UI_SCALE)
+        except Exception:
+            pass
+
+        root._programita_tk_scaled = True
 
     @staticmethod
     def soften_classic_widget(widget):
@@ -174,6 +222,13 @@ class Styles:
         """
         style = ttk.Style(root)
         style.theme_use('clam') 
+        Styles.apply_tk_scaling(root)
+        Styles.FONT_MAIN = Styles.scale_font(Styles.BASE_FONT_MAIN)
+        Styles.FONT_HEADER = Styles.scale_font(Styles.BASE_FONT_HEADER)
+        Styles.FONT_CODE = Styles.scale_font(Styles.BASE_FONT_CODE)
+        Styles.FONT_BUTTON = Styles.scale_font(Styles.BASE_FONT_BUTTON)
+        Styles.FONT_BREADCRUMB = Styles.scale_font(Styles.BASE_FONT_BREADCRUMB)
+        Styles.SOFT_EDGE_PADDING = Styles.scale_size(Styles.BASE_SOFT_EDGE_PADDING)
 
         # Configure Main Window background
         root.configure(bg=Styles.COLOR_BG_MAIN)
@@ -199,42 +254,42 @@ class Styles:
             background=Styles.COLOR_BG_MAIN,
             foreground=Styles.COLOR_FG_TEXT,
             font=Styles.FONT_MAIN,
-            padding=5
+            padding=Styles.scale_padding(5)
         )
         style.configure(
             "Header.TLabel",
             background=Styles.COLOR_BG_SIDEBAR,
             foreground=Styles.COLOR_FG_TEXT,
             font=Styles.FONT_HEADER,
-            padding=(15, 10)
+            padding=Styles.scale_padding((15, 10))
         )
         style.configure(
             "SidebarTitle.TLabel",
             background=Styles.COLOR_SIDEBAR_CARD_BG,
             foreground=Styles.COLOR_FG_TEXT,
-            font=("Segoe UI", 22, "bold"),
-            padding=(12, 12, 12, 6)
+            font=Styles.scale_font(("Segoe UI", 22, "bold")),
+            padding=Styles.scale_padding((12, 12, 12, 6))
         )
         style.configure(
             "SidebarHint.TLabel",
             background=Styles.COLOR_SIDEBAR_CARD_BG,
             foreground=Styles.COLOR_DIM,
-            font=("Segoe UI", 11, "bold"),
-            padding=(12, 0, 12, 4)
+            font=Styles.scale_font(("Segoe UI", 11, "bold")),
+            padding=Styles.scale_padding((12, 0, 12, 4))
         )
         style.configure(
             "SidebarSection.TLabel",
             background=Styles.COLOR_SIDEBAR_CARD_BG,
             foreground=Styles.COLOR_FG_TEXT,
-            font=("Segoe UI", 16, "bold"),
-            padding=(12, 8, 12, 6)
+            font=Styles.scale_font(("Segoe UI", 16, "bold")),
+            padding=Styles.scale_padding((12, 8, 12, 6))
         )
         style.configure(
             "Breadcrumb.TLabel",
             background=Styles.COLOR_TOOLBAR_BG,
             foreground=Styles.COLOR_DIM,
             font=Styles.FONT_BREADCRUMB,
-            padding=(15, 8)
+            padding=Styles.scale_padding((15, 8))
         )
 
         # Scrollbar (Modern Flat)
@@ -260,11 +315,11 @@ class Styles:
             "Nav.TButton",
             background=Styles.COLOR_BUTTON_BG,
             foreground=Styles.COLOR_BUTTON_FG,
-            font=("Segoe UI", 17, "bold"),
+            font=Styles.scale_font(("Segoe UI", 17, "bold")),
             borderwidth=1,
             bordercolor=Styles.COLOR_BUTTON_BORDER,
             focuscolor=Styles.COLOR_BUTTON_BG,
-            padding=(18, 12),
+            padding=Styles.scale_padding((18, 12)),
             relief="flat",
             anchor="center"
         )
@@ -278,10 +333,10 @@ class Styles:
             "NavFlat.TButton",
             background=Styles.COLOR_DOC_TOOLBAR_BG,
             foreground=Styles.COLOR_BUTTON_FG,
-            font=("Segoe UI", 17, "bold"),
+            font=Styles.scale_font(("Segoe UI", 17, "bold")),
             borderwidth=0,
             focuscolor=Styles.COLOR_DOC_TOOLBAR_BG,
-            padding=(18, 12),
+            padding=Styles.scale_padding((18, 12)),
             relief="flat",
             anchor="center"
         )
@@ -303,11 +358,11 @@ class Styles:
             "SidebarToggle.TButton",
             background=Styles.COLOR_BUTTON_BG,
             foreground=Styles.COLOR_BUTTON_FG,
-            font=("Segoe UI", 14, "bold"),
+            font=Styles.scale_font(("Segoe UI", 14, "bold")),
             borderwidth=Styles.SOFT_EDGE_BORDER,
             bordercolor=Styles.COLOR_BUTTON_BORDER,
             focuscolor=Styles.COLOR_BUTTON_BG,
-            padding=(10, 10),
+            padding=Styles.scale_padding((10, 10)),
             relief="flat",
             anchor="center"
         )
@@ -321,11 +376,11 @@ class Styles:
             "FullscreenToggle.TButton",
             background=Styles.COLOR_BUTTON_BG,
             foreground=Styles.COLOR_BUTTON_FG,
-            font=("Segoe UI", 14, "bold"),
+            font=Styles.scale_font(("Segoe UI", 14, "bold")),
             borderwidth=Styles.SOFT_EDGE_BORDER,
             bordercolor=Styles.COLOR_BUTTON_BORDER,
             focuscolor=Styles.COLOR_BUTTON_BG,
-            padding=(10, 8),
+            padding=Styles.scale_padding((10, 8)),
             relief="flat",
             anchor="center"
         )
@@ -340,11 +395,11 @@ class Styles:
             "ToolbarIcon.TButton",
             background=Styles.COLOR_BUTTON_BG,
             foreground=Styles.COLOR_BUTTON_FG,
-            font=("Segoe UI", 14),
+            font=Styles.scale_font(("Segoe UI", 14)),
             borderwidth=Styles.SOFT_EDGE_BORDER,
             bordercolor=Styles.COLOR_BUTTON_BORDER,
             focuscolor=Styles.COLOR_BUTTON_BG,
-            padding=(10, 6),
+            padding=Styles.scale_padding((10, 6)),
             relief="flat",
             anchor="center"
         )
@@ -358,10 +413,10 @@ class Styles:
             "ToolbarGroup.TButton",
             background=Styles.COLOR_BUTTON_BG,
             foreground=Styles.COLOR_BUTTON_FG,
-            font=("Segoe UI", 14),
+            font=Styles.scale_font(("Segoe UI", 14)),
             borderwidth=0,
             focuscolor=Styles.COLOR_BUTTON_BG,
-            padding=(10, 6),
+            padding=Styles.scale_padding((10, 6)),
             relief="flat",
             anchor="center"
         )
@@ -375,10 +430,10 @@ class Styles:
             "DocToolbarFlat.TButton",
             background=Styles.COLOR_DOC_TOOLBAR_BG,
             foreground=Styles.COLOR_BUTTON_FG,
-            font=("Segoe UI", 14),
+            font=Styles.scale_font(("Segoe UI", 14)),
             borderwidth=0,
             focuscolor=Styles.COLOR_DOC_TOOLBAR_BG,
-            padding=(10, 6),
+            padding=Styles.scale_padding((10, 6)),
             relief="flat",
             anchor="center"
         )
@@ -396,7 +451,7 @@ class Styles:
             font=Styles.FONT_BUTTON,
             borderwidth=Styles.SOFT_EDGE_BORDER,
             bordercolor=Styles.COLOR_BUTTON_BORDER,
-            padding=(18, 10),
+            padding=Styles.scale_padding((18, 10)),
             relief="flat",
             anchor="center"
         )
@@ -414,7 +469,7 @@ class Styles:
             font=Styles.FONT_BUTTON,
             borderwidth=Styles.SOFT_EDGE_BORDER,
             bordercolor=Styles.COLOR_BUTTON_BORDER,
-            padding=(18, 10),
+            padding=Styles.scale_padding((18, 10)),
             relief="flat",
             anchor="center"
         )
@@ -432,8 +487,8 @@ class Styles:
             bordercolor=Styles.COLOR_INPUT_BG,
             lightcolor=Styles.COLOR_ACCENT,
             darkcolor=Styles.COLOR_ACCENT,
-            sliderlength=40,
-            sliderthickness=40,
+            sliderlength=Styles.scale_size(40),
+            sliderthickness=Styles.scale_size(40),
             borderwidth=0
         )
 
@@ -447,17 +502,17 @@ class Styles:
             bordercolor=Styles.COLOR_BORDER,
             relief="flat",
             font=Styles.FONT_MAIN,
-            rowheight=55
+            rowheight=Styles.scale_size(55)
         )
         style.configure(
             "Treeview.Heading",
             background=Styles.COLOR_BG_SIDEBAR,
             foreground=Styles.COLOR_FG_TEXT,
-            font=("Segoe UI", 14, "bold"),
+            font=Styles.scale_font(("Segoe UI", 14, "bold")),
             borderwidth=Styles.SOFT_EDGE_BORDER,
             bordercolor=Styles.COLOR_BORDER,
             relief="flat",
-            padding=(10, 10)
+            padding=Styles.scale_padding((10, 10))
         )
         style.map(
             "Treeview",
@@ -504,9 +559,9 @@ class Styles:
             "TCheckbutton",
             background=Styles.COLOR_BG_SIDEBAR,
             foreground=Styles.COLOR_FG_TEXT,
-            font=("Segoe UI", 18, "bold"),
+            font=Styles.scale_font(("Segoe UI", 18, "bold")),
             focuscolor=Styles.COLOR_BG_SIDEBAR,
-            padding=10
+            padding=Styles.scale_padding(10)
         )
         style.map(
             "TCheckbutton",
@@ -567,7 +622,7 @@ class Styles:
             bordercolor=Styles.COLOR_INPUT_BG,
             relief="flat",
             font=Styles.FONT_MAIN,
-            rowheight=55
+            rowheight=Styles.scale_size(55)
         )
         style.map(
             "Borderless.Treeview",

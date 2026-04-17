@@ -1,5 +1,5 @@
 {
-    "last_project": "/Users/ismaelmoraledalopez/Documents/Azure-Irrigation-Web/HidraSmart-Irrigation-System",
+    "last_project": "/Users/ismaelmoraledalopez/Desktop/Programita 2",
     "file_limit": 20,
     "return_regions": false,
     "doc_path": "/Users/ismaelmoraledalopez/Documents/Documentacion Irrigation",
@@ -18,7 +18,7 @@
         "/Users/ismaelmoraledalopez/Desktop/pruebas/Iterador/TrustedSearch",
         "/Users/ismaelmoraledalopez/Desktop/SDD-Proyecto Aurora 2"
     ],
-    "current_project_index": 0,
+    "current_project_index": 1,
     "db_config": {
         "host": "hidralab-server.mysql.database.azure.com",
         "port": "3306",
@@ -33,7 +33,9 @@
         "is_fullscreen_mode": false,
         "markdown_preview_zoom": 1.0
     },
-    "last_doc_section": "Catastro",
-    "last_code_section": "Catastro",
-    "implementation_mode": false
+    "last_doc_section": "Gestor de Equipos",
+    "last_code_section": "Gestor de red",
+    "implementation_mode": false,
+    "last_doc_file": "/Users/ismaelmoraledalopez/Documents/Documentacion Irrigation/Catastro/Carga_parcelas.md",
+    "return_structures": false
 }

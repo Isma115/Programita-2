@@ -111,40 +111,59 @@ class DatabaseView(ttk.Frame):
         btn_frame = ttk.Frame(conn_frame, style="Main.TFrame")
         btn_frame.grid(row=len(fields), column=0, columnspan=2, pady=15)
         
-        self.btn_connect = ttk.Button(
-            btn_frame,
-            text="🔌 Conectar",
-            style="Action.TButton",
-            command=self._on_connect
+        # Connect Button (Very Light Pastel Green)
+        self.btn_connect = tk.Label(
+            btn_frame, text="Conectar", bg="#d1ffd7", fg="black",
+            font=("Segoe UI", 12, "bold"), padx=20, pady=8, cursor="hand2",
+            relief="flat", bd=0
         )
-        self.btn_connect.pack(side="left", padx=5)
+        self.btn_connect.pack(side="left", padx=10)
         attach_tooltip(self.btn_connect, "Abrir conexión")
         
-        self.btn_disconnect = ttk.Button(
-            btn_frame,
-            text="❌ Desconectar",
-            style="Secondary.TButton",
-            command=self._on_disconnect,
-            state="disabled"
+        # Disconnect Button (Lighter Pastel Red - slightly more saturated)
+        self.btn_disconnect = tk.Label(
+            btn_frame, text="Desconectar", bg="#ffb3b3", fg="black",
+            font=("Segoe UI", 12, "bold"), padx=20, pady=8, cursor="hand2",
+            relief="flat", bd=0
         )
-        self.btn_disconnect.pack(side="left", padx=5)
+        self.btn_disconnect.pack(side="left", padx=10)
         attach_tooltip(self.btn_disconnect, "Cerrar conexión")
         
-        # Nuevo botón: Reiniciar Conexión
-        self.btn_reconnect = ttk.Button(
-            btn_frame,
-            text="🔄 Reiniciar Conexión",
-            style="Nav.TButton",
-            command=self._on_reconnect,
-            state="disabled"
+        # Reconnect Button (Very Light Pastel Yellow)
+        self.btn_reconnect = tk.Label(
+            btn_frame, text="Reiniciar Conexión", bg="#fff9c4", fg="black",
+            font=("Segoe UI", 12, "bold"), padx=20, pady=8, cursor="hand2",
+            relief="flat", bd=0
         )
-        self.btn_reconnect.pack(side="left", padx=5)
+        self.btn_reconnect.pack(side="left", padx=10)
         attach_tooltip(self.btn_reconnect, "Reiniciar conexión")
+
+        # Initial states
+        def _set_label_state(label, enabled):
+            if enabled:
+                # Resolve original color
+                orig_bg = "#d1ffd7" if label == self.btn_connect else ("#ffb3b3" if label == self.btn_disconnect else "#fff9c4")
+                label.config(state="normal", cursor="hand2", fg="black", bg=orig_bg)
+                # Bind events
+                if label == self.btn_connect: label.bind("<Button-1>", lambda e: self._on_connect())
+                elif label == self.btn_disconnect: label.bind("<Button-1>", lambda e: self._on_disconnect())
+                elif label == self.btn_reconnect: label.bind("<Button-1>", lambda e: self._on_reconnect())
+            else:
+                label.config(state="disabled", cursor="", fg="#a0a0a0", bg="#efefef") # Clean disabled look
+                label.unbind("<Button-1>")
+
+        # Helper to simplify state management in _on_connect/_on_disconnect
+        self._set_btn_state = _set_label_state
+        
+        # Set initial enabled states
+        self._set_btn_state(self.btn_connect, True)
+        self._set_btn_state(self.btn_disconnect, False)
+        self._set_btn_state(self.btn_reconnect, False)
         
         # Status label
         self.lbl_status = ttk.Label(
             conn_frame,
-            text="⚪ No conectado",
+            text="No conectado",
             style="TLabel"
         )
         self.lbl_status.grid(row=len(fields) + 1, column=0, columnspan=2, pady=5)
@@ -363,10 +382,10 @@ class DatabaseView(ttk.Frame):
                 database=database
             )
             
-            self.lbl_status.config(text="🟢 Conectado")
-            self.btn_connect.config(state="disabled")
-            self.btn_disconnect.config(state="normal")
-            self.btn_reconnect.config(state="normal")  # Habilitar botón de reinicio
+            self.lbl_status.config(text="Conectado")
+            self._set_btn_state(self.btn_connect, False)
+            self._set_btn_state(self.btn_disconnect, True)
+            self._set_btn_state(self.btn_reconnect, True)
             self.btn_sample.config(state="normal")
             
             # Disable connection fields
@@ -378,7 +397,7 @@ class DatabaseView(ttk.Frame):
             
         except Exception as e:
             messagebox.showerror("Error de Conexión", str(e))
-            self.lbl_status.config(text="🔴 Error de conexión")
+            self.lbl_status.config(text="Error de conexión")
 
     def _on_disconnect(self):
         """Handles disconnect button click."""
@@ -389,10 +408,10 @@ class DatabaseView(ttk.Frame):
                 pass
             self.connection = None
         
-        self.lbl_status.config(text="⚪ No conectado")
-        self.btn_connect.config(state="normal")
-        self.btn_disconnect.config(state="disabled")
-        self.btn_reconnect.config(state="disabled")  # Deshabilitar botón de reinicio
+        self.lbl_status.config(text="No conectado")
+        self._set_btn_state(self.btn_connect, True)
+        self._set_btn_state(self.btn_disconnect, False)
+        self._set_btn_state(self.btn_reconnect, False)
         self.btn_sample.config(state="disabled")
         
         # Enable connection fields
@@ -412,7 +431,7 @@ class DatabaseView(ttk.Frame):
             return
         
         # Guardar estado actual
-        self.lbl_status.config(text="🔄 Reiniciando conexión...")
+        self.lbl_status.config(text="Reiniciando conexión...")
         self.update_idletasks()
         
         # 1. Desconectar
@@ -443,7 +462,7 @@ class DatabaseView(ttk.Frame):
             )
             
             # Actualizar UI
-            self.lbl_status.config(text="🟢 Conexión reiniciada")
+            self.lbl_status.config(text="Conexión reiniciada")
             
             # Recargar tablas
             self._clear_tables()
@@ -452,7 +471,7 @@ class DatabaseView(ttk.Frame):
             messagebox.showinfo("Éxito", "Conexión reiniciada correctamente.")
             
         except Exception as e:
-            self.lbl_status.config(text="🔴 Error al reconectar")
+            self.lbl_status.config(text="Error al reconectar")
             messagebox.showerror("Error", f"No se pudo reiniciar la conexión:\n{str(e)}")
             
             # Volver a estado desconectado

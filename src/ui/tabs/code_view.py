@@ -33,7 +33,9 @@ class CodeView(ttk.Frame):
 
     # Max consecutive uses of the same AI before rotating
     MAX_CONSECUTIVE = 3
-    DEFAULT_SECTIONS_PANEL_WIDTH = 340
+    DEFAULT_SECTIONS_PANEL_WIDTH = Styles.scale_size(300)
+    MIN_LEFT_PANEL_WIDTH = Styles.scale_size(320)
+    MIN_SECTIONS_PANEL_WIDTH = Styles.scale_size(260)
 
     AI_URLS = {
         "DeepSeek (R1/V3)": "https://chat.deepseek.com",
@@ -64,6 +66,8 @@ class CodeView(ttk.Frame):
         self._last_selected_section = None
         self._last_selected_subsection = None
         self._visible_section_ids = []
+        self._responsive_after_id = None
+        self._checkbox_visual_size = Styles.scale_size(30)
 
         self._create_layout()
 
@@ -80,7 +84,7 @@ class CodeView(ttk.Frame):
 
         # --- Left Pane (Project & Files) ---
         self.left_frame = ttk.Frame(self.paned_window, style="Main.TFrame")
-        self.paned_window.add(self.left_frame, minsize=400, stretch="always")
+        self.paned_window.add(self.left_frame, minsize=self.MIN_LEFT_PANEL_WIDTH, stretch="always")
 
         # === Project Switcher Bar (compact, above everything) ===
         self.project_bar = ttk.Frame(self.left_frame, style="Main.TFrame")
@@ -241,7 +245,7 @@ class CodeView(ttk.Frame):
 
         self.txt_prompt = tk.Text(
             self.prompt_frame, 
-            height=8, 
+            height=8,
             font=Styles.FONT_MAIN, 
             bg=Styles.COLOR_INPUT_BG, 
             fg=Styles.COLOR_INPUT_FG, 
@@ -271,7 +275,7 @@ class CodeView(ttk.Frame):
 
         # --- Right Pane (Sections) ---
         self.right_frame = ttk.Frame(self.paned_window, style="Sidebar.TFrame", width=self.DEFAULT_SECTIONS_PANEL_WIDTH)
-        self.paned_window.add(self.right_frame, minsize=self.DEFAULT_SECTIONS_PANEL_WIDTH, stretch="never")
+        self.paned_window.add(self.right_frame, minsize=self.MIN_SECTIONS_PANEL_WIDTH, stretch="never")
 
         # Split Right Pane into Top (List) and Bottom (Checkbox area)
         self.right_top_frame = ttk.Frame(self.right_frame, style="Sidebar.TFrame")
@@ -334,6 +338,18 @@ class CodeView(ttk.Frame):
         self.section_tree.tag_configure("subsection", font=("Segoe UI", 14))
         
         self.section_tree.pack(fill="both", expand=True, padx=5, pady=5)
+
+        # Espacio fijo bajo la lista para mantener una zona vacía visible
+        # aunque se haga scroll dentro del Treeview.
+        self.section_tree_bottom_spacer = tk.Frame(
+            self.right_top_frame,
+            bg=Styles.COLOR_BG_SIDEBAR,
+            height=42,
+            cursor="arrow"
+        )
+        self.section_tree_bottom_spacer.pack(fill="x", padx=5, pady=(0, 5))
+        self.section_tree_bottom_spacer.pack_propagate(False)
+        self.section_tree_bottom_spacer.bind("<Button-1>", self._on_section_spacer_click)
         
         # Context menu is built dynamically in _show_context_menu
 
@@ -352,7 +368,7 @@ class CodeView(ttk.Frame):
         
         # Container frame for the custom checkbox
         self.chk_container = ttk.Frame(self.right_bottom_frame, style="Sidebar.TFrame", cursor="hand2")
-        self.chk_container.pack(fill="x", padx=15, pady=(20, 5))
+        self.chk_container.pack(fill="x", padx=15, pady=(2, 2))  # [MODIFICACIÓN] de 20,5 a 2,2
         
         # Indicator Canvas (The square) - Fixed size for consistency
         self.chk_canvas = tk.Canvas(
@@ -387,53 +403,50 @@ class CodeView(ttk.Frame):
         self.chk_container.bind("<Enter>", self._on_chk_hover_enter)
         self.chk_container.bind("<Leave>", self._on_chk_hover_leave)
 
-        # Custom Large Checkbox "Implementación"
-        val_impl = False
+        # Custom Large Checkbox "Retornar estructuras"
+        val_structures = False
         if hasattr(self.controller, 'config_manager'):
-            val_impl = self.controller.config_manager.get_implementation_mode()
-            
-        self.var_implementation_mode = tk.BooleanVar(value=val_impl)
-        
-        # Container frame for the implementation checkbox
-        self.impl_container = ttk.Frame(self.right_bottom_frame, style="Sidebar.TFrame", cursor="hand2")
-        self.impl_container.pack(fill="x", padx=15, pady=(5, 20))
-        
-        # Indicator Canvas
-        self.impl_canvas = tk.Canvas(
-            self.impl_container,
+            val_structures = self.controller.config_manager.get_return_structures()
+
+        self.var_return_structures = tk.BooleanVar(value=val_structures)
+
+        self.struct_container = ttk.Frame(self.right_bottom_frame, style="Sidebar.TFrame", cursor="hand2")
+        self.struct_container.pack(fill="x", padx=15, pady=(2, 2))  # [MODIFICACIÓN] de 5,5 a 2,2
+
+        self.struct_canvas = tk.Canvas(
+            self.struct_container,
             width=30,
             height=30,
             bg=Styles.COLOR_BG_SIDEBAR,
             highlightthickness=0,
             bd=0
         )
-        self.impl_canvas.pack(side="left")
-        
-        # Draw initial state
-        self._draw_impl_checkbox()
-        
-        # Text Label
-        self.lbl_impl_text = ttk.Label(
-            self.impl_container, 
-            text="Implementación", 
+        self.struct_canvas.pack(side="left")
+
+        self._draw_struct_checkbox()
+
+        self.lbl_struct_text = ttk.Label(
+            self.struct_container,
+            text="Retornar estructuras",
             style="TLabel",
             font=("Segoe UI", 18, "bold")
         )
-        self.lbl_impl_text.configure(background=Styles.COLOR_BG_SIDEBAR)
-        self.lbl_impl_text.pack(side="left", padx=(10, 0))
-        
-        # Bindings for click events
-        self.impl_container.bind("<Button-1>", self._toggle_implementation)
-        self.impl_canvas.bind("<Button-1>", self._toggle_implementation)
-        self.lbl_impl_text.bind("<Button-1>", self._toggle_implementation)
-        
-        # Hover effects
-        self.impl_container.bind("<Enter>", self._on_impl_hover_enter)
-        self.impl_container.bind("<Leave>", self._on_impl_hover_leave)
+        self.lbl_struct_text.configure(background=Styles.COLOR_BG_SIDEBAR)
+        self.lbl_struct_text.pack(side="left", padx=(10, 0))
+
+        self.struct_container.bind("<Button-1>", self._toggle_return_structures)
+        self.struct_canvas.bind("<Button-1>", self._toggle_return_structures)
+        self.lbl_struct_text.bind("<Button-1>", self._toggle_return_structures)
+
+        self.struct_container.bind("<Enter>", self._on_struct_hover_enter)
+        self.struct_container.bind("<Leave>", self._on_struct_hover_leave)
+
+
 
         # Initial sections load
         self._refresh_sections()
         self.after_idle(self._set_default_sections_panel_width)
+        self.bind("<Configure>", self._on_resize)
 
     def _set_default_sections_panel_width(self):
         try:
@@ -441,10 +454,73 @@ class CodeView(ttk.Frame):
             total_width = self.paned_window.winfo_width()
             if total_width <= self.DEFAULT_SECTIONS_PANEL_WIDTH:
                 return
-            left_width = max(400, total_width - self.DEFAULT_SECTIONS_PANEL_WIDTH)
+            right_width = min(max(self.MIN_SECTIONS_PANEL_WIDTH, int(total_width * 0.30)), self.DEFAULT_SECTIONS_PANEL_WIDTH)
+            left_width = max(self.MIN_LEFT_PANEL_WIDTH, total_width - right_width)
             self.paned_window.sash_place(0, left_width, 0)
         except Exception:
             pass
+
+    def _on_resize(self, event=None):
+        if event is not None and event.widget is not self:
+            return
+
+        if self._responsive_after_id:
+            self.after_cancel(self._responsive_after_id)
+        self._responsive_after_id = self.after(50, self._apply_responsive_layout)
+
+    def _apply_responsive_layout(self):
+        self._responsive_after_id = None
+        width = max(self.winfo_width(), self.winfo_toplevel().winfo_width())
+        height = max(self.winfo_height(), self.winfo_toplevel().winfo_height())
+
+        compact_height = height < 760
+        ultra_compact_height = height < 640
+        narrow_width = width < 1150
+        compact_width = width < 960
+
+        project_font_size = Styles.scale_size(11 if compact_height else 13)
+        section_label_size = Styles.scale_size(11 if compact_height else 13)
+        section_entry_size = Styles.scale_size(13 if compact_height else 15)
+        tree_section_size = Styles.scale_size(14 if compact_height else 16)
+        tree_subsection_size = Styles.scale_size(12 if compact_height else 14)
+        checkbox_font_size = Styles.scale_size(14 if ultra_compact_height else 16 if compact_height else 18)
+        self._checkbox_visual_size = Styles.scale_size(24 if ultra_compact_height else 26 if compact_height else 30)
+        prompt_height = max(Styles.scale_size(4 if ultra_compact_height else 5 if compact_height else 8), 3)
+        slider_length = Styles.scale_size(110 if compact_width else 150 if narrow_width else 200)
+        ai_width = max(Styles.scale_size(14 if compact_width else 17 if narrow_width else 20), 10)
+        ext_width = max(Styles.scale_size(10 if compact_width else 12 if narrow_width else 15), 8)
+        spacer_height = Styles.scale_size(18 if ultra_compact_height else 28 if compact_height else 42)
+        top_prompt_pady = Styles.scale_size(6 if compact_height else 10)
+        chk_top_pady = Styles.scale_padding((2, 2))     # [MODIFICACIÓN]
+        chk_mid_pady = Styles.scale_padding((2, 2))     # [MODIFICACIÓN]
+        chk_bottom_pady = Styles.scale_padding((5, 8))  # [MODIFICACIÓN]
+
+        self.lbl_project_name.configure(font=("Segoe UI", project_font_size))
+        self.section_search_label.configure(font=("Segoe UI", section_label_size, "bold"))
+        self.section_search_entry.configure(font=("Segoe UI", section_entry_size))
+        self.section_tree.tag_configure("section", font=("Segoe UI", tree_section_size, "bold"))
+        self.section_tree.tag_configure("subsection", font=("Segoe UI", tree_subsection_size))
+        self.section_tree_bottom_spacer.configure(height=spacer_height)
+
+        self.slider.configure(length=slider_length)
+        self.cmb_ai.configure(width=ai_width)
+        self.txt_ext.configure(width=ext_width)
+        self.txt_prompt.configure(height=prompt_height)
+        self.prompt_frame.pack_configure(pady=top_prompt_pady)
+
+        for canvas in (self.chk_canvas, self.struct_canvas):
+            canvas.configure(width=self._checkbox_visual_size, height=self._checkbox_visual_size)
+
+        for label in (self.lbl_chk_text, self.lbl_struct_text):
+            label.configure(font=("Segoe UI", checkbox_font_size, "bold"))
+
+        self.chk_container.pack_configure(pady=chk_top_pady)
+        self.struct_container.pack_configure(pady=chk_mid_pady)
+        self.struct_container.pack_configure(pady=chk_mid_pady)
+
+        self._draw_checkbox()
+        self._draw_struct_checkbox()
+        self._draw_struct_checkbox()
 
     def _on_ai_selected(self, event=None):
         pass
@@ -474,28 +550,32 @@ class CodeView(ttk.Frame):
     def _draw_checkbox(self):
         """Draws the current state on the canvas."""
         self.chk_canvas.delete("all")
-        
+        size = max(int(getattr(self, "_checkbox_visual_size", 30)), 20)
+        factor = size / 30.0
+        rect_start = max(int(round(4 * factor)), 3)
+        rect_end = size - rect_start
+        line_width = max(int(round(3 * factor)), 2)
+
         is_checked = self.var_return_regions.get()
-        color = Styles.COLOR_ACCENT if is_checked else Styles.COLOR_DIM
         outline_color = Styles.COLOR_ACCENT if is_checked else Styles.COLOR_DIM
-        
-        # Draw Border Square
+
         self.chk_canvas.create_rectangle(
-            4, 4, 26, 26, 
-            outline=outline_color, 
+            rect_start, rect_start, rect_end, rect_end,
+            outline=outline_color,
             width=2,
             fill=Styles.COLOR_INPUT_BG if not is_checked else Styles.COLOR_ACCENT
         )
-        
+
         if is_checked:
-            # Draw Checkmark (X or Check)
             self.chk_canvas.create_line(
-                8, 15, 13, 20, 
-                fill="white", width=3, capstyle=tk.ROUND
+                int(round(8 * factor)), int(round(15 * factor)),
+                int(round(13 * factor)), int(round(20 * factor)),
+                fill="white", width=line_width, capstyle=tk.ROUND
             )
             self.chk_canvas.create_line(
-                13, 20, 22, 10, 
-                fill="white", width=3, capstyle=tk.ROUND
+                int(round(13 * factor)), int(round(20 * factor)),
+                int(round(22 * factor)), int(round(10 * factor)),
+                fill="white", width=line_width, capstyle=tk.ROUND
             )
 
     def _on_chk_hover_enter(self, event):
@@ -518,48 +598,53 @@ class CodeView(ttk.Frame):
         # Initial Refresh
         self._refresh_sections()
 
-    def _draw_impl_checkbox(self):
-        """Draws the current state on the implementation checkbox canvas."""
-        self.impl_canvas.delete("all")
-        
-        is_checked = self.var_implementation_mode.get()
-        color = Styles.COLOR_ACCENT if is_checked else Styles.COLOR_DIM
+    def _draw_struct_checkbox(self):
+        """Draws the current state on the structure checkbox canvas."""
+        self.struct_canvas.delete("all")
+        size = max(int(getattr(self, "_checkbox_visual_size", 30)), 20)
+        factor = size / 30.0
+        rect_start = max(int(round(4 * factor)), 3)
+        rect_end = size - rect_start
+        line_width = max(int(round(3 * factor)), 2)
+
+        is_checked = self.var_return_structures.get()
         outline_color = Styles.COLOR_ACCENT if is_checked else Styles.COLOR_DIM
-        
-        # Draw Border Square
-        self.impl_canvas.create_rectangle(
-            4, 4, 26, 26, 
-            outline=outline_color, 
+
+        self.struct_canvas.create_rectangle(
+            rect_start, rect_start, rect_end, rect_end,
+            outline=outline_color,
             width=2,
             fill=Styles.COLOR_INPUT_BG if not is_checked else Styles.COLOR_ACCENT
         )
-        
+
         if is_checked:
-            # Draw Checkmark
-            self.impl_canvas.create_line(
-                8, 15, 13, 20, 
-                fill="white", width=3, capstyle=tk.ROUND
+            self.struct_canvas.create_line(
+                int(round(8 * factor)), int(round(15 * factor)),
+                int(round(13 * factor)), int(round(20 * factor)),
+                fill="white", width=line_width, capstyle=tk.ROUND
             )
-            self.impl_canvas.create_line(
-                13, 20, 22, 10, 
-                fill="white", width=3, capstyle=tk.ROUND
+            self.struct_canvas.create_line(
+                int(round(13 * factor)), int(round(20 * factor)),
+                int(round(22 * factor)), int(round(10 * factor)),
+                fill="white", width=line_width, capstyle=tk.ROUND
             )
 
-    def _on_impl_hover_enter(self, event):
-        self.lbl_impl_text.configure(foreground=Styles.COLOR_ACCENT)
+    def _on_struct_hover_enter(self, event):
+        self.lbl_struct_text.configure(foreground=Styles.COLOR_ACCENT)
 
-    def _on_impl_hover_leave(self, event):
-        self.lbl_impl_text.configure(foreground=Styles.COLOR_FG_TEXT)
+    def _on_struct_hover_leave(self, event):
+        self.lbl_struct_text.configure(foreground=Styles.COLOR_FG_TEXT)
 
-    def _toggle_implementation(self, event=None):
-        """Toggles the implementation mode checkbox state."""
-        new_val = not self.var_implementation_mode.get()
-        self.var_implementation_mode.set(new_val)
-        self._draw_impl_checkbox()
+    def _toggle_return_structures(self, event=None):
+        """Toggles the structure-output checkbox state."""
+        new_val = not self.var_return_structures.get()
+        self.var_return_structures.set(new_val)
+        self._draw_struct_checkbox()
 
-        # Update Config
         if hasattr(self.controller, 'config_manager'):
-             self.controller.config_manager.set_implementation_mode(new_val)
+             self.controller.config_manager.set_return_structures(new_val)
+
+
 
 
     def _on_limit_change(self, val):
@@ -651,14 +736,18 @@ class CodeView(ttk.Frame):
         
         extension = self.ext_var.get()
         
-        # Run search in thread
-        threading.Thread(target=self._perform_search, args=(text, section, subsection, extension), daemon=True).start()
+        min_files = 0
+        if hasattr(self.controller, 'config_manager'):
+            min_files = self.controller.config_manager.get_file_limit()
 
-    def _perform_search(self, text, section, subsection=None, extension="Todos"):
+        # Run search in thread
+        threading.Thread(target=self._perform_search, args=(text, section, subsection, extension, min_files), daemon=True).start()
+
+    def _perform_search(self, text, section, subsection=None, extension="Todos", min_files=0):
         """Executes search logic (Thread Safe)."""
         try:
             relevant_files = self.controller.get_relevant_files_for_ui(
-                text, selected_section=section, selected_subsection=subsection, extension=extension
+                text, selected_section=section, selected_subsection=subsection, extension=extension, min_files=min_files
             )
             # Schedule UI update on main thread
             self.after(0, lambda: self._update_file_list_safe(relevant_files))
@@ -739,6 +828,14 @@ class CodeView(ttk.Frame):
             if iid == "EMPTY_DESELECT":
                 return "break"
 
+    def _on_section_spacer_click(self, event=None):
+        """Deselect sections when clicking the fixed spacer below the tree."""
+        selected = self.section_tree.selection()
+        if selected:
+            self.section_tree.selection_remove(*selected)
+        self._on_section_select(force_reload=True)
+        return "break"
+
     def _on_copy_prompt(self, event=None):
         # If triggered by event, prevent default behavior (newline)
         if event:
@@ -756,8 +853,10 @@ class CodeView(ttk.Frame):
         # Check return regions
         return_regions = self.var_return_regions.get()
 
-        # Check implementation mode
-        implementation_mode = self.var_implementation_mode.get()
+        # Check return structures
+        return_structures = self.var_return_structures.get()
+
+
 
         # Get file limit from slider
         try:
@@ -773,8 +872,8 @@ class CodeView(ttk.Frame):
             selected_section=section,
             selected_subsection=subsection,
             return_regions=return_regions, 
+            return_structures=return_structures,
             min_files=min_files, 
-            implementation_mode=implementation_mode,
             file_paths=selected_file_paths
         )
         
@@ -801,7 +900,7 @@ class CodeView(ttk.Frame):
                     selected_section=section,
                     selected_subsection=subsection,
                     return_regions=return_regions,
-                    implementation_mode=implementation_mode
+                    return_structures=return_structures
                 )
                 
                 self.clipboard_clear()
@@ -810,13 +909,11 @@ class CodeView(ttk.Frame):
             else:
                 # --- Modo normal: mensaje + instrucciones regiones ---
                 clipboard_content = text
-                if return_regions:
+                if return_structures:
+                    clipboard_content += "\n\nIMPORTANTE: Devuelve SOLO las estructuras completas o bloques completos que hayan necesitado modificación. Cada estructura debe incluir su cabecera y cuerpo completos. Si el cambio afecta a XML, HTML u otro lenguaje de etiquetas, devuelve el nodo o bloque de etiquetas completo modificado. No devuelvas fragmentos parciales ni código sin cambios."
+                elif return_regions:
                     clipboard_content += "\n\nIMPORTANTE: Primero, lista todas las regiones que necesitan modificación. Después, devuelve SOLO las regiones modificadas COMPLETAS. Solo las regiones que necesitaron modificación, y deben estar completas. No devuelvas código sin cambios."
-                if implementation_mode:
-                    clipboard_content += "\n\nINSTRUCCIONES DE IMPLEMENTACIÓN:"
-                    clipboard_content += "\n1. Realiza TODAS las modificaciones necesarias en el código."
-                    clipboard_content += "\n2. Si es necesario crear, mover o eliminar ficheros o carpetas, proporciona los COMANDOS DE CONSOLA exactos a ejecutar."
-                    clipboard_content += "\n3. Todos los comandos deben ejecutarse desde la RAÍZ del proyecto."
+
                 
                 self.clipboard_clear()
                 self.clipboard_append(clipboard_content)
@@ -861,7 +958,7 @@ class CodeView(ttk.Frame):
         selected_section=None,
         selected_subsection=None,
         return_regions=False,
-        implementation_mode=False
+        return_structures=False
     ):
         """Builds a clipboard prompt tailored for coding agents."""
         lines = [
@@ -907,16 +1004,18 @@ class CodeView(ttk.Frame):
             "- Si hay varias opciones, elige la menos invasiva compatible con la tarea."
         ])
 
-        if implementation_mode:
+
+
+        if return_structures:
             lines.extend([
                 "",
-                "INSTRUCCIONES DE IMPLEMENTACIÓN:",
-                "1. Realiza TODAS las modificaciones necesarias en el código.",
-                "2. Si es necesario crear, mover o eliminar ficheros o carpetas, proporciona los COMANDOS DE CONSOLA exactos a ejecutar.",
-                "3. Todos los comandos deben ejecutarse desde la RAÍZ del proyecto."
+                "IMPORTANTE:",
+                "Devuelve SOLO las estructuras completas o bloques completos que hayan necesitado modificación.",
+                "Cada estructura debe incluir su cabecera y su cuerpo completos.",
+                "Si el cambio afecta a XML, HTML u otro lenguaje de etiquetas, devuelve el nodo o bloque de etiquetas completo modificado.",
+                "No devuelvas fragmentos parciales ni código sin cambios."
             ])
-
-        if return_regions:
+        elif return_regions:
             lines.extend([
                 "",
                 "IMPORTANTE:",
