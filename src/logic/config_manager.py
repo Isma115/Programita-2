@@ -158,6 +158,16 @@ class ConfigManager:
         self.config["file_limit"] = int(limit)
         self.save_config()
 
+    def get_code_extensions_filter(self):
+        """Returns the saved extensions filter for Code View."""
+        value = self.config.get("code_extensions_filter", "")
+        return value if isinstance(value, str) else ""
+
+    def set_code_extensions_filter(self, value):
+        """Sets the extensions filter for Code View and saves config."""
+        self.config["code_extensions_filter"] = value if isinstance(value, str) else ""
+        self.save_config()
+
     def get_return_regions(self):
         """Returns whether to return regions, defaulting to False."""
         return self.config.get("return_regions", False)
@@ -292,4 +302,3 @@ class ConfigManager:
         """Sets the last loaded document file path and saves config."""
         self.config["last_doc_file"] = self._normalize_path(file_path)
         self.save_config()
-

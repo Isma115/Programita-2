@@ -71,6 +71,19 @@ class Application:
             if last_project and os.path.exists(last_project):
                 self.controller.load_project_folder(last_project)
 
+        # Ensure pynput listeners are stopped before Tk destroys its window
+        # to prevent the GIL / PyEval_RestoreThread fatal crash on macOS.
+        self.root.protocol("WM_DELETE_WINDOW", self._on_close)
+
+    def _on_close(self):
+        """Gracefully stop background listeners before destroying the window."""
+        try:
+            if hasattr(self.controller, 'hotkey_listener'):
+                self.controller.hotkey_listener.stop()
+        except Exception:
+            pass
+        self.root.destroy()
+
     def _open_search_overlay(self, event=None):
         """Opens the global search overlay if not already open."""
         # Check if overlay exists and is still alive

@@ -164,6 +164,10 @@ class DocView(ttk.Frame):
         self.code_font_family = self._resolve_code_font_family()
         self.code_font_size = ARB_FONT_CODE[1] if ARB_FONT_CODE else 14
         self.toolbar_surface_bg = Styles.COLOR_DOC_TOOLBAR_BG
+        self._doc_tree_drag_source = None
+        self._doc_tree_drag_start = None
+        self._doc_tree_drag_active = False
+        self._doc_tree_drop_target = None
 
         try:
             self.controller = parent.master.controller
@@ -341,95 +345,92 @@ class DocView(ttk.Frame):
         
         # Action Buttons Row (Toolbar)
         self.actions_row = tk.Frame(self.header_frame, bg=self.toolbar_surface_bg)
-        self.actions_row.pack(side="top", fill="x", padx=10, pady=8)
-
+        self.actions_row.pack(side="top", fill="x", padx=5, pady=8)  # Reducido padx a 5
+        
         self.toolbar_buttons_group = self._create_toolbar_group(self.actions_row, side="left")
-
+                
         self.btn_load = self._create_toolbar_button(
             self.toolbar_buttons_group,
             side="left",
-            padx=0,
+            padx=1,  # Reducido de 0 a 1 para un pequeño espacio entre botones
             style="DocToolbarFlat.TButton",
             image=self.icons.get("folder_open"),
             text="Abrir",
             command=self._on_load_docs,
             tooltip_text="Abrir docs"
         )
-
+        
         self.btn_new = self._create_toolbar_button(
             self.toolbar_buttons_group,
             side="left",
-            padx=0,
+            padx=1,
             style="DocToolbarFlat.TButton",
             image=self.icons.get("file_plus"),
             text="Nuevo",
             command=self._on_new_doc,
             tooltip_text="Nuevo doc"
         )
-
+        
         self.btn_save = self._create_toolbar_button(
             self.toolbar_buttons_group,
             side="left",
-            padx=0,
+            padx=1,
             style="DocToolbarFlat.TButton",
             image=self.icons.get("save"),
             text="Guardar",
             command=self._on_save_doc,
             tooltip_text="Guardar doc"
         )
-
+        
         self.btn_prompt_template = self._create_toolbar_button(
             self.toolbar_buttons_group,
             side="left",
-            padx=0,
+            padx=1,
             style="DocToolbarFlat.TButton",
             text="Prompt",
             command=self._open_prompt_builder,
             tooltip_text="Crear prompt"
         )
-
-        # Rename and Delete buttons moved to the Treeview sidebar
-        # Search bar removed as requested
-
+        
         # View Toggles
         mode_icon = self.icons.get("edit") if not self.is_editor_mode else self.icons.get("view")
         self.btn_mode = self._create_toolbar_button(
             self.toolbar_buttons_group,
             side="left",
-            padx=0,
+            padx=1,
             style="DocToolbarFlat.TButton",
             image=mode_icon,
             text="Editar" if not self.is_editor_mode else "Vista",
             command=self._toggle_mode,
             tooltip_text="Cambiar vista"
         )
-
+        
         self.btn_diagrams = self._create_toolbar_button(
             self.toolbar_buttons_group,
             side="left",
-            padx=0,
+            padx=1,
             style="DocToolbarFlat.TButton",
             text="Diagrama",
             command=self._open_diagram_editor,
             tooltip_text="Crear diagrama"
         )
-
+        
         theme_icon = self.icons.get("moon") if not self.is_dark_mode else self.icons.get("sun")
         self.btn_theme = self._create_toolbar_button(
             self.toolbar_buttons_group,
             side="left",
-            padx=0,
+            padx=1,
             style="DocToolbarFlat.TButton",
             image=theme_icon,
             text="Tema",
             command=self._toggle_theme,
             tooltip_text="Cambiar tema"
         )
-
+        
         self.btn_toggle_fullscreen = self._create_toolbar_button(
             self.toolbar_buttons_group,
             side="left",
-            padx=0,
+            padx=1,
             style="DocToolbarFlat.TButton",
             image=self.icons.get("fullscreen_enter"),
             text="Pantalla",
@@ -669,11 +670,15 @@ class DocView(ttk.Frame):
         self.section_tree.column("#0", stretch=True)
         self.section_tree.bind("<<TreeviewSelect>>", self._on_section_select)
         self.section_tree.bind("<Button-1>", self._on_section_click)
+        self.section_tree.bind("<ButtonPress-1>", self._on_section_tree_press, add="+")
+        self.section_tree.bind("<B1-Motion>", self._on_section_tree_drag_motion, add="+")
+        self.section_tree.bind("<ButtonRelease-1>", self._on_section_tree_release, add="+")
         
         # Tags for different file types and folders
         self.section_tree.tag_configure("folder", font=("Segoe UI", 16, "bold"), foreground=Styles.COLOR_ACCENT)
         self.section_tree.tag_configure("md", font=("Segoe UI", 14))
         self.section_tree.tag_configure("document", font=("Segoe UI", 14), foreground=Styles.COLOR_DIM)
+        self.section_tree.tag_configure("drop_target", background="#244b74", foreground="#f4f7fb")
         
         self.section_tree.pack(fill="both", expand=True, padx=5, pady=5)
                 
@@ -698,30 +703,6 @@ class DocView(ttk.Frame):
         if self.controller:
             self._refresh_sections()
 
-        # Footer controls for the sidebar
-        footer_btn_frame = ttk.Frame(self.right_top_frame, style="Sidebar.TFrame")
-        footer_btn_frame.pack(fill="x", side="bottom", padx=5, pady=5)
-
-        ttk.Button(
-            footer_btn_frame,
-            text="Nueva Carpeta",
-            style="ToolbarIcon.TButton",
-            command=self._on_add_section
-        ).pack(side="left", padx=2)
-
-        ttk.Button(
-            footer_btn_frame,
-            text="Renombrar",
-            style="ToolbarIcon.TButton",
-            command=self._on_edit_section
-        ).pack(side="left", padx=2)
-
-        ttk.Button(
-            footer_btn_frame,
-            text="Eliminar",
-            style="ToolbarIcon.TButton",
-            command=self._on_delete_section
-        ).pack(side="left", padx=2)
 
         self.after_idle(self._set_default_sections_panel_width)
         self._update_sidebar_toggle()
@@ -742,14 +723,11 @@ class DocView(ttk.Frame):
         parent_bg = self.toolbar_surface_bg
         slot_bg = self.toolbar_surface_bg if str(style).startswith("DocToolbarFlat") else parent_bg
         has_label = bool(text)
-        slot_width = 42
-        if has_label and image:
-            slot_width = max(104, 56 + (len(text) * 8))
-        elif has_label:
-            slot_width = max(88, 34 + (len(text) * 8))
 
-        slot = tk.Frame(parent, bg=slot_bg, width=slot_width, height=38)
-        slot.pack(side=side, padx=padx)
+        # Ya no usamos slot_width fijo - permitimos que se expanda
+        slot = tk.Frame(parent, bg=slot_bg, height=42)
+        # Cambiado: expand=True para que ocupe espacio, fill="x" para expandir horizontalmente
+        slot.pack(side=side, fill="x", expand=True, padx=padx)
         slot.pack_propagate(False)
 
         button = ttk.Button(
@@ -772,7 +750,8 @@ class DocView(ttk.Frame):
             highlightthickness=0,
             bd=0
         )
-        group.pack(side=side, padx=0)
+        # Cambiado: ahora el grupo se expande para ocupar todo el espacio
+        group.pack(side=side, fill="x", expand=True, padx=0)
         return group
 
     def _on_load_docs(self):
@@ -955,7 +934,163 @@ class DocView(ttk.Frame):
             return True
         return False
 
+    def _reset_doc_tree_drag_state(self):
+        self._set_doc_tree_drop_target(None)
+        self._doc_tree_drag_source = None
+        self._doc_tree_drag_start = None
+        self._doc_tree_drag_active = False
+        try:
+            self.section_tree.configure(cursor="")
+        except Exception:
+            pass
+
+    def _set_doc_tree_drop_target(self, target_iid):
+        previous = self._doc_tree_drop_target
+        if previous and self.section_tree.exists(previous):
+            tags = tuple(tag for tag in self.section_tree.item(previous, "tags") if tag != "drop_target")
+            self.section_tree.item(previous, tags=tags)
+
+        self._doc_tree_drop_target = None
+        if not target_iid or not self.section_tree.exists(target_iid):
+            return
+
+        tags = list(self.section_tree.item(target_iid, "tags"))
+        if "drop_target" not in tags:
+            tags.append("drop_target")
+            self.section_tree.item(target_iid, tags=tuple(tags))
+        self._doc_tree_drop_target = target_iid
+
+    def _is_descendant_path(self, base_path, candidate_path):
+        try:
+            return os.path.commonpath([os.path.normpath(base_path), os.path.normpath(candidate_path)]) == os.path.normpath(base_path)
+        except Exception:
+            return False
+
+    def _resolve_doc_tree_drop_target(self, event):
+        source_path = self._doc_tree_drag_source
+        if not source_path or not os.path.exists(source_path):
+            return None
+
+        target_iid = self.section_tree.identify_row(event.y)
+        if not target_iid or not self.section_tree.exists(target_iid):
+            return None
+        if target_iid == source_path:
+            return None
+        if not os.path.isdir(target_iid):
+            return None
+
+        normalized_source = os.path.normpath(source_path)
+        normalized_target = os.path.normpath(target_iid)
+        if os.path.dirname(normalized_source) == normalized_target:
+            return None
+
+        if os.path.isdir(source_path) and self._is_descendant_path(normalized_source, normalized_target):
+            return None
+
+        return target_iid
+
+    def _get_path_after_move(self, current_path, source_path, moved_path):
+        if not current_path:
+            return current_path
+
+        normalized_current = os.path.normpath(current_path)
+        normalized_source = os.path.normpath(source_path)
+        normalized_moved = os.path.normpath(moved_path)
+
+        if normalized_current == normalized_source:
+            return normalized_moved
+
+        if os.path.isdir(source_path) and self._is_descendant_path(normalized_source, normalized_current):
+            relative_path = os.path.relpath(normalized_current, normalized_source)
+            return os.path.join(normalized_moved, relative_path)
+
+        return current_path
+
+    def _perform_doc_tree_drop(self, source_path, target_dir):
+        source_path = os.path.normpath(source_path)
+        target_dir = os.path.normpath(target_dir)
+        destination_path = os.path.join(target_dir, os.path.basename(source_path))
+
+        if os.path.exists(destination_path):
+            messagebox.showwarning(
+                "Mover en Documentación",
+                f"Ya existe '{os.path.basename(source_path)}' dentro de '{os.path.basename(target_dir)}'."
+            )
+            return False
+
+        confirmed = messagebox.askyesno(
+            "Mover en Documentación",
+            f"¿Mover '{os.path.basename(source_path)}' dentro de '{os.path.basename(target_dir)}'?"
+        )
+        if not confirmed:
+            return False
+
+        new_current_file_path = self._get_path_after_move(self.current_file_path, source_path, destination_path)
+
+        try:
+            shutil.move(source_path, target_dir)
+        except Exception as e:
+            messagebox.showerror("Error", f"No se pudo mover: {e}")
+            return False
+
+        if self.current_file_path and new_current_file_path != self.current_file_path:
+            self.current_file_path = new_current_file_path
+            self._update_breadcrumb(new_current_file_path)
+            if self.controller and hasattr(self.controller, "config_manager"):
+                self.controller.config_manager.set_last_doc_file(new_current_file_path)
+
+        preferred_path = new_current_file_path if new_current_file_path and os.path.exists(new_current_file_path) else destination_path
+        self._refresh_sections(preferred_path=preferred_path)
+        return True
+
+    def _on_section_tree_press(self, event):
+        self._reset_doc_tree_drag_state()
+
+        iid = self.section_tree.identify_row(event.y)
+        if not iid or not self.section_tree.exists(iid):
+            return
+
+        self._doc_tree_drag_source = iid
+        self._doc_tree_drag_start = (event.x, event.y)
+
+    def _on_section_tree_drag_motion(self, event):
+        if not self._doc_tree_drag_source or not self._doc_tree_drag_start:
+            return
+
+        delta_x = abs(event.x - self._doc_tree_drag_start[0])
+        delta_y = abs(event.y - self._doc_tree_drag_start[1])
+        if not self._doc_tree_drag_active and max(delta_x, delta_y) < 6:
+            return
+
+        self._doc_tree_drag_active = True
+        try:
+            self.section_tree.configure(cursor="hand2")
+        except Exception:
+            pass
+
+        target_iid = self._resolve_doc_tree_drop_target(event)
+        self._set_doc_tree_drop_target(target_iid)
+        return "break"
+
+    def _on_section_tree_release(self, event):
+        if not self._doc_tree_drag_active:
+            self._reset_doc_tree_drag_state()
+            return
+
+        source_path = self._doc_tree_drag_source
+        target_iid = self._resolve_doc_tree_drop_target(event)
+        self._reset_doc_tree_drag_state()
+
+        if not source_path or not target_iid:
+            return "break"
+
+        self._perform_doc_tree_drop(source_path, target_iid)
+        return "break"
+
     def _on_section_select(self, event=None, force_reload=False):
+        if self._doc_tree_drag_active:
+            return
+
         selected_items = self.section_tree.selection()
         if not selected_items:
             # self._display_message("Selecciona un documento o carpeta.")
@@ -2468,7 +2603,8 @@ class DocView(ttk.Frame):
                 if is_dir:
                     # Create node
                     node_id = full_path
-                    self.section_tree.insert(parent_id, "end", iid=node_id, text=f"📁 {name}", tags=("folder",), open=bool(query))
+                    # [MODIFICACIÓN] Eliminado el emoji "📁" de las carpetas
+                    self.section_tree.insert(parent_id, "end", iid=node_id, text=f"{name}", tags=("folder",), open=bool(query))
                     self._build_tree(full_path, node_id)
                     
                     # If query is active and this folder has no children after recursion, and doesn't match itself, remove it
@@ -2476,9 +2612,9 @@ class DocView(ttk.Frame):
                         self.section_tree.delete(node_id)
                 else:
                     if not query or query in name.lower():
-                        icon = "📝 " if ext == ".md" else "📄 "
+                        # [MODIFICACIÓN] Eliminados los emojis "📝" y "📄" de los archivos
                         tag = "md" if ext == ".md" else "document"
-                        self.section_tree.insert(parent_id, "end", iid=full_path, text=f"{icon}{name}", tags=(tag,))
+                        self.section_tree.insert(parent_id, "end", iid=full_path, text=f"{name}", tags=(tag,))
         except Exception as e:
             logging.error(f"Error building tree for {root_path}: {e}")
 

@@ -48,18 +48,18 @@ class MainLayout(ttk.Frame):
         # Buttons should take up the whole width
         self.nav_buttons_frame = tk.Frame(self.navbar, bg=Styles.COLOR_DOC_TOOLBAR_BG, bd=0, highlightthickness=0)
         self.nav_buttons_frame.pack(side="left", fill="x", expand=True, padx=12, pady=10)
-        
+
         # Configure columns to distribute space equally
         self.nav_buttons_frame.columnconfigure(0, weight=1)
         self.nav_buttons_frame.columnconfigure(1, weight=1)
         self.nav_buttons_frame.columnconfigure(2, weight=1)
 
         self.nav_tabs = {}
-        self._create_nav_tab(0, "docs", "Documentación", self.controller.show_docs_view, "Ver docs")
-        self._create_nav_tab(1, "database", "BBDD", self.controller.show_database_view, "Ver BBDD")
-        self._create_nav_tab(2, "code", "Código", self.controller.show_code_view, "Ver código")
+        self._create_nav_tab(0, "docs", "Documentación", self.controller.show_docs_view)
+        self._create_nav_tab(1, "database", "BBDD", self.controller.show_database_view)
+        self._create_nav_tab(2, "code", "Código", self.controller.show_code_view)
 
-    def _create_nav_tab(self, column, key, text, command, tooltip_text):
+    def _create_nav_tab(self, column, key, text, command):
         tab_frame = tk.Frame(
             self.nav_buttons_frame,
             bg=Styles.COLOR_DOC_TOOLBAR_BG,
@@ -68,7 +68,7 @@ class MainLayout(ttk.Frame):
             cursor="hand2"
         )
         tab_frame.grid(row=0, column=column, sticky="nsew", padx=0, pady=0)
-
+    
         tab_label = tk.Label(
             tab_frame,
             text=text,
@@ -81,13 +81,12 @@ class MainLayout(ttk.Frame):
             cursor="hand2"
         )
         tab_label.pack(fill="both", expand=True)
-
+    
         for widget in (tab_frame, tab_label):
             widget.bind("<Button-1>", lambda event, cmd=command: cmd())
             widget.bind("<Enter>", lambda event, name=key: self._set_nav_hover(name, True))
             widget.bind("<Leave>", lambda event, name=key: self._set_nav_hover(name, False))
-
-        attach_tooltip(tab_frame, tooltip_text)
+    
         self.nav_tabs[key] = {"frame": tab_frame, "label": tab_label}
 
     def _on_layout_resize(self, event=None):

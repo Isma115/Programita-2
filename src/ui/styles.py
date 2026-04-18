@@ -108,6 +108,8 @@ class Styles:
         accent-aware outline to visually soften the control.
         """
         try:
+            if getattr(widget, "_skip_soften", False):
+                return
             widget_class = widget.winfo_class()
         except Exception:
             return
@@ -115,7 +117,7 @@ class Styles:
         common = {
             "relief": "flat",
             "borderwidth": 0,
-            "highlightthickness": Styles.SOFT_EDGE_BORDER,
+            "highlightthickness": 0,
             "highlightbackground": Styles.COLOR_BORDER,
             "highlightcolor": Styles.COLOR_ACCENT,
         }
@@ -180,7 +182,7 @@ class Styles:
         frame.configure(
             bg=bg or Styles.COLOR_SIDEBAR_CARD_BG,
             bd=0,
-            highlightthickness=1,
+            highlightthickness=0,
             highlightbackground=Styles.COLOR_BORDER,
             highlightcolor=Styles.COLOR_ACCENT
         )
@@ -193,7 +195,7 @@ class Styles:
             insertbackground=Styles.COLOR_INPUT_FG,
             relief="flat",
             bd=0,
-            highlightthickness=1,
+            highlightthickness=0,
             highlightbackground=Styles.COLOR_BORDER,
             highlightcolor=Styles.COLOR_ACCENT
         )
@@ -319,6 +321,8 @@ class Styles:
             font=Styles.scale_font(("Segoe UI", 17, "bold")),
             borderwidth=1,
             bordercolor=Styles.COLOR_BUTTON_BORDER,
+            lightcolor=Styles.COLOR_BUTTON_BORDER,
+            darkcolor=Styles.COLOR_BUTTON_BORDER,
             focuscolor=Styles.COLOR_BUTTON_BG,
             padding=Styles.scale_padding((18, 12)),
             relief="flat",
@@ -354,7 +358,26 @@ class Styles:
                 ("pressed", Styles.COLOR_BUTTON_FG_ACTIVE)
             ]
         )
-
+        # Botón Añadir Proyecto (con altura ligeramente aumentada)
+        style.configure(
+            "AddProject.TButton",
+            background=Styles.COLOR_BUTTON_BG,
+            foreground=Styles.COLOR_BUTTON_FG,
+            font=Styles.scale_font(("Segoe UI", 18, "bold")),  # Fuente más grande
+            borderwidth=1,
+            bordercolor=Styles.COLOR_BUTTON_BORDER,
+            lightcolor=Styles.COLOR_BUTTON_BORDER,
+            darkcolor=Styles.COLOR_BUTTON_BORDER,
+            focuscolor=Styles.COLOR_BUTTON_BG,
+            padding=Styles.scale_padding((12, 12)),  # Padding vertical aumentado (antes era (18,12))
+            relief="flat",
+            anchor="center"
+        )
+        style.map(
+            "AddProject.TButton",
+            background=[("active", Styles.COLOR_BUTTON_HOVER), ("disabled", Styles.COLOR_BUTTON_BG), ("pressed", Styles.COLOR_BUTTON_ACTIVE)],
+            foreground=[("active", Styles.COLOR_BUTTON_FG_ACTIVE), ("disabled", Styles.COLOR_ACCENT), ("pressed", Styles.COLOR_BUTTON_FG_ACTIVE)]
+        )
         style.configure(
             "SidebarToggle.TButton",
             background=Styles.COLOR_BUTTON_BG,
@@ -362,6 +385,8 @@ class Styles:
             font=Styles.scale_font(("Segoe UI", 14, "bold")),
             borderwidth=Styles.SOFT_EDGE_BORDER,
             bordercolor=Styles.COLOR_BUTTON_BORDER,
+            lightcolor=Styles.COLOR_BUTTON_BORDER,
+            darkcolor=Styles.COLOR_BUTTON_BORDER,
             focuscolor=Styles.COLOR_BUTTON_BG,
             padding=Styles.scale_padding((10, 10)),
             relief="flat",
@@ -380,6 +405,8 @@ class Styles:
             font=Styles.scale_font(("Segoe UI", 14, "bold")),
             borderwidth=Styles.SOFT_EDGE_BORDER,
             bordercolor=Styles.COLOR_BUTTON_BORDER,
+            lightcolor=Styles.COLOR_BUTTON_BORDER,
+            darkcolor=Styles.COLOR_BUTTON_BORDER,
             focuscolor=Styles.COLOR_BUTTON_BG,
             padding=Styles.scale_padding((10, 8)),
             relief="flat",
@@ -399,6 +426,8 @@ class Styles:
             font=Styles.scale_font(("Segoe UI", 14)),
             borderwidth=Styles.SOFT_EDGE_BORDER,
             bordercolor=Styles.COLOR_BUTTON_BORDER,
+            lightcolor=Styles.COLOR_BUTTON_BORDER,
+            darkcolor=Styles.COLOR_BUTTON_BORDER,
             focuscolor=Styles.COLOR_BUTTON_BG,
             padding=Styles.scale_padding((10, 6)),
             relief="flat",
@@ -452,6 +481,8 @@ class Styles:
             font=Styles.FONT_BUTTON,
             borderwidth=Styles.SOFT_EDGE_BORDER,
             bordercolor=Styles.COLOR_BUTTON_BORDER,
+            lightcolor=Styles.COLOR_BUTTON_BORDER,
+            darkcolor=Styles.COLOR_BUTTON_BORDER,
             padding=Styles.scale_padding((18, 10)),
             relief="flat",
             anchor="center"
@@ -470,6 +501,8 @@ class Styles:
             font=Styles.FONT_BUTTON,
             borderwidth=Styles.SOFT_EDGE_BORDER,
             bordercolor=Styles.COLOR_BUTTON_BORDER,
+            lightcolor=Styles.COLOR_BUTTON_BORDER,
+            darkcolor=Styles.COLOR_BUTTON_BORDER,
             padding=Styles.scale_padding((18, 10)),
             relief="flat",
             anchor="center"
@@ -503,6 +536,8 @@ class Styles:
             fieldbackground=Styles.COLOR_INPUT_BG,
             borderwidth=Styles.SOFT_EDGE_BORDER,
             bordercolor=Styles.COLOR_BORDER,
+            lightcolor=Styles.COLOR_BORDER,
+            darkcolor=Styles.COLOR_BORDER,
             relief="flat",
             font=Styles.FONT_MAIN,
             rowheight=Styles.scale_size(40)
@@ -514,6 +549,8 @@ class Styles:
             font=Styles.scale_font(("Segoe UI", 14, "bold")),
             borderwidth=Styles.SOFT_EDGE_BORDER,
             bordercolor=Styles.COLOR_BORDER,
+            lightcolor=Styles.COLOR_BORDER,
+            darkcolor=Styles.COLOR_BORDER,
             relief="flat",
             padding=Styles.scale_padding((10, 10))
         )
@@ -534,6 +571,8 @@ class Styles:
             "TLabelframe",
             background=Styles.COLOR_BG_MAIN,
             bordercolor=Styles.COLOR_BORDER,
+            lightcolor=Styles.COLOR_BORDER,
+            darkcolor=Styles.COLOR_BORDER,
             borderwidth=1,
             relief="solid"
         )
@@ -547,6 +586,8 @@ class Styles:
             "Borderless.TLabelframe",
             background=Styles.COLOR_BG_MAIN,
             bordercolor=Styles.COLOR_BG_MAIN,
+            lightcolor=Styles.COLOR_BG_MAIN,
+            darkcolor=Styles.COLOR_BG_MAIN,
             borderwidth=0,
             relief="flat"
         )

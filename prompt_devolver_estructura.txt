@@ -1,10 +1,3 @@
-IMPORTANTE: Lista primero las estructuras de código que necesiten modificación, las estructuras de código son funciones, clases, useEffect, etc. Cada estructura en su propio markdown completa, incluye la cabecera también en el markdown. Devuelve SOLO las estructuras de código que hayan sido modificadas (clases, funciones, métodos, etc.) PERO LAS QUIERO COMPLETAS y que necesiten ser reemplazadas. Si la estructura a modificar está dentro de una estructura padre prioriza la estructura hija que si necesite modificación
-
-Un ejemplo de respuesta válida podría ser:
-
-```javascript
-
-function sumatorio(operacion, lista){
-(CÓDIGO COMPLETO)
-}
-```
+- Devuelve las funciones de código COMPLETAS modificadas
+- No me devuelvas los archivos completos
+- No uses formato diff/patch

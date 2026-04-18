@@ -105,7 +105,7 @@ class CodeView(ttk.Frame):
             text="Sin proyecto",
             style="TLabel",
             anchor="center",
-            font=("Segoe UI", 13)
+            font=("Segoe UI", 18)
         )
         self.lbl_project_name.pack(side="left", fill="x", expand=True, padx=3)
 
@@ -121,9 +121,9 @@ class CodeView(ttk.Frame):
 
         self.btn_add_project = ttk.Button(
             self.project_bar,
-            text="＋",
-            style="Action.TButton",
-            width=1,
+            text="+",
+            style="AddProject.TButton",  # Estilo personalizado para este botón
+            width=2,
             command=self._on_add_project
         )
         self.btn_add_project.pack(side="left", padx=(6, 0))
@@ -167,30 +167,44 @@ class CodeView(ttk.Frame):
             values=self.AI_ORDER,
             state="readonly",
             width=20,
-            style="Borderless.TCombobox"  # [MODIFICACIÓN] Cambiado de "TCombobox" a "Borderless.TCombobox"
+            style="Borderless.TCombobox"
         )
-        self.cmb_ai.current(0) # Default to first item (Best Quality)
+        self.cmb_ai.current(0)
         self.cmb_ai.pack(side="left", padx=(20, 0))
 
-        # Extension Filter - BORDE ELIMINADO
-        self.ext_var = tk.StringVar(value="")
+        # Extension Filter - BORDE TOTALMENTE ELIMINADO
+        saved_extensions = ""
+        if hasattr(self, 'controller') and hasattr(self.controller, 'config_manager'):
+            saved_extensions = self.controller.config_manager.get_code_extensions_filter()
+        self.ext_var = tk.StringVar(value=saved_extensions)
 
         lbl_ext = ttk.Label(slider_frame, text="Exts:", style="TLabel")
         lbl_ext.pack(side="left", padx=(20, 5))
 
-        self.txt_ext = tk.Entry(
+        ext_frame = tk.Frame(
             slider_frame,
+            bg=Styles.COLOR_INPUT_BG,
+            bd=0,
+            highlightthickness=0
+        )
+        ext_frame.pack(side="left", padx=(0, 0))
+
+        self.txt_ext = tk.Entry(
+            ext_frame,
             textvariable=self.ext_var,
             bg=Styles.COLOR_INPUT_BG,
             fg=Styles.COLOR_INPUT_FG,
             insertbackground="white",
-            borderwidth=0,          # [MODIFICACIÓN] Ya estaba, asegura sin borde interno
-            highlightthickness=0,   # [MODIFICACIÓN] Ya estaba, asegura sin borde de foco
+            bd=0,
+            highlightthickness=0,
+            relief="flat",
             width=15,
             font=Styles.FONT_MAIN
         )
-        self.txt_ext.bind("<KeyRelease>", self._on_prompt_change)
-        self.txt_ext.pack(side="left", padx=(0, 0))
+        self.txt_ext._skip_soften = True
+        Styles.strip_classic_widget_chrome(self.txt_ext)
+        self.txt_ext.pack(fill="both", expand=True, ipady=2)  # ipady aumenta altura vertical
+        self.ext_var.trace_add("write", self._on_extension_change)
 
         # Initialize slider from config if controller available
         if hasattr(self, 'controller') and hasattr(self.controller, 'config_manager'):
@@ -359,8 +373,8 @@ class CodeView(ttk.Frame):
             parent,
             show="tree",
             selectmode="browse",
-            style="Treeview",
-            height=15
+            style="Borderless.Treeview",
+            height=12
         )
         self.section_tree.column("#0", stretch=True)
         self.section_tree.bind("<<TreeviewSelect>>", self._on_section_select)
@@ -506,7 +520,7 @@ class CodeView(ttk.Frame):
         narrow_width = width < 1150
         compact_width = width < 960
 
-        project_font_size = Styles.scale_size(11 if compact_height else 13)
+        project_font_size = Styles.scale_size(14 if compact_height else 18)
         section_label_size = Styles.scale_size(11 if compact_height else 13)
         section_dir_size = Styles.scale_size(9 if ultra_compact_height else 10 if compact_height else 11)
         section_entry_size = Styles.scale_size(13 if compact_height else 15)
@@ -520,9 +534,9 @@ class CodeView(ttk.Frame):
         ext_width = max(Styles.scale_size(10 if compact_width else 12 if narrow_width else 15), 8)
         spacer_height = Styles.scale_size(18 if ultra_compact_height else 28 if compact_height else 42)
         top_prompt_pady = Styles.scale_size(6 if compact_height else 10)
-        chk_top_pady = Styles.scale_padding((0, 1))     # [MODIFICACIÓN] de (2,2) a (0,1)
-        chk_mid_pady = Styles.scale_padding((1, 5))     # [MODIFICACIÓN] de (2,2) a (1,5)
-        chk_bottom_pady = Styles.scale_padding((5, 5))  # [MODIFICACIÓN] de (5,8) a (5,5)
+        chk_top_pady = Styles.scale_padding((0, 1))
+        chk_mid_pady = Styles.scale_padding((1, 5))
+        chk_bottom_pady = Styles.scale_padding((5, 5))
 
         self.lbl_project_name.configure(font=("Segoe UI", project_font_size))
         self.section_search_label.configure(font=("Segoe UI", section_label_size, "bold"))
@@ -685,6 +699,26 @@ class CodeView(ttk.Frame):
             return "structure_size_warning"
         return "structure_size_danger"
 
+    def _format_structure_type_label(self, structure_type):
+        mapping = {
+            "function": "Función",
+            "method": "Método",
+            "procedure": "Procedimiento",
+            "class": "Clase",
+            "interface": "Interfaz",
+            "struct": "Struct",
+            "enum": "Enum",
+            "namespace": "Namespace",
+            "module": "Módulo",
+            "tag": "Tag",
+        }
+        normalized = (structure_type or "").strip().lower()
+        if normalized in mapping:
+            return mapping[normalized]
+        if not normalized:
+            return "Estructura"
+        return normalized.replace("_", " ").title()
+
     def _on_show_structure_sizes(self):
         """Shows a popup with the detected functions and their line counts."""
         section_name, subsection_name = self._get_selected_section_info()
@@ -722,11 +756,12 @@ class CodeView(ttk.Frame):
         header = ttk.Frame(popup, style="Main.TFrame")
         header.pack(fill="x", padx=14, pady=(12, 6))
 
-        ttk.Label(
+        count_label = ttk.Label(
             header,
             text=f"{len(structures)} estructuras detectadas en {scope_label}",
             style="TLabel"
-        ).pack(anchor="w")
+        )
+        count_label.pack(anchor="w")
 
         legend = tk.Label(
             header,
@@ -737,6 +772,47 @@ class CodeView(ttk.Frame):
             anchor="w"
         )
         legend.pack(fill="x", pady=(2, 0))
+
+        filter_row = ttk.Frame(header, style="Main.TFrame")
+        filter_row.pack(fill="x", pady=(10, 0))
+
+        ttk.Label(
+            filter_row,
+            text="Tipo:",
+            style="TLabel"
+        ).pack(side="left")
+
+        type_order = {
+            "function": 0,
+            "method": 1,
+            "procedure": 2,
+            "class": 3,
+            "interface": 4,
+            "struct": 5,
+            "enum": 6,
+            "namespace": 7,
+            "module": 8,
+            "tag": 9,
+        }
+        available_types = sorted(
+            {item.get("type", "").strip().lower() for item in structures if item.get("type")},
+            key=lambda item: (type_order.get(item, 99), item)
+        )
+        filter_options = [("Todas", "__all__")]
+        filter_options.extend((self._format_structure_type_label(item), item) for item in available_types)
+        filter_labels = [label for label, _ in filter_options]
+        filter_value_by_label = {label: value for label, value in filter_options}
+
+        selected_type_var = tk.StringVar(value="Todas")
+        type_filter = ttk.Combobox(
+            filter_row,
+            state="readonly",
+            values=filter_labels,
+            textvariable=selected_type_var,
+            width=18,
+            font=("Segoe UI", 12)
+        )
+        type_filter.pack(side="left", padx=(8, 0))
 
         table_frame = ttk.Frame(popup, style="Main.TFrame")
         table_frame.pack(fill="both", expand=True, padx=14, pady=(0, 14))
@@ -760,21 +836,34 @@ class CodeView(ttk.Frame):
         table.tag_configure("structure_size_danger", background="#b33a2f", foreground=Styles.COLOR_FG_TEXT)
         table.tag_configure("structure_size_critical", background="#5b0d0d", foreground="#ffffff")
 
-        for item in structures:
-            display_name = item.get('display_name') or item.get('name', 'sin_nombre')
-            structure_type = item.get('type', 'estructura').replace('_', ' ').title()
-            if item.get("start_line"):
-                display_file = f"{item.get('file_rel_path', '')}:{item['start_line']}"
-            else:
-                display_file = item.get("file_rel_path", "")
+        def populate_table():
+            selected_type = filter_value_by_label.get(selected_type_var.get(), "__all__")
+            filtered_structures = [
+                item for item in structures
+                if selected_type == "__all__" or item.get("type", "").strip().lower() == selected_type
+            ]
 
-            line_count = int(item.get("line_count", 0))
-            table.insert(
-                "",
-                "end",
-                values=(structure_type, display_name, line_count, display_file),
-                tags=(self._get_structure_size_tag(line_count),)
-            )
+            table.delete(*table.get_children())
+            count_label.config(text=f"{len(filtered_structures)} estructuras detectadas en {scope_label}")
+
+            for item in filtered_structures:
+                display_name = item.get('display_name') or item.get('name', 'sin_nombre')
+                structure_type = self._format_structure_type_label(item.get('type', 'estructura'))
+                if item.get("start_line"):
+                    display_file = f"{item.get('file_rel_path', '')}:{item['start_line']}"
+                else:
+                    display_file = item.get("file_rel_path", "")
+
+                line_count = int(item.get("line_count", 0))
+                table.insert(
+                    "",
+                    "end",
+                    values=(structure_type, display_name, line_count, display_file),
+                    tags=(self._get_structure_size_tag(line_count),)
+                )
+
+        type_filter.bind("<<ComboboxSelected>>", lambda event: populate_table())
+        populate_table()
 
         table.pack(side="left", fill="both", expand=True)
         scrollbar.pack(side="right", fill="y")
@@ -824,7 +913,7 @@ class CodeView(ttk.Frame):
         idx = self.controller.get_current_project_index()
         idx = idx % len(dirs) if dirs else 0
         project_name = os.path.basename(dirs[idx])
-        self.lbl_project_name.config(text=f"📁 {project_name}  ({idx + 1}/{len(dirs)})")
+        self.lbl_project_name.config(text=f"{project_name}")
 
     def _update_sections_directory_label(self):
         """Displays the active directory used to store sections and subsections."""
@@ -914,6 +1003,12 @@ class CodeView(ttk.Frame):
             
         # Debounce: Wait 300ms after last keypress
         self._search_timer = self.after(300, self._start_background_search)
+
+    def _on_extension_change(self, *args):
+        """Persists the extensions filter and refreshes the file search."""
+        if hasattr(self.controller, 'config_manager'):
+            self.controller.config_manager.set_code_extensions_filter(self.ext_var.get())
+        self._on_prompt_change()
 
     def _start_background_search(self):
         """Starts the search in a separate thread."""
