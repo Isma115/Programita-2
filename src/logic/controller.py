@@ -160,12 +160,8 @@ class Controller:
 
             
         if return_structures:
-            prompt += (
-                "\n\nIMPORTANTE: Devuelve SOLO las estructuras completas o bloques completos que hayan necesitado "
-                "modificación. Cada estructura debe incluir su cabecera y cuerpo completos. Si el cambio afecta "
-                "a XML, HTML u otro lenguaje de etiquetas, devuelve el nodo o bloque de etiquetas completo "
-                "modificado. No devuelvas fragmentos parciales ni código sin cambios."
-            )
+            prompt += "\n\nIMPORTANTE: Devuelve SOLO las estructuras de código que hayan sido modificadas. No devuelvas archivos de código completos."
+
         elif return_regions:
             prompt += "\n\nIMPORTANTE: Primero, lista todas las regiones que necesitan modificación. Después, devuelve SOLO las regiones modificadas COMPLETAS. Solo las regiones que necesitaron modificación, y deben estar completas. No devuelvas código sin cambios."
         else:
