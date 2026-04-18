@@ -261,7 +261,7 @@ class Styles:
             background=Styles.COLOR_BG_SIDEBAR,
             foreground=Styles.COLOR_FG_TEXT,
             font=Styles.FONT_HEADER,
-            padding=Styles.scale_padding((15, 10))
+            padding=Styles.scale_padding((12, 6))
         )
         style.configure(
             "SidebarTitle.TLabel",
@@ -502,7 +502,7 @@ class Styles:
             bordercolor=Styles.COLOR_BORDER,
             relief="flat",
             font=Styles.FONT_MAIN,
-            rowheight=Styles.scale_size(55)
+            rowheight=Styles.scale_size(40)
         )
         style.configure(
             "Treeview.Heading",
@@ -622,7 +622,7 @@ class Styles:
             bordercolor=Styles.COLOR_INPUT_BG,
             relief="flat",
             font=Styles.FONT_MAIN,
-            rowheight=Styles.scale_size(55)
+            rowheight=Styles.scale_size(40)
         )
         style.map(
             "Borderless.Treeview",

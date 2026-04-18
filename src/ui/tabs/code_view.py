@@ -277,12 +277,16 @@ class CodeView(ttk.Frame):
         self.right_frame = ttk.Frame(self.paned_window, style="Sidebar.TFrame", width=self.DEFAULT_SECTIONS_PANEL_WIDTH)
         self.paned_window.add(self.right_frame, minsize=self.MIN_SECTIONS_PANEL_WIDTH, stretch="never")
 
-        # Split Right Pane into Top (List) and Bottom (Checkbox area)
+        # Split Right Pane into Top (List), Bottom (Checkbox area) and Bottom Spacer
         self.right_top_frame = ttk.Frame(self.right_frame, style="Sidebar.TFrame")
-        self.right_top_frame.pack(side="top", fill="both", expand=True)
+        self.right_top_frame.pack(side="top", fill="x", expand=False)
 
         self.right_bottom_frame = ttk.Frame(self.right_frame, style="Sidebar.TFrame")
-        self.right_bottom_frame.pack(side="bottom", fill="x", expand=False)
+        self.right_bottom_frame.pack(side="top", fill="x", expand=False)
+
+        # Bottom spacer to push everything up
+        self.right_bottom_spacer = ttk.Frame(self.right_frame, style="Sidebar.TFrame")
+        self.right_bottom_spacer.pack(side="top", fill="both", expand=True)
 
 
 
@@ -298,7 +302,7 @@ class CodeView(ttk.Frame):
             highlightcolor=Styles.COLOR_ACCENT,
             bd=0
         )
-        self.section_search_shell.pack(fill="x", padx=8, pady=(8, 6))
+        self.section_search_shell.pack(fill="x", padx=8, pady=(4, 4))
 
         self.section_search_label = tk.Label(
             self.section_search_shell,
@@ -320,34 +324,35 @@ class CodeView(ttk.Frame):
             bd=0,
             highlightthickness=0
         )
-        self.section_search_entry.pack(fill="x", padx=10, pady=(6, 10), ipady=8)
+        self.section_search_entry.pack(fill="x", padx=10, pady=(4, 6), ipady=4)
         self.section_search_entry.bind("<KeyRelease>", self._on_section_search_change)
 
-        # Section Tree (replaces Listbox for subsection hierarchy support)
         self.section_tree = ttk.Treeview(
             self.right_top_frame,
             show="tree",
             selectmode="browse",
-            style="Treeview"
+            style="Treeview",
+            height=15  # [MODIFICACIÓN] Aumentado de 14 a 18
         )
         self.section_tree.column("#0", stretch=True)
         self.section_tree.bind("<<TreeviewSelect>>", self._on_section_select)
         self.section_tree.bind("<Button-1>", self._on_section_click)
         
-        self.section_tree.tag_configure("section", font=("Segoe UI", 16, "bold"))
-        self.section_tree.tag_configure("subsection", font=("Segoe UI", 14))
+        self.section_tree.tag_configure("section", font=("Segoe UI", 15, "bold"))
+        self.section_tree.tag_configure("subsection", font=("Segoe UI", 13))
         
-        self.section_tree.pack(fill="both", expand=True, padx=5, pady=5)
+        self.section_tree.pack(fill="x", expand=False, padx=5, pady=(2, 5))
 
         # Espacio fijo bajo la lista para mantener una zona vacía visible
         # aunque se haga scroll dentro del Treeview.
         self.section_tree_bottom_spacer = tk.Frame(
             self.right_top_frame,
             bg=Styles.COLOR_BG_SIDEBAR,
-            height=42,
+            height=8,  # [MODIFICACIÓN] de 10 a 8 para compensar el aumento del tree
             cursor="arrow"
         )
-        self.section_tree_bottom_spacer.pack(fill="x", padx=5, pady=(0, 5))
+        self.section_tree_bottom_spacer.pack(fill="x", padx=5, pady=(0, 2))
+
         self.section_tree_bottom_spacer.pack_propagate(False)
         self.section_tree_bottom_spacer.bind("<Button-1>", self._on_section_spacer_click)
         
@@ -368,7 +373,7 @@ class CodeView(ttk.Frame):
         
         # Container frame for the custom checkbox
         self.chk_container = ttk.Frame(self.right_bottom_frame, style="Sidebar.TFrame", cursor="hand2")
-        self.chk_container.pack(fill="x", padx=15, pady=(2, 2))  # [MODIFICACIÓN] de 20,5 a 2,2
+        self.chk_container.pack(fill="x", padx=15, pady=(0, 1))  # [MODIFICACIÓN] de (2,2) a (0,1)
         
         # Indicator Canvas (The square) - Fixed size for consistency
         self.chk_canvas = tk.Canvas(
@@ -411,7 +416,7 @@ class CodeView(ttk.Frame):
         self.var_return_structures = tk.BooleanVar(value=val_structures)
 
         self.struct_container = ttk.Frame(self.right_bottom_frame, style="Sidebar.TFrame", cursor="hand2")
-        self.struct_container.pack(fill="x", padx=15, pady=(2, 2))  # [MODIFICACIÓN] de 5,5 a 2,2
+        self.struct_container.pack(fill="x", padx=15, pady=(1, 5))  # [MODIFICACIÓN] de (2,2) a (1,5)
 
         self.struct_canvas = tk.Canvas(
             self.struct_container,
@@ -481,8 +486,8 @@ class CodeView(ttk.Frame):
         project_font_size = Styles.scale_size(11 if compact_height else 13)
         section_label_size = Styles.scale_size(11 if compact_height else 13)
         section_entry_size = Styles.scale_size(13 if compact_height else 15)
-        tree_section_size = Styles.scale_size(14 if compact_height else 16)
-        tree_subsection_size = Styles.scale_size(12 if compact_height else 14)
+        tree_section_size = Styles.scale_size(13 if compact_height else 15)
+        tree_subsection_size = Styles.scale_size(11 if compact_height else 13)
         checkbox_font_size = Styles.scale_size(14 if ultra_compact_height else 16 if compact_height else 18)
         self._checkbox_visual_size = Styles.scale_size(24 if ultra_compact_height else 26 if compact_height else 30)
         prompt_height = max(Styles.scale_size(4 if ultra_compact_height else 5 if compact_height else 8), 3)
@@ -491,9 +496,9 @@ class CodeView(ttk.Frame):
         ext_width = max(Styles.scale_size(10 if compact_width else 12 if narrow_width else 15), 8)
         spacer_height = Styles.scale_size(18 if ultra_compact_height else 28 if compact_height else 42)
         top_prompt_pady = Styles.scale_size(6 if compact_height else 10)
-        chk_top_pady = Styles.scale_padding((2, 2))     # [MODIFICACIÓN]
-        chk_mid_pady = Styles.scale_padding((2, 2))     # [MODIFICACIÓN]
-        chk_bottom_pady = Styles.scale_padding((5, 8))  # [MODIFICACIÓN]
+        chk_top_pady = Styles.scale_padding((0, 1))     # [MODIFICACIÓN] de (2,2) a (0,1)
+        chk_mid_pady = Styles.scale_padding((1, 5))     # [MODIFICACIÓN] de (2,2) a (1,5)
+        chk_bottom_pady = Styles.scale_padding((5, 5))  # [MODIFICACIÓN] de (5,8) a (5,5)
 
         self.lbl_project_name.configure(font=("Segoe UI", project_font_size))
         self.section_search_label.configure(font=("Segoe UI", section_label_size, "bold"))
