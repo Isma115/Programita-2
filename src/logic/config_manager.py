@@ -44,6 +44,18 @@ class ConfigManager:
         except Exception:
             return path
 
+    def get_sections_path(self):
+        """Returns the saved code sections folder path, or the default local folder."""
+        saved_path = self._normalize_path(self.config.get("sections_path"))
+        if saved_path:
+            return saved_path
+        return self._normalize_path(os.path.join(os.getcwd(), "sections"))
+
+    def set_sections_path(self, path):
+        """Sets the code sections folder path and saves config."""
+        self.config["sections_path"] = self._normalize_path(path)
+        self.save_config()
+
     def get_last_project(self):
         """Returns the path of the last opened project, or None."""
         return self.config.get("last_project")
@@ -280,5 +292,4 @@ class ConfigManager:
         """Sets the last loaded document file path and saves config."""
         self.config["last_doc_file"] = self._normalize_path(file_path)
         self.save_config()
-
 

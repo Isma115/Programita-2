@@ -1,6 +1,7 @@
 import logging
 import os
 import re
+import textwrap
 import tkinter as tk
 from tkinter import messagebox
 
@@ -56,6 +57,61 @@ def _normalize_code_text(text):
 
 def _normalize_structure_header(text):
     return re.sub(r"\s+", "", (text or "").strip()).lower()
+
+
+def _strip_outer_blank_lines(text):
+    lines = _normalize_code_text(text).split("\n")
+
+    while lines and not lines[0].strip():
+        lines.pop(0)
+
+    while lines and not lines[-1].strip():
+        lines.pop()
+
+    return "\n".join(lines)
+
+
+def _leading_indent(line):
+    if not line:
+        return ""
+
+    match = re.match(r"[ \t]*", line)
+    return match.group(0) if match else ""
+
+
+def _first_non_empty_line(text):
+    for line in _normalize_code_text(text).split("\n"):
+        if line.strip():
+            return line
+    return ""
+
+
+def _split_trailing_whitespace(text):
+    match = re.search(r"[ \t\r\n]*\Z", text or "")
+    if not match:
+        return text, ""
+    return text[:match.start()], text[match.start():]
+
+
+def _format_replacement_block(clipboard_content, target_block):
+    cleaned_block = _strip_outer_blank_lines(clipboard_content)
+    if not cleaned_block.strip():
+        return ""
+
+    target_indent = _leading_indent(_first_non_empty_line(target_block))
+    target_core, target_suffix = _split_trailing_whitespace(target_block)
+    if not target_core.strip():
+        target_suffix = ""
+
+    dedented_block = textwrap.dedent(cleaned_block)
+    formatted_lines = []
+    for line in dedented_block.split("\n"):
+        if line.strip():
+            formatted_lines.append(f"{target_indent}{line}")
+        else:
+            formatted_lines.append("")
+
+    return "\n".join(formatted_lines) + target_suffix
 
 
 def _is_structure_replace_enabled(app_instance):
@@ -1049,7 +1105,15 @@ def _apply_structure_replacement(app_instance, structure_match, clipboard_conten
         messagebox.showerror("Smart Paste", f"No se pudo leer el fichero destino:\n{e}")
         return False
 
-    new_block = _normalize_code_text(clipboard_content).strip()
+    target_block = current_content[structure_match["start_idx"]:structure_match["end_idx"]]
+    new_block = _format_replacement_block(clipboard_content, target_block)
+    if not new_block:
+        messagebox.showwarning(
+            "Smart Paste",
+            "El bloque del portapapeles está vacío o no contiene código utilizable."
+        )
+        return False
+
     final_content = (
         current_content[:structure_match["start_idx"]]
         + new_block

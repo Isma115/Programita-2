@@ -5,7 +5,7 @@ class SectionManager:
     """
     Manages 'Sections' of the application.
     A section is a named collection of specific file paths and/or database table names.
-    Sections are persisted in the 'sections' directory.
+    Sections are persisted in a configurable directory (defaults to 'sections').
     
     Storage format (dict):
         {
@@ -22,15 +22,33 @@ class SectionManager:
     """
     SECTIONS_DIR = "sections"
 
-    def __init__(self, project_manager=None):
+    def __init__(self, project_manager=None, sections_path=None):
         self.project_manager = project_manager
-        # Ensure sections  persist directory exists
-        self.sections_path = os.path.join(os.getcwd(), self.SECTIONS_DIR)
-        if not os.path.exists(self.sections_path):
-            os.makedirs(self.sections_path)
-
         self.sections = {} # Dict: {'Section Name': {"files": [...], "tables": [...], "subsections": {...}}}
+        self.sections_path = None
+        self.set_sections_path(sections_path)
+
+    def _resolve_sections_path(self, sections_path=None):
+        """Returns the absolute directory used to persist sections."""
+        if sections_path:
+            return os.path.normpath(os.path.abspath(sections_path))
+        return os.path.join(os.getcwd(), self.SECTIONS_DIR)
+
+    def _ensure_sections_dir(self):
+        """Creates the current sections directory if it does not exist."""
+        if self.sections_path and not os.path.exists(self.sections_path):
+            os.makedirs(self.sections_path, exist_ok=True)
+
+    def get_sections_path(self):
+        """Returns the active directory where sections are stored."""
+        return self.sections_path
+
+    def set_sections_path(self, sections_path=None):
+        """Changes the storage directory and reloads all sections from it."""
+        self.sections_path = self._resolve_sections_path(sections_path)
+        self._ensure_sections_dir()
         self._load_all_sections()
+        return self.sections_path
 
     def _load_all_sections(self):
         """Loads all sections from local JSON files, auto-migrating legacy format."""
@@ -38,7 +56,7 @@ class SectionManager:
         if not os.path.exists(self.sections_path):
             return
 
-        for filename in os.listdir(self.sections_path):
+        for filename in sorted(os.listdir(self.sections_path), key=str.lower):
             if filename.endswith(".json"):
                 name = filename[:-5] # remove .json
                 filepath = os.path.join(self.sections_path, filename)

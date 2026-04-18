@@ -32,6 +32,26 @@ class ProjectManager:
         'Jenkinsfile', 'Procfile', 'Rakefile', 'Gemfile', 'Podfile',
         'Brewfile', 'Vagrantfile'
     }
+    MARKUP_EXTENSIONS = {
+        '.html', '.htm', '.xhtml', '.xml', '.xsd', '.xsl', '.wsdl',
+        '.jsx', '.tsx', '.vue', '.svelte', '.astro',
+        '.ejs', '.hbs', '.handlebars', '.mustache', '.njk', '.twig', '.jinja', '.jinja2', '.tpl'
+    }
+    BRACE_STYLE_EXTENSIONS = {
+        '.c', '.cc', '.cpp', '.cxx', '.h', '.hh', '.hpp', '.hxx',
+        '.cs', '.go', '.rs', '.zig',
+        '.java', '.kt', '.kts', '.scala', '.groovy', '.gradle',
+        '.swift', '.m', '.mm',
+        '.js', '.mjs', '.cjs', '.jsx', '.ts', '.tsx',
+        '.php', '.phtml', '.dart',
+        '.css', '.scss', '.sass', '.less',
+        '.vue', '.svelte', '.astro',
+        '.graphql', '.gql', '.proto',
+        '.json', '.jsonc'
+    }
+    END_STYLE_EXTENSIONS = {
+        '.rb', '.lua', '.ex', '.exs', '.erl', '.hrl'
+    }
 
     def __init__(self, config_manager=None):
         self.config_manager = config_manager
@@ -236,132 +256,346 @@ class ProjectManager:
 
         return non_code
 
-    def extract_functions(self):
+    def extract_functions(self, file_paths=None):
         """
-        Extracts all function definitions from loaded code files.
-        Returns a list of dicts: {
-            'name': str,
-            'type': 'function',
-            'content': str,
-            'file_rel_path': str,
-            'path': str (formatted for UI: "file:line")
-        }
+        Extracts code structures from loaded files using broad heuristics.
+        The result includes functions, methods, classes, modules and markup tags.
         """
-        functions = []
-        for f in self.files:
-            ext = os.path.splitext(f['path'])[1].lower()
-            content = f['content']
-            lines = content.split('\n')
-            
-            if ext == '.py':
-                functions.extend(self._extract_python_functions(f, lines))
-            elif ext in ('.js', '.jsx', '.ts', '.tsx'):
-                functions.extend(self._extract_js_functions(f, content, lines))
-                
-        return functions
+        structures = []
+        target_paths = set(file_paths) if file_paths else None
 
-    def _extract_python_functions(self, file_info, lines):
+        for file_info in self.files:
+            if target_paths is not None and file_info['path'] not in target_paths:
+                continue
+
+            ext = os.path.splitext(file_info['path'])[1].lower()
+            content = file_info.get('content', '')
+            if not content:
+                continue
+
+            lines = content.split('\n')
+            file_structures = []
+
+            if ext == '.py':
+                file_structures.extend(self._extract_python_structures(file_info, lines))
+
+            if ext in self.BRACE_STYLE_EXTENSIONS:
+                file_structures.extend(self._extract_brace_structures(file_info, lines))
+
+            if ext in self.END_STYLE_EXTENSIONS:
+                file_structures.extend(self._extract_end_delimited_structures(file_info, lines))
+
+            if ext in self.MARKUP_EXTENSIONS:
+                file_structures.extend(self._extract_markup_structures(file_info, content))
+
+            structures.extend(self._dedupe_structures(file_structures))
+
+        return structures
+
+    def _build_structure(self, file_info, name, structure_type, start_line, end_line, lines, display_name=None):
+        """Builds the normalized structure payload for the UI."""
+        start_line = max(int(start_line), 1)
+        end_line = max(int(end_line), start_line)
+        snippet = '\n'.join(lines[start_line - 1:end_line])
+        line_count = max(end_line - start_line + 1, 1)
+        return {
+            'name': name,
+            'display_name': display_name or name,
+            'type': structure_type,
+            'content': snippet,
+            'file_rel_path': file_info['rel_path'],
+            'path': f"{file_info['path']}:{start_line}",
+            'start_line': start_line,
+            'line_count': line_count
+        }
+
+    def _dedupe_structures(self, items):
+        """Removes duplicated structures produced by overlapping heuristics."""
+        ordered = []
+        seen = set()
+
+        for item in items:
+            key = (
+                item.get('file_rel_path'),
+                item.get('type'),
+                item.get('name'),
+                item.get('start_line'),
+                item.get('line_count')
+            )
+            if key in seen:
+                continue
+            seen.add(key)
+            ordered.append(item)
+
+        return ordered
+
+    def _extract_python_structures(self, file_info, lines):
         results = []
-        # Regex for Python function/method definitions
-        # Groups: 1: indentation, 2: 'async ' (optional), 3: 'def ', 4: function name
-        py_fn_pattern = re.compile(r'^([ \t]*)((?:async\s+)?def\s+)([a-zA-Z_]\w*)\s*\(')
-        
+        pattern = re.compile(r'^([ \t]*)(?:(async)\s+)?(def|class)\s+([a-zA-Z_]\w*)\b')
+
         i = 0
         while i < len(lines):
             line = lines[i]
-            match = py_fn_pattern.match(line)
-            if match:
-                indent = match.group(1)
-                fn_name = match.group(3)
-                start_line = i
-                
-                # Find the end of the function (until next line with same or less indentation, excluding empty/comment lines)
-                end_line = i + 1
-                while end_line < len(lines):
-                    next_line = lines[end_line]
-                    if not next_line.strip() or next_line.strip().startswith('#'):
-                        end_line += 1
-                        continue
-                        
-                    next_indent_match = re.match(r'^([ \t]*)', next_line)
-                    next_indent = next_indent_match.group(1) if next_indent_match else ""
-                    
-                    if len(next_indent) <= len(indent):
-                        break
-                    end_line += 1
-                
-                # Cleanup trailing whitespace/empty lines
-                while end_line > start_line + 1 and not lines[end_line - 1].strip():
-                    end_line -= 1
-                    
-                fn_content = '\n'.join(lines[start_line:end_line])
-                results.append({
-                    'name': fn_name,
-                    'type': 'function',
-                    'content': fn_content,
-                    'file_rel_path': file_info['rel_path'],
-                    'path': f"{file_info['path']}:{start_line+1}"
-                })
-                i = end_line - 1
+            match = pattern.match(line)
+            if not match:
+                i += 1
+                continue
+
+            indent = match.group(1)
+            kind = match.group(3)
+            name = match.group(4)
+            start_idx = i
+            end_idx = i + 1
+
+            while end_idx < len(lines):
+                next_line = lines[end_idx]
+                stripped = next_line.strip()
+                if not stripped or stripped.startswith('#'):
+                    end_idx += 1
+                    continue
+
+                next_indent = re.match(r'^([ \t]*)', next_line).group(1)
+                if len(next_indent) <= len(indent):
+                    break
+                end_idx += 1
+
+            while end_idx > start_idx + 1 and not lines[end_idx - 1].strip():
+                end_idx -= 1
+
+            display_name = f"{name}()" if kind == 'def' else name
+            structure_type = 'function' if kind == 'def' else 'class'
+            results.append(
+                self._build_structure(
+                    file_info,
+                    name=name,
+                    structure_type=structure_type,
+                    start_line=start_idx + 1,
+                    end_line=end_idx,
+                    lines=lines,
+                    display_name=display_name
+                )
+            )
             i += 1
+
         return results
 
-    def _extract_js_functions(self, file_info, content, lines):
+    def _extract_brace_structures(self, file_info, lines):
         results = []
-        # Basic regex to find starts of functions
-        # This is a heuristic and might miss some complex cases, but covers most common ones
-        
-        # 1. function keyword: function name(...) {
-        js_fn_keyword = re.compile(r'(?:export\s+)?(?:async\s+)?function\s+([a-zA-Z_]\w*)\s*\(')
-        # 2. Arrow functions assigned to const/let/var: const name = (...) => {
-        js_arrow_fn = re.compile(r'(?:export\s+)?(?:const|let|var)\s+([a-zA-Z_]\w*)\s*=\s*(?:async\s+)?(?:\([^)]*\)|[a-zA-Z_]\w*)\s*=>')
-        # 3. Method definitions in objects/classes: name(...) {
-        js_method = re.compile(r'^[ \t]*([a-zA-Z_]\w*)\s*\([^)]*\)\s*\{')
+        patterns = [
+            ('function', re.compile(r'^\s*(?:export\s+)?(?:async\s+)?function\s+([A-Za-z_][\w$]*)\s*\(')),
+            ('function', re.compile(r'^\s*function\s+([A-Za-z_][\w$-]*)\s*(?:\(\))?\s*\{')),
+            ('function', re.compile(r'^\s*func\s+(?:\([^)]*\)\s*)?([A-Za-z_][\w$]*)\s*\(')),
+            ('function', re.compile(r'^\s*fn\s+([A-Za-z_][\w$]*)\s*\(')),
+            ('function', re.compile(r'^\s*fun\s+([A-Za-z_][\w$]*)\s*\(')),
+            ('function', re.compile(r'^\s*(?:sub|proc(?:edure)?)\s+([A-Za-z_][\w$]*)\b')),
+            ('function', re.compile(r'^\s*(?:export\s+)?(?:const|let|var)\s+([A-Za-z_][\w$]*)\s*=\s*(?:async\s+)?(?:\([^)]*\)|[A-Za-z_][\w$]*)\s*=>')),
+            ('class', re.compile(r'^\s*(?:export\s+)?(?:abstract\s+)?class\s+([A-Za-z_][\w$]*)\b')),
+            ('interface', re.compile(r'^\s*(?:export\s+)?interface\s+([A-Za-z_][\w$]*)\b')),
+            ('struct', re.compile(r'^\s*(?:export\s+)?struct\s+([A-Za-z_][\w$]*)\b')),
+            ('enum', re.compile(r'^\s*(?:export\s+)?enum\s+([A-Za-z_][\w$]*)\b')),
+            ('namespace', re.compile(r'^\s*(?:export\s+)?(?:namespace|module)\s+([A-Za-z_][\w$.:-]*)\b')),
+            ('method', re.compile(r'^\s*(?:public|private|protected|internal|static|final|virtual|override|abstract|async|get|set|readonly|sealed|\s)*(?:[A-Za-z_][\w$<>\[\],?*&:.]+\s+)*([A-Za-z_~][\w$]*)\s*\([^;=]*\)\s*(?:const\s*)?(?:\{|=>)')),
+            ('method', re.compile(r'^\s*(?:async\s+)?([A-Za-z_][\w$]*)\s*\([^;=]*\)\s*\{')),
+        ]
+        ignored_names = {
+            'if', 'for', 'while', 'switch', 'catch', 'foreach', 'with', 'return',
+            'else', 'do', 'try', 'finally', 'case'
+        }
 
-        for i, line in enumerate(lines):
-            name = None
-            match = js_fn_keyword.search(line) or js_arrow_fn.search(line) or js_method.match(line)
-            
-            if match:
+        for idx, line in enumerate(lines):
+            stripped = line.strip()
+            if not stripped:
+                continue
+
+            for structure_type, pattern in patterns:
+                match = pattern.match(line)
+                if not match:
+                    continue
+
                 name = match.group(1)
-                start_line = i
-                
-                # For JS, extracting the full body is harder because of nesting.
-                # We'll use a simple brace counting heuristic starting from the first '{' found
-                # Or if it's an arrow function without braces (single expression), it's just that line (or until ;)
-                
-                start_idx = content.find(line)
-                # Find the first '{'
-                brace_start = content.find('{', start_idx)
-                
-                if brace_start != -1 and (brace_start < content.find('\n', start_idx + len(line)) or '\n' not in line):
-                    # Brace counting
-                    count = 1
-                    current_idx = brace_start + 1
-                    while count > 0 and current_idx < len(content):
-                        char = content[current_idx]
-                        if char == '{':
-                            count += 1
-                        elif char == '}':
-                            count -= 1
-                        current_idx += 1
-                    
-                    fn_content = content[start_idx:current_idx]
-                    results.append({
-                        'name': name,
-                        'type': 'function',
-                        'content': fn_content,
-                        'file_rel_path': file_info['rel_path'],
-                        'path': f"{file_info['path']}:{start_line+1}"
-                    })
-                else:
-                    # Likely single line arrow function or we missed the brace
-                    # Just take the line for now as a fallback
-                    results.append({
-                        'name': name,
-                        'type': 'function',
-                        'content': line.strip(),
-                        'file_rel_path': file_info['rel_path'],
-                        'path': f"{file_info['path']}:{start_line+1}"
-                    })
+                if not name or name.lower() in ignored_names:
+                    continue
+
+                end_line = self._find_brace_block_end(lines, idx)
+                if end_line is None:
+                    continue
+
+                display_name = f"{name}()" if structure_type in {'function', 'method'} else name
+                results.append(
+                    self._build_structure(
+                        file_info,
+                        name=name,
+                        structure_type=structure_type,
+                        start_line=idx + 1,
+                        end_line=end_line,
+                        lines=lines,
+                        display_name=display_name
+                    )
+                )
+                break
+
+        return results
+
+    def _find_brace_block_end(self, lines, start_idx, max_signature_lines=8):
+        """Finds the end line for a structure delimited by braces."""
+        search_end = min(len(lines), start_idx + max_signature_lines)
+        brace_start = None
+
+        for line_idx in range(start_idx, search_end):
+            if '{' in lines[line_idx]:
+                brace_start = line_idx
+                break
+
+        if brace_start is None:
+            return None
+
+        depth = 0
+        opened = False
+        in_single = False
+        in_double = False
+        in_backtick = False
+        escape = False
+
+        for line_idx in range(brace_start, len(lines)):
+            for ch in lines[line_idx]:
+                if escape:
+                    escape = False
+                    continue
+
+                if ch == '\\' and (in_single or in_double or in_backtick):
+                    escape = True
+                    continue
+
+                if ch == "'" and not in_double and not in_backtick:
+                    in_single = not in_single
+                    continue
+                if ch == '"' and not in_single and not in_backtick:
+                    in_double = not in_double
+                    continue
+                if ch == '`' and not in_single and not in_double:
+                    in_backtick = not in_backtick
+                    continue
+
+                if in_single or in_double or in_backtick:
+                    continue
+
+                if ch == '{':
+                    depth += 1
+                    opened = True
+                elif ch == '}':
+                    depth -= 1
+                    if opened and depth <= 0:
+                        return line_idx + 1
+
+        return None
+
+    def _extract_end_delimited_structures(self, file_info, lines):
+        results = []
+        patterns = [
+            ('function', re.compile(r'^\s*(?:def|defp|defmacro|defmacrop)\s+([A-Za-z_][\w!?=]*)\b')),
+            ('module', re.compile(r'^\s*defmodule\s+([A-Za-z_][\w.]+)\b')),
+            ('function', re.compile(r'^\s*(?:local\s+)?function\s+([A-Za-z_][\w.:]*)\s*\(')),
+            ('class', re.compile(r'^\s*(?:class|module)\s+([A-Za-z_][\w.:]*)\b')),
+        ]
+
+        for idx, line in enumerate(lines):
+            if not line.strip():
+                continue
+
+            for structure_type, pattern in patterns:
+                match = pattern.match(line)
+                if not match:
+                    continue
+
+                name = match.group(1)
+                end_line = self._find_end_keyword_block(lines, idx)
+                if end_line is None:
+                    continue
+
+                display_name = f"{name}()" if structure_type == 'function' else name
+                results.append(
+                    self._build_structure(
+                        file_info,
+                        name=name,
+                        structure_type=structure_type,
+                        start_line=idx + 1,
+                        end_line=end_line,
+                        lines=lines,
+                        display_name=display_name
+                    )
+                )
+                break
+
+        return results
+
+    def _find_end_keyword_block(self, lines, start_idx):
+        """Finds the end line for languages that close blocks with 'end'."""
+        open_pattern = re.compile(r'\b(?:def|defp|defmacro|defmacrop|defmodule|class|module|function|if|unless|case|begin|while|until|for|try|receive|fn)\b')
+        close_pattern = re.compile(r'\bend\b')
+        depth = 0
+
+        for line_idx in range(start_idx, len(lines)):
+            stripped = lines[line_idx].strip()
+            if not stripped or stripped.startswith('#') or stripped.startswith('--'):
+                continue
+
+            depth += len(open_pattern.findall(stripped))
+            depth -= len(close_pattern.findall(stripped))
+
+            if line_idx > start_idx and depth <= 0:
+                return line_idx + 1
+
+        return None
+
+    def _extract_markup_structures(self, file_info, content):
+        results = []
+        lines = content.split('\n')
+        tag_pattern = re.compile(r'<!--.*?-->|<!\[CDATA\[.*?\]\]>|<\?.*?\?>|</?\s*([A-Za-z][\w:.-]*)\b[^<>]*?/?>', re.DOTALL)
+        void_tags = {
+            'area', 'base', 'br', 'col', 'embed', 'hr', 'img', 'input',
+            'link', 'meta', 'param', 'source', 'track', 'wbr'
+        }
+        stack = []
+
+        for match in tag_pattern.finditer(content):
+            token = match.group(0)
+            tag_name = match.group(1)
+            if not tag_name:
+                continue
+
+            tag_name = tag_name.strip()
+            lower_name = tag_name.lower()
+            if lower_name in void_tags:
+                continue
+
+            is_closing = token.lstrip().startswith('</')
+            is_self_closing = token.rstrip().endswith('/>')
+            line_number = content.count('\n', 0, match.start()) + 1
+
+            if is_self_closing:
+                continue
+
+            if not is_closing:
+                stack.append((tag_name, line_number))
+                continue
+
+            for stack_idx in range(len(stack) - 1, -1, -1):
+                open_name, open_line = stack[stack_idx]
+                if open_name.lower() != lower_name:
+                    continue
+
+                del stack[stack_idx:]
+                results.append(
+                    self._build_structure(
+                        file_info,
+                        name=tag_name,
+                        structure_type='tag',
+                        start_line=open_line,
+                        end_line=line_number,
+                        lines=lines,
+                        display_name=f"<{tag_name}>"
+                    )
+                )
+                break
+
         return results

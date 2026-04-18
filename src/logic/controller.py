@@ -31,9 +31,46 @@ class Controller:
             Styles.COLOR_ACCENT_HOVER = theme_colors.get("COLOR_ACCENT_HOVER", Styles.COLOR_ACCENT_HOVER)
         
         self.project_manager = ProjectManager(self.config_manager)
-        self.section_manager = SectionManager(self.project_manager)
+        self.section_manager = SectionManager(
+            self.project_manager,
+            self.config_manager.get_sections_path()
+        )
         self.hotkey_listener = GlobalHotkeyListener(self)
         self._doc_file_cache = {}
+        self._structure_prompt_cache = None
+
+    def get_sections_directory(self):
+        """Returns the current directory used to store code sections."""
+        return self.section_manager.get_sections_path()
+
+    def set_sections_directory(self, path):
+        """Updates the directory used to store code sections and persists it."""
+        resolved_path = self.section_manager.set_sections_path(path)
+        self.config_manager.set_sections_path(resolved_path)
+        return resolved_path
+
+    def get_return_structures_prompt(self):
+        """Returns the prompt text used when only modified structures should be returned."""
+        if self._structure_prompt_cache is not None:
+            return self._structure_prompt_cache
+
+        prompt_path = os.path.abspath(
+            os.path.join(os.path.dirname(__file__), "..", "..", "prompt_devolver_estructura.txt")
+        )
+        fallback_prompt = (
+            "IMPORTANTE: Devuelve SOLO las estructuras de código que hayan sido modificadas "
+            "(clases, funciones, métodos, etc.) y que necesiten ser reemplazadas."
+        )
+
+        try:
+            with open(prompt_path, "r", encoding="utf-8") as prompt_file:
+                prompt_text = prompt_file.read().strip()
+                self._structure_prompt_cache = prompt_text or fallback_prompt
+        except Exception as e:
+            print(f"Controller: No se pudo cargar {prompt_path}: {e}")
+            self._structure_prompt_cache = fallback_prompt
+
+        return self._structure_prompt_cache
 
     def load_project_folder(self, path):
         """Loads a project folder and updates the UI."""
@@ -160,7 +197,7 @@ class Controller:
 
             
         if return_structures:
-            prompt += "\n\nIMPORTANTE: Devuelve SOLO las estructuras de código que hayan sido modificadas. No devuelvas archivos de código completos."
+            prompt += f"\n\n{self.get_return_structures_prompt()}"
 
         elif return_regions:
             prompt += "\n\nIMPORTANTE: Primero, lista todas las regiones que necesitan modificación. Después, devuelve SOLO las regiones modificadas COMPLETAS. Solo las regiones que necesitaron modificación, y deben estar completas. No devuelvas código sin cambios."
@@ -646,6 +683,43 @@ class Controller:
         Returns all functions extracted from the project.
         """
         return self.project_manager.extract_functions()
+
+    def get_structure_sizes(self, selected_section=None, selected_subsection=None):
+        """
+        Returns function sizes for the given section/subsection scope.
+        If no section is provided, the whole loaded project is used.
+        """
+        file_paths = None
+
+        if selected_section:
+            if selected_subsection:
+                file_paths = self.section_manager.get_files_in_subsection(selected_section, selected_subsection)
+            else:
+                file_paths = self.section_manager.get_files_in_section(selected_section)
+
+        functions = self.project_manager.extract_functions(file_paths=file_paths)
+        type_priority = {
+            "function": 0,
+            "method": 0,
+            "procedure": 0,
+            "class": 1,
+            "interface": 1,
+            "struct": 1,
+            "enum": 1,
+            "namespace": 2,
+            "module": 2,
+            "tag": 3
+        }
+        return sorted(
+            functions,
+            key=lambda item: (
+                type_priority.get(item.get("type", ""), 9),
+                -item.get("line_count", 0),
+                item.get("file_rel_path", ""),
+                item.get("start_line", 0),
+                item.get("name", "")
+            )
+        )
 
     def copy_to_clipboard(self, text):
         """

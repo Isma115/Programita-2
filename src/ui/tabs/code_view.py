@@ -29,8 +29,7 @@ class CodeView(ttk.Frame):
     ]
 
     # Combobox values: Auto mode first, then individual models
-    AI_ORDER = ["⚡ Automático", "🤖 Agente"] + AI_MODELS
-
+    AI_ORDER = ["Automático", "Agente"] + AI_MODELS
     # Max consecutive uses of the same AI before rotating
     MAX_CONSECUTIVE = 3
     DEFAULT_SECTIONS_PANEL_WIDTH = Styles.scale_size(300)
@@ -68,6 +67,7 @@ class CodeView(ttk.Frame):
         self._visible_section_ids = []
         self._responsive_after_id = None
         self._checkbox_visual_size = Styles.scale_size(30)
+        self.sections_dir_var = tk.StringVar(value="")
 
         self._create_layout()
 
@@ -75,19 +75,19 @@ class CodeView(ttk.Frame):
         """Explicitly set controller if not available via hierarchy."""
         self.controller = controller
 
-    def _create_layout(self):
-        """Creates the split-pane layout."""
-        # Main PanedWindow (Split Left / Right)
-        # using COLOR_BG_MAIN for sash to make it blend in (invisible split) or COLOR_BG_SIDEBAR
-        self.paned_window = tk.PanedWindow(self, orient=tk.HORIZONTAL, sashwidth=6, bg=Styles.COLOR_BG_MAIN, sashrelief="flat")
-        self.paned_window.pack(fill="both", expand=True)
-
-        # --- Left Pane (Project & Files) ---
+    def _create_left_pane(self):
+        """Creates the left panel with project switcher, toolbar, file list and prompt area."""
         self.left_frame = ttk.Frame(self.paned_window, style="Main.TFrame")
         self.paned_window.add(self.left_frame, minsize=self.MIN_LEFT_PANEL_WIDTH, stretch="always")
 
-        # === Project Switcher Bar (compact, above everything) ===
-        self.project_bar = ttk.Frame(self.left_frame, style="Main.TFrame")
+        self._create_project_bar(self.left_frame)
+        self._create_top_bar(self.left_frame)
+        self._create_prompt_area(self.left_frame)
+        self._create_file_tree(self.left_frame)
+
+    def _create_project_bar(self, parent):
+        """Creates the compact project switcher bar."""
+        self.project_bar = ttk.Frame(parent, style="Main.TFrame")
         self.project_bar.pack(side="top", fill="x", padx=10, pady=(6, 2))
 
         self.btn_prev_project = ttk.Button(
@@ -132,22 +132,21 @@ class CodeView(ttk.Frame):
         # Initialize project label
         self._update_project_label()
 
-        # 1. Top Bar (Load Button)
-        self.top_bar = ttk.Frame(self.left_frame, style="Main.TFrame")
+    def _create_top_bar(self, parent):
+        """Creates the toolbar with file limit, AI selector and extensions."""
+        self.top_bar = ttk.Frame(parent, style="Main.TFrame")
         self.top_bar.pack(side="top", fill="x", padx=10, pady=(2, 8))
-
-
 
         # Slider for File Limit
         self.limit_var = tk.DoubleVar(value=100) # Default, will update from config
-        
+
         # Container for slider
         slider_frame = ttk.Frame(self.top_bar, style="Main.TFrame")
         slider_frame.pack(side="left", padx=20)
-        
+
         self.lbl_limit = ttk.Label(slider_frame, text="Mín. Ficheros: 100", style="TLabel")
         self.lbl_limit.pack(side="left", padx=(0, 15))
-        
+
         self.slider = ttk.Scale(
             slider_frame, 
             from_=1, 
@@ -160,7 +159,7 @@ class CodeView(ttk.Frame):
         )
         self.slider.pack(side="left", fill="x")
 
-        # AI Selector
+        # AI Selector - BORDE ELIMINADO
         self.ai_var = tk.StringVar()
         self.cmb_ai = ttk.Combobox(
             slider_frame, 
@@ -168,14 +167,14 @@ class CodeView(ttk.Frame):
             values=self.AI_ORDER,
             state="readonly",
             width=20,
-            style="TCombobox"
+            style="Borderless.TCombobox"  # [MODIFICACIÓN] Cambiado de "TCombobox" a "Borderless.TCombobox"
         )
         self.cmb_ai.current(0) # Default to first item (Best Quality)
         self.cmb_ai.pack(side="left", padx=(20, 0))
 
-        # Extension Filter
+        # Extension Filter - BORDE ELIMINADO
         self.ext_var = tk.StringVar(value="")
-        
+
         lbl_ext = ttk.Label(slider_frame, text="Exts:", style="TLabel")
         lbl_ext.pack(side="left", padx=(20, 5))
 
@@ -185,25 +184,26 @@ class CodeView(ttk.Frame):
             bg=Styles.COLOR_INPUT_BG,
             fg=Styles.COLOR_INPUT_FG,
             insertbackground="white",
-            borderwidth=0,
-            highlightthickness=0,
+            borderwidth=0,          # [MODIFICACIÓN] Ya estaba, asegura sin borde interno
+            highlightthickness=0,   # [MODIFICACIÓN] Ya estaba, asegura sin borde de foco
             width=15,
             font=Styles.FONT_MAIN
         )
         self.txt_ext.bind("<KeyRelease>", self._on_prompt_change)
         self.txt_ext.pack(side="left", padx=(0, 0))
 
-        # 2. File List (Treeview)
-        # "Occupies 3/4 width" -> We'll handle this with sash positioning initially
-        self.tree_frame = ttk.Frame(self.left_frame, style="Main.TFrame")
-        # Pack this LATER, after prompt_frame is packed to the bottom
-        # self.tree_frame.pack(side="top", fill="both", expand=True, padx=10)
+        # Initialize slider from config if controller available
+        if hasattr(self, 'controller') and hasattr(self.controller, 'config_manager'):
+            limit = self.controller.config_manager.get_file_limit()
+            self.limit_var.set(limit)
+            self.lbl_limit.config(text=f"Mín. Ficheros: {int(limit)}")
+
+    def _create_file_tree(self, parent):
+        """Creates the file listing treeview and its context menu."""
+        self.tree_frame = ttk.Frame(parent, style="Main.TFrame")
         
         self.columns = ("path", "size")
         self.tree = ttk.Treeview(self.tree_frame, columns=self.columns, show="", selectmode="extended", style="Treeview")
-        # Headings removed as requested
-        # self.tree.heading("path", text="Fichero (Ruta Relativa)")
-        # self.tree.heading("size", text="Tamaño")
         self.tree.column("path", width=400)
         self.tree.column("size", width=80)
         
@@ -229,15 +229,13 @@ class CodeView(ttk.Frame):
         self.tree.bind("<Button-2>", self._show_file_context_menu)
         self.tree.bind("<Button-3>", self._show_file_context_menu)
         self.tree.bind("<Control-Button-1>", self._show_file_context_menu)
-        
-        # Initialize slider from config if controller available
-        if hasattr(self, 'controller') and hasattr(self.controller, 'config_manager'):
-            limit = self.controller.config_manager.get_file_limit()
-            self.limit_var.set(limit)
-            self.lbl_limit.config(text=f"Mín. Ficheros: {int(limit)}")
 
-        # 3. Prompt Area
-        self.prompt_frame = ttk.Frame(self.left_frame, style="Main.TFrame")
+        # NOW pack the tree frame to fill the REMAINING space
+        self.tree_frame.pack(side="top", fill="both", expand=True, padx=10)
+
+    def _create_prompt_area(self, parent):
+        """Creates the AI prompt text area and copy button."""
+        self.prompt_frame = ttk.Frame(parent, style="Main.TFrame")
         self.prompt_frame.pack(side="bottom", fill="x", padx=10, pady=10)
         
         lbl_prompt = ttk.Label(self.prompt_frame, text="Mensaje para IA:", style="TLabel")
@@ -269,11 +267,8 @@ class CodeView(ttk.Frame):
         self.btn_copy.pack(side="right", padx=(10, 0), anchor="n")
         attach_tooltip(self.btn_copy, "Copiar prompt")
 
-        # NOW pack the tree frame to fill the REMAINING space
-        self.tree_frame.pack(side="top", fill="both", expand=True, padx=10)
-
-
-        # --- Right Pane (Sections) ---
+    def _create_right_pane(self):
+        """Creates the right panel with sections header, search and tree."""
         self.right_frame = ttk.Frame(self.paned_window, style="Sidebar.TFrame", width=self.DEFAULT_SECTIONS_PANEL_WIDTH)
         self.paned_window.add(self.right_frame, minsize=self.MIN_SECTIONS_PANEL_WIDTH, stretch="never")
 
@@ -288,14 +283,45 @@ class CodeView(ttk.Frame):
         self.right_bottom_spacer = ttk.Frame(self.right_frame, style="Sidebar.TFrame")
         self.right_bottom_spacer.pack(side="top", fill="both", expand=True)
 
+        self._create_sections_header(self.right_top_frame)
+        self._create_section_search(self.right_top_frame)
+        self._create_section_tree(self.right_top_frame)
+        self._create_regions_checkbox(self.right_bottom_frame)
+        self._create_structures_checkbox(self.right_bottom_frame)
 
+    def _create_sections_header(self, parent):
+        """Creates the 'Secciones' header and directory label."""
+        self.sections_header = ttk.Frame(parent, style="Sidebar.TFrame")
+        self.sections_header.pack(fill="x")
 
-        # Header
-        lbl_sections = ttk.Label(self.right_top_frame, text="Secciones", style="Header.TLabel")
-        lbl_sections.pack(fill="x")
+        lbl_sections = ttk.Label(self.sections_header, text="Secciones", style="Header.TLabel")
+        lbl_sections.pack(side="left", fill="x", expand=True)
 
+        self.btn_change_sections_dir = ttk.Button(
+            self.sections_header,
+            text="Carpeta",
+            style="ToolbarIcon.TButton",
+            command=self._on_change_sections_directory
+        )
+        self.btn_change_sections_dir.pack(side="right", padx=(0, 8), pady=(4, 0))
+        attach_tooltip(self.btn_change_sections_dir, "Cambiar carpeta de secciones")
+
+        self.lbl_sections_dir = tk.Label(
+            parent,
+            textvariable=self.sections_dir_var,
+            bg=Styles.COLOR_BG_SIDEBAR,
+            fg=Styles.COLOR_DIM,
+            font=("Segoe UI", 11),
+            anchor="w",
+            justify="left"
+        )
+        self.lbl_sections_dir.pack(fill="x", padx=12, pady=(0, 4))
+        self._update_sections_directory_label()
+
+    def _create_section_search(self, parent):
+        """Creates the section search input."""
         self.section_search_shell = tk.Frame(
-            self.right_top_frame,
+            parent,
             bg=Styles.COLOR_BG_SIDEBAR,
             highlightthickness=1,
             highlightbackground=Styles.COLOR_BORDER,
@@ -327,12 +353,14 @@ class CodeView(ttk.Frame):
         self.section_search_entry.pack(fill="x", padx=10, pady=(4, 6), ipady=4)
         self.section_search_entry.bind("<KeyRelease>", self._on_section_search_change)
 
+    def _create_section_tree(self, parent):
+        """Creates the sections and subsections treeview."""
         self.section_tree = ttk.Treeview(
-            self.right_top_frame,
+            parent,
             show="tree",
             selectmode="browse",
             style="Treeview",
-            height=15  # [MODIFICACIÓN] Aumentado de 14 a 18
+            height=15
         )
         self.section_tree.column("#0", stretch=True)
         self.section_tree.bind("<<TreeviewSelect>>", self._on_section_select)
@@ -343,39 +371,32 @@ class CodeView(ttk.Frame):
         
         self.section_tree.pack(fill="x", expand=False, padx=5, pady=(2, 5))
 
-        # Espacio fijo bajo la lista para mantener una zona vacía visible
-        # aunque se haga scroll dentro del Treeview.
         self.section_tree_bottom_spacer = tk.Frame(
-            self.right_top_frame,
+            parent,
             bg=Styles.COLOR_BG_SIDEBAR,
-            height=8,  # [MODIFICACIÓN] de 10 a 8 para compensar el aumento del tree
+            height=8,
             cursor="arrow"
         )
         self.section_tree_bottom_spacer.pack(fill="x", padx=5, pady=(0, 2))
-
         self.section_tree_bottom_spacer.pack_propagate(False)
         self.section_tree_bottom_spacer.bind("<Button-1>", self._on_section_spacer_click)
-        
-        # Context menu is built dynamically in _show_context_menu
 
-        # Bind Right Click (Mac & Windows/Linux)
+        # Bind Right Click
         self.section_tree.bind("<Button-2>", self._show_context_menu)
         self.section_tree.bind("<Button-3>", self._show_context_menu)
         self.section_tree.bind("<Control-Button-1>", self._show_context_menu)
 
-        
-        # Custom Large Checkbox "Devolver regiones" 
+    def _create_regions_checkbox(self, parent):
+        """Creates the custom 'Devolver regiones' checkbox."""
         val_regions = False
         if hasattr(self.controller, 'config_manager'):
             val_regions = self.controller.config_manager.get_return_regions()
             
         self.var_return_regions = tk.BooleanVar(value=val_regions)
         
-        # Container frame for the custom checkbox
-        self.chk_container = ttk.Frame(self.right_bottom_frame, style="Sidebar.TFrame", cursor="hand2")
-        self.chk_container.pack(fill="x", padx=15, pady=(0, 1))  # [MODIFICACIÓN] de (2,2) a (0,1)
+        self.chk_container = ttk.Frame(parent, style="Sidebar.TFrame", cursor="hand2")
+        self.chk_container.pack(fill="x", padx=15, pady=(0, 1))
         
-        # Indicator Canvas (The square) - Fixed size for consistency
         self.chk_canvas = tk.Canvas(
             self.chk_container,
             width=30,
@@ -385,11 +406,8 @@ class CodeView(ttk.Frame):
             bd=0
         )
         self.chk_canvas.pack(side="left")
-        
-        # Draw initial state (unchecked)
         self._draw_checkbox()
         
-        # Text Label
         self.lbl_chk_text = ttk.Label(
             self.chk_container, 
             text="Devolver regiones", 
@@ -399,24 +417,23 @@ class CodeView(ttk.Frame):
         self.lbl_chk_text.configure(background=Styles.COLOR_BG_SIDEBAR)
         self.lbl_chk_text.pack(side="left", padx=(10, 0))
         
-        # Bindings for click events
         self.chk_container.bind("<Button-1>", self._toggle_return_regions)
         self.chk_canvas.bind("<Button-1>", self._toggle_return_regions)
         self.lbl_chk_text.bind("<Button-1>", self._toggle_return_regions)
         
-        # Hover effects
         self.chk_container.bind("<Enter>", self._on_chk_hover_enter)
         self.chk_container.bind("<Leave>", self._on_chk_hover_leave)
 
-        # Custom Large Checkbox "Retornar estructuras"
+    def _create_structures_checkbox(self, parent):
+        """Creates the custom 'Retornar estructuras' checkbox."""
         val_structures = False
         if hasattr(self.controller, 'config_manager'):
             val_structures = self.controller.config_manager.get_return_structures()
 
         self.var_return_structures = tk.BooleanVar(value=val_structures)
 
-        self.struct_container = ttk.Frame(self.right_bottom_frame, style="Sidebar.TFrame", cursor="hand2")
-        self.struct_container.pack(fill="x", padx=15, pady=(1, 5))  # [MODIFICACIÓN] de (2,2) a (1,5)
+        self.struct_container = ttk.Frame(parent, style="Sidebar.TFrame", cursor="hand2")
+        self.struct_container.pack(fill="x", padx=15, pady=(1, 5))
 
         self.struct_canvas = tk.Canvas(
             self.struct_container,
@@ -427,7 +444,6 @@ class CodeView(ttk.Frame):
             bd=0
         )
         self.struct_canvas.pack(side="left")
-
         self._draw_struct_checkbox()
 
         self.lbl_struct_text = ttk.Label(
@@ -446,7 +462,14 @@ class CodeView(ttk.Frame):
         self.struct_container.bind("<Enter>", self._on_struct_hover_enter)
         self.struct_container.bind("<Leave>", self._on_struct_hover_leave)
 
+    def _create_layout(self):
+        """Creates the split-pane layout."""
+        # Main PanedWindow (Split Left / Right)
+        self.paned_window = tk.PanedWindow(self, orient=tk.HORIZONTAL, sashwidth=6, bg=Styles.COLOR_BG_MAIN, sashrelief="flat")
+        self.paned_window.pack(fill="both", expand=True)
 
+        self._create_left_pane()
+        self._create_right_pane()
 
         # Initial sections load
         self._refresh_sections()
@@ -485,6 +508,7 @@ class CodeView(ttk.Frame):
 
         project_font_size = Styles.scale_size(11 if compact_height else 13)
         section_label_size = Styles.scale_size(11 if compact_height else 13)
+        section_dir_size = Styles.scale_size(9 if ultra_compact_height else 10 if compact_height else 11)
         section_entry_size = Styles.scale_size(13 if compact_height else 15)
         tree_section_size = Styles.scale_size(13 if compact_height else 15)
         tree_subsection_size = Styles.scale_size(11 if compact_height else 13)
@@ -502,6 +526,10 @@ class CodeView(ttk.Frame):
 
         self.lbl_project_name.configure(font=("Segoe UI", project_font_size))
         self.section_search_label.configure(font=("Segoe UI", section_label_size, "bold"))
+        self.lbl_sections_dir.configure(
+            font=("Segoe UI", section_dir_size),
+            wraplength=max(self.right_frame.winfo_width() - 30, Styles.scale_size(180))
+        )
         self.section_search_entry.configure(font=("Segoe UI", section_entry_size))
         self.section_tree.tag_configure("section", font=("Segoe UI", tree_section_size, "bold"))
         self.section_tree.tag_configure("subsection", font=("Segoe UI", tree_subsection_size))
@@ -521,10 +549,8 @@ class CodeView(ttk.Frame):
 
         self.chk_container.pack_configure(pady=chk_top_pady)
         self.struct_container.pack_configure(pady=chk_mid_pady)
-        self.struct_container.pack_configure(pady=chk_mid_pady)
 
         self._draw_checkbox()
-        self._draw_struct_checkbox()
         self._draw_struct_checkbox()
 
     def _on_ai_selected(self, event=None):
@@ -649,6 +675,120 @@ class CodeView(ttk.Frame):
         if hasattr(self.controller, 'config_manager'):
              self.controller.config_manager.set_return_structures(new_val)
 
+    def _get_structure_size_tag(self, line_count):
+        """Returns the visual severity tag for a structure size row."""
+        if line_count > 600:
+            return "structure_size_critical"
+        if line_count <= 100:
+            return "structure_size_ok"
+        if line_count <= 300:
+            return "structure_size_warning"
+        return "structure_size_danger"
+
+    def _on_show_structure_sizes(self):
+        """Shows a popup with the detected functions and their line counts."""
+        section_name, subsection_name = self._get_selected_section_info()
+        if not section_name:
+            messagebox.showwarning("Aviso", "Selecciona una sección o subsección primero.")
+            return
+
+        try:
+            structures = self.controller.get_structure_sizes(
+                selected_section=section_name,
+                selected_subsection=subsection_name
+            )
+        except Exception as e:
+            print(f"Error calculating structure sizes: {e}")
+            messagebox.showerror("Error", f"No se pudo calcular el tamaño de las estructuras:\n{e}")
+            return
+
+        if not structures:
+            messagebox.showinfo(
+                "Tamaño estructuras",
+                "No se encontraron estructuras compatibles en la selección actual."
+            )
+            return
+
+        scope_label = section_name
+        if subsection_name:
+            scope_label = f"{section_name} > {subsection_name}"
+
+        popup = tk.Toplevel(self)
+        popup.title(f"Tamaño estructuras - {scope_label}")
+        popup.transient(self.winfo_toplevel())
+        popup.geometry("980x520")
+        popup.configure(bg=Styles.COLOR_BG_MAIN)
+
+        header = ttk.Frame(popup, style="Main.TFrame")
+        header.pack(fill="x", padx=14, pady=(12, 6))
+
+        ttk.Label(
+            header,
+            text=f"{len(structures)} estructuras detectadas en {scope_label}",
+            style="TLabel"
+        ).pack(anchor="w")
+
+        legend = tk.Label(
+            header,
+            text="Verde: 0-100 | Amarillo: 101-300 | Rojo: 301-600 | Rojo oscuro: más de 600",
+            bg=Styles.COLOR_BG_MAIN,
+            fg=Styles.COLOR_DIM,
+            font=("Segoe UI", 11),
+            anchor="w"
+        )
+        legend.pack(fill="x", pady=(2, 0))
+
+        table_frame = ttk.Frame(popup, style="Main.TFrame")
+        table_frame.pack(fill="both", expand=True, padx=14, pady=(0, 14))
+
+        columns = ("type", "name", "lines", "file")
+        table = ttk.Treeview(table_frame, columns=columns, show="headings", style="Treeview")
+        table.heading("type", text="Tipo")
+        table.heading("name", text="Estructura")
+        table.heading("lines", text="Líneas")
+        table.heading("file", text="Archivo")
+        table.column("type", width=110, anchor="center")
+        table.column("name", width=280, anchor="w")
+        table.column("lines", width=100, anchor="center")
+        table.column("file", width=450, anchor="w")
+
+        scrollbar = ttk.Scrollbar(table_frame, orient="vertical", command=table.yview, style="Vertical.TScrollbar")
+        table.configure(yscrollcommand=scrollbar.set)
+
+        table.tag_configure("structure_size_ok", background="#1f6f43", foreground="#f4fff7")
+        table.tag_configure("structure_size_warning", background="#d6a41c", foreground="#1b1b1b")
+        table.tag_configure("structure_size_danger", background="#b33a2f", foreground=Styles.COLOR_FG_TEXT)
+        table.tag_configure("structure_size_critical", background="#5b0d0d", foreground="#ffffff")
+
+        for item in structures:
+            display_name = item.get('display_name') or item.get('name', 'sin_nombre')
+            structure_type = item.get('type', 'estructura').replace('_', ' ').title()
+            if item.get("start_line"):
+                display_file = f"{item.get('file_rel_path', '')}:{item['start_line']}"
+            else:
+                display_file = item.get("file_rel_path", "")
+
+            line_count = int(item.get("line_count", 0))
+            table.insert(
+                "",
+                "end",
+                values=(structure_type, display_name, line_count, display_file),
+                tags=(self._get_structure_size_tag(line_count),)
+            )
+
+        table.pack(side="left", fill="both", expand=True)
+        scrollbar.pack(side="right", fill="y")
+
+        buttons = ttk.Frame(popup, style="Main.TFrame")
+        buttons.pack(fill="x", padx=14, pady=(0, 12))
+
+        ttk.Button(
+            buttons,
+            text="Cerrar",
+            style="Secondary.TButton",
+            command=popup.destroy
+        ).pack(side="right")
+
 
 
 
@@ -685,6 +825,48 @@ class CodeView(ttk.Frame):
         idx = idx % len(dirs) if dirs else 0
         project_name = os.path.basename(dirs[idx])
         self.lbl_project_name.config(text=f"📁 {project_name}  ({idx + 1}/{len(dirs)})")
+
+    def _update_sections_directory_label(self):
+        """Displays the active directory used to store sections and subsections."""
+        path = None
+        if hasattr(self.controller, "get_sections_directory"):
+            path = self.controller.get_sections_directory()
+
+        if not path:
+            self.sections_dir_var.set("Carpeta: sin configurar")
+            return
+
+        home = os.path.expanduser("~")
+        display_path = path
+        if display_path.startswith(home):
+            display_path = f"~{display_path[len(home):]}"
+
+        self.sections_dir_var.set(f"Carpeta: {display_path}")
+
+    def _on_change_sections_directory(self):
+        """Allows selecting another folder for stored sections and subsections."""
+        initial_dir = os.getcwd()
+        if hasattr(self.controller, "get_sections_directory"):
+            initial_dir = self.controller.get_sections_directory() or initial_dir
+
+        selected_path = filedialog.askdirectory(
+            initialdir=initial_dir,
+            title="Selecciona la carpeta para las secciones de código"
+        )
+        if not selected_path:
+            return
+
+        try:
+            current_path = self.controller.get_sections_directory()
+            if current_path and os.path.normpath(selected_path) == os.path.normpath(current_path):
+                return
+
+            self.controller.set_sections_directory(selected_path)
+            self._update_sections_directory_label()
+            self._refresh_sections(force_reload=True)
+        except Exception as e:
+            print(f"Error changing sections directory: {e}")
+            messagebox.showerror("Error", f"No se pudo cambiar la carpeta de secciones:\n{e}")
 
     def refresh_file_list(self, files=None):
         """Updates the treeview with files. If None, fetches from project manager."""
@@ -895,7 +1077,7 @@ class CodeView(ttk.Frame):
                 
             # Resolve AI selection (auto mode or manual)
             selected_ai = self.cmb_ai.get()
-            if selected_ai == "⚡ Automático":
+            if selected_ai == "Automático":
                 selected_ai = self._get_auto_ai()
             
             if selected_ai == "🤖 Agente":
@@ -915,7 +1097,7 @@ class CodeView(ttk.Frame):
                 # --- Modo normal: mensaje + instrucciones regiones ---
                 clipboard_content = text
                 if return_structures:
-                    clipboard_content += "\n\nIMPORTANTE: Devuelve SOLO las estructuras de código que hayan sido modificadas. No devuelvas archivos de código completos."
+                    clipboard_content += f"\n\n{self.controller.get_return_structures_prompt()}"
                 elif return_regions:
                     clipboard_content += "\n\nIMPORTANTE: Primero, lista todas las regiones que necesitan modificación. Después, devuelve SOLO las regiones modificadas COMPLETAS. Solo las regiones que necesitaron modificación, y deben estar completas. No devuelvas código sin cambios."
 
@@ -1014,8 +1196,7 @@ class CodeView(ttk.Frame):
         if return_structures:
             lines.extend([
                 "",
-                "IMPORTANTE:",
-                "Devuelve SOLO las estructuras de código que hayan sido modificadas. No devuelvas archivos de código completos."
+                self.controller.get_return_structures_prompt()
             ])
         elif return_regions:
             lines.extend([
@@ -1047,12 +1228,16 @@ class CodeView(ttk.Frame):
                     menu.add_command(label="Nueva Sección", command=self._on_add_section)
                     menu.add_command(label="Nueva Subsección", command=self._on_add_subsection)
                     menu.add_separator()
+                    menu.add_command(label="Tamaño estructuras", command=self._on_show_structure_sizes)
+                    menu.add_separator()
                     menu.add_command(label="Generar Prompt Docs", command=self._on_generate_docs)
                     menu.add_separator()
                     menu.add_command(label="Editar Sección", command=self._on_edit_section)
                     menu.add_command(label="Eliminar Sección", command=self._on_delete_section)
                 elif iid.startswith("SS:"):
                     # Subsection context menu
+                    menu.add_command(label="Tamaño estructuras", command=self._on_show_structure_sizes)
+                    menu.add_separator()
                     menu.add_command(label="Editar Subsección", command=self._on_edit_subsection)
                     menu.add_command(label="Eliminar Subsección", command=self._on_delete_subsection)
                     menu.add_separator()
@@ -1201,7 +1386,7 @@ class CodeView(ttk.Frame):
                 
                 # 5. Open AI URL
                 selected_ai = self.cmb_ai.get()
-                if selected_ai == "⚡ Automático":
+                if selected_ai == "Automático":
                     selected_ai = self._get_auto_ai()
                 
                 if selected_ai in self.AI_URLS:

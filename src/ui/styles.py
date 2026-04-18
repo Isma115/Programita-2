@@ -213,14 +213,7 @@ class Styles:
         )
 
     @staticmethod
-    def configure_styles(root):
-        """
-        Configures the ttk styles for the application.
-        
-        Args:
-            root: The root Tkinter window.
-        """
-        style = ttk.Style(root)
+    def _init_base_config(style, root):
         style.theme_use('clam') 
         Styles.apply_tk_scaling(root)
         Styles.FONT_MAIN = Styles.scale_font(Styles.BASE_FONT_MAIN)
@@ -240,6 +233,8 @@ class Styles:
         root.option_add("*TCombobox*Listbox*selectForeground", "#ffffff")
         Styles._bind_soft_widget_chrome(root)
 
+    @staticmethod
+    def _configure_frame_styles(style):
         # Frame Styles
         style.configure("Main.TFrame", background=Styles.COLOR_BG_MAIN)
         style.configure("Sidebar.TFrame", background=Styles.COLOR_BG_SIDEBAR)
@@ -248,6 +243,8 @@ class Styles:
         style.configure("Toolbar.TFrame", background=Styles.COLOR_TOOLBAR_BG)
         style.configure("NavBar.TFrame", background=Styles.COLOR_DOC_TOOLBAR_BG)
 
+    @staticmethod
+    def _configure_label_styles(style):
         # Label Styles
         style.configure(
             "TLabel",
@@ -292,6 +289,8 @@ class Styles:
             padding=Styles.scale_padding((15, 8))
         )
 
+    @staticmethod
+    def _configure_scrollbar_styles(style):
         # Scrollbar (Modern Flat)
         style.configure(
             "Vertical.TScrollbar",
@@ -310,6 +309,8 @@ class Styles:
             background=[("active", Styles.COLOR_SELECTION_BG)]
         )
 
+    @staticmethod
+    def _configure_button_styles(style):
         # Navigation Button Styles (Sidebar)
         style.configure(
             "Nav.TButton",
@@ -478,7 +479,9 @@ class Styles:
             background=[("active", Styles.COLOR_BUTTON_HOVER), ("disabled", Styles.COLOR_BUTTON_BG), ("pressed", Styles.COLOR_BUTTON_ACTIVE)],
             foreground=[("active", Styles.COLOR_BUTTON_FG_ACTIVE), ("disabled", Styles.COLOR_ACCENT), ("pressed", Styles.COLOR_BUTTON_FG_ACTIVE)]
         )
-        
+
+    @staticmethod
+    def _configure_widget_styles(style):
         # Scale (Slider) Styles
         style.configure(
             "Horizontal.TScale",
@@ -647,3 +650,24 @@ class Styles:
             fieldbackground=[("focus", Styles.COLOR_INPUT_BG)],
             foreground=[("focus", Styles.COLOR_FG_TEXT)]
         )
+
+    @staticmethod
+    def configure_styles(root):
+        """
+        Configures the ttk styles for the application.
+        
+        Args:
+            root: The root Tkinter window.
+        """
+        style = ttk.Style(root)
+        style.theme_use('clam') 
+        
+        # Initialize base config
+        Styles._init_base_config(style, root)
+        
+        # Configure specific style groups
+        Styles._configure_frame_styles(style)
+        Styles._configure_label_styles(style)
+        Styles._configure_scrollbar_styles(style)
+        Styles._configure_button_styles(style)
+        Styles._configure_widget_styles(style)

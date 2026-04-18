@@ -34,8 +34,9 @@
         "markdown_preview_zoom": 1.0
     },
     "last_doc_section": "Gestor de Equipos",
-    "last_code_section": "Gesti\u00f3n de cultivos",
+    "last_code_section": "Secci\u00f3n C\u00f3digo",
     "implementation_mode": false,
     "last_doc_file": "/Users/ismaelmoraledalopez/Documents/Documentacion Irrigation/Catastro/Carga_parcelas.md",
-    "return_structures": true
+    "return_structures": true,
+    "sections_path": "/Users/ismaelmoraledalopez/Documents/SeccionesProgramita"
 }
