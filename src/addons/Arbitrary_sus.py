@@ -122,6 +122,138 @@ FONT_CODE_FAMILY = "Menlo"
 FONT_CODE = (FONT_CODE_FAMILY, 14)
 FONT_UI = ("Segoe UI", 14) # Aumentado tamano base a 14
 
+def _normalize_text(text):
+    return (text or "").replace("\r\n", "\n").replace("\r", "\n")
+
+
+def _clean_path_hint(text):
+    cleaned = (text or "").strip()
+    cleaned = cleaned.strip("`*[](){}<>")
+    cleaned = cleaned.rstrip(":")
+    cleaned = cleaned.replace("\\", "/")
+    cleaned = re.sub(r"^(?:[ab]/)", "", cleaned)
+    cleaned = re.sub(r"^\./+", "", cleaned)
+    return cleaned.strip()
+
+
+def _extract_explicit_file_marker(line):
+    stripped = (line or "").strip()
+    if not stripped:
+        return None
+
+    patterns = [
+        r"^-{3,}\s*(?:Archivo|Fichero|File)\s*:\s*(.+?)\s*-{3,}$",
+        r"^(?:Archivo|Fichero|File)\s*:\s*(.+?)$",
+        r"^#{1,6}\s*(?:Archivo|Fichero|File)\s*:\s*(.+?)$",
+        r"^\*\*(?:Archivo|Fichero|File)\s*:\s*(.+?)\*\*$",
+    ]
+    for pattern in patterns:
+        match = re.match(pattern, stripped, re.IGNORECASE)
+        if match:
+            return _clean_path_hint(match.group(1))
+    return None
+
+
+def _unwrap_outer_fence(text):
+    normalized = _normalize_text(text).strip()
+    match = re.match(r"(?s)^\s*(?:```|~~~)[^\n]*\n(.*)\n\s*(?:```|~~~)\s*$", normalized)
+    if match:
+        return match.group(1).strip("\n")
+    return text
+
+
+def _extract_clipboard_file_hint(search_text):
+    normalized = _normalize_text(search_text).strip()
+    if not normalized:
+        return None, ""
+
+    lines = normalized.split("\n")
+    for index, line in enumerate(lines[:8]):
+        path_hint = _extract_explicit_file_marker(line)
+        if not path_hint:
+            continue
+
+        remaining_text = "\n".join(lines[index + 1:]).strip("\n")
+        cleaned_text = _unwrap_outer_fence(remaining_text).strip()
+        return path_hint, cleaned_text or normalized
+
+    return None, normalized
+
+
+def _match_code_files_by_path_hint(path_hint, code_files):
+    normalized_hint = _clean_path_hint(path_hint).lower()
+    if not normalized_hint:
+        return []
+
+    exact_matches = [
+        file_path for file_path in code_files
+        if normalized_hint == file_path.replace("\\", "/").lower()
+    ]
+    if exact_matches:
+        return exact_matches
+
+    suffix_matches = [
+        file_path for file_path in code_files
+        if file_path.replace("\\", "/").lower().endswith(normalized_hint)
+    ]
+    if suffix_matches:
+        return suffix_matches
+
+    basename = os.path.basename(normalized_hint)
+    if basename:
+        basename_matches = [
+            file_path for file_path in code_files
+            if os.path.basename(file_path).lower() == basename
+        ]
+        if basename_matches:
+            return basename_matches
+
+    return []
+
+
+def _should_prioritize_clipboard_file_hint(app_instance):
+    return_files = False
+    return_chunks = False
+
+    try:
+        if hasattr(app_instance, "layout") and hasattr(app_instance.layout, "code_view"):
+            code_view = app_instance.layout.code_view
+            if hasattr(code_view, "var_return_files"):
+                return_files = bool(code_view.var_return_files.get())
+            if hasattr(code_view, "var_return_chunks"):
+                return_chunks = bool(code_view.var_return_chunks.get())
+    except Exception:
+        pass
+
+    return not return_files and not return_chunks
+
+
+def _get_arbitrary_search_bounds(app_instance, search_text):
+    text_len = len(search_text or "")
+    default_min = 10
+    default_max = 30
+    min_search_len = default_min
+    max_search_len = min(text_len, default_max) if text_len else default_max
+
+    try:
+        config_manager = getattr(getattr(app_instance, "controller", None), "config_manager", None)
+        if config_manager:
+            min_search_len = max(1, int(config_manager.get_arbitrary_search_min_chars()))
+            max_search_len = max(1, int(config_manager.get_arbitrary_search_max_chars()))
+    except Exception:
+        min_search_len = default_min
+        max_search_len = default_max
+
+    if text_len:
+        min_search_len = min(min_search_len, text_len)
+        max_search_len = min(max_search_len, text_len)
+
+    if max_search_len < min_search_len:
+        max_search_len = min_search_len
+
+    return min_search_len, max_search_len
+
+
 def _load_file_contents(file_list):
     """
     Carga el contenido de todos los ficheros en memoria.
@@ -144,6 +276,17 @@ def _load_file_contents(file_list):
     return loaded
 
 
+def _get_substring_quality(substring):
+    """Calcula métricas para priorizar substrings con menos espacio en blanco."""
+    whitespace_chars = sum(1 for char in substring if char.isspace())
+    non_whitespace_chars = len(substring) - whitespace_chars
+    return {
+        "non_whitespace_chars": non_whitespace_chars,
+        "whitespace_chars": whitespace_chars,
+        "length": len(substring),
+    }
+
+
 def find_unique_substring(search_text, loaded_files, min_len=20, max_len=None, step=10):
     """
     Algoritmo de búsqueda por coincidencia exacta única.
@@ -151,8 +294,10 @@ def find_unique_substring(search_text, loaded_files, min_len=20, max_len=None, s
     Estrategia:
     - Prueba substrings de diferentes tamaños y posiciones del texto.
     - Registra TODOS los resultados únicos encontrados.
-    - Devuelve el resultado que haya usado el substring MÁS LARGO.
-      Si hay empate en longitud, prefiere el de mayor posición de inicio.
+    - Prioriza el substring con más caracteres no vacíos.
+    - Si hay empate, prefiere el que tenga menos espacios en blanco.
+    - Si sigue habiendo empate, prefiere el más largo.
+    - Si todavía hay empate, prefiere el de mayor posición de inicio.
     - Devuelve (match_text, file_path, line_num) o (None, None, -1) si no se encuentra.
 
     Parámetros:
@@ -168,18 +313,20 @@ def find_unique_substring(search_text, loaded_files, min_len=20, max_len=None, s
     min_len = min(min_len, text_len)
     max_len = min(max_len, text_len)
 
-    logging.info(f"[Arbitrary] Buscando substring único (modo: máxima longitud). Texto: {text_len} chars, "
+    logging.info(f"[Arbitrary] Buscando substring único (priorizando contenido útil). Texto: {text_len} chars, "
                  f"rango [{min_len}..{max_len}], step={step}")
 
     # Coleccionar todos los candidatos únicos
     best_substring = None
     best_file_path = None
     best_line_num = -1
-    best_len = -1
+    best_quality = None
+    best_start = -1
 
     for substr_len in range(max_len, min_len - 1, -step):
-        # Si ya tenemos un resultado con longitud mayor, no hay nada mejor en este nivel
-        if best_len >= substr_len:
+        # Si ya tenemos un candidato con más caracteres útiles de los que caben en este nivel,
+        # ningún substring de esta longitud ni menores podrá superarlo.
+        if best_quality and best_quality["non_whitespace_chars"] > substr_len:
             break
 
         # Posiciones de inicio a probar: inicio, 1/4, centro, 3/4, fin
@@ -200,6 +347,8 @@ def find_unique_substring(search_text, loaded_files, min_len=20, max_len=None, s
             if not substring.strip():
                 continue
 
+            quality = _get_substring_quality(substring)
+
             # Buscar en todos los ficheros
             matching_files = []
             for file_path, content in loaded_files:
@@ -207,8 +356,22 @@ def find_unique_substring(search_text, loaded_files, min_len=20, max_len=None, s
                     matching_files.append(file_path)
 
             if len(matching_files) == 1:
-                # Coincidencia única encontrada - es candidata si es más larga que la actual
-                if substr_len > best_len:
+                should_replace = False
+                if best_quality is None:
+                    should_replace = True
+                elif quality["non_whitespace_chars"] > best_quality["non_whitespace_chars"]:
+                    should_replace = True
+                elif quality["non_whitespace_chars"] == best_quality["non_whitespace_chars"]:
+                    if quality["whitespace_chars"] < best_quality["whitespace_chars"]:
+                        should_replace = True
+                    elif quality["whitespace_chars"] == best_quality["whitespace_chars"]:
+                        if quality["length"] > best_quality["length"]:
+                            should_replace = True
+                        elif quality["length"] == best_quality["length"] and start > best_start:
+                            should_replace = True
+
+                # Coincidencia única encontrada - es candidata si mejora la calidad actual
+                if should_replace:
                     file_path = matching_files[0]
                     content = next(c for fp, c in loaded_files if fp == file_path)
                     idx = content.find(substring)
@@ -217,20 +380,21 @@ def find_unique_substring(search_text, loaded_files, min_len=20, max_len=None, s
                     best_substring = substring
                     best_file_path = file_path
                     best_line_num = line_num
-                    best_len = substr_len
+                    best_quality = quality
+                    best_start = start
 
                     logging.info(
                         f"[Arbitrary] Candidato único encontrado: "
-                        f"Len={substr_len}, pos={start}, fichero={os.path.basename(file_path)}, "
+                        f"Útiles={quality['non_whitespace_chars']}, blancos={quality['whitespace_chars']}, "
+                        f"len={substr_len}, pos={start}, fichero={os.path.basename(file_path)}, "
                         f"línea={line_num}"
                     )
-                    # En este nivel de longitud ya encontramos uno, dejamos de probar posiciones
-                    break
 
     if best_substring and best_file_path:
         logging.info(
             f"[Arbitrary] Mejor resultado seleccionado: "
-            f"Len={best_len}, fichero={os.path.basename(best_file_path)}, línea={best_line_num}"
+            f"Útiles={best_quality['non_whitespace_chars']}, blancos={best_quality['whitespace_chars']}, "
+            f"len={best_quality['length']}, fichero={os.path.basename(best_file_path)}, línea={best_line_num}"
         )
         return best_substring, best_file_path, best_line_num
 
@@ -238,7 +402,7 @@ def find_unique_substring(search_text, loaded_files, min_len=20, max_len=None, s
     return None, None, -1
 
 
-def find_similar_region(file_list, search_text, step=None, forced_file=None):
+def find_similar_region(file_list, search_text, step=None, forced_file=None, min_search_len=None, max_search_len=None):
     """
     Busca la región de código usando el algoritmo de substring único.
 
@@ -263,11 +427,15 @@ def find_similar_region(file_list, search_text, step=None, forced_file=None):
         loaded_files = [(fp, c) for fp, c in loaded_files if fp == forced_file]
         logging.info(f"[Arbitrary] Fichero forzado: {os.path.basename(forced_file)}")
 
-    # Parámetros optimizados según sugerencia: buscar de 30 hacia abajo hasta 10
-    # Usamos un paso (step) pequeño para mayor precisión en la bajada
     text_len = len(search_text)
-    max_search_len = min(text_len, 30)
-    min_search_len = 10
+    if max_search_len is None:
+        max_search_len = text_len
+    if min_search_len is None:
+        min_search_len = min(10, text_len) if text_len else 1
+    max_search_len = min(max_search_len, text_len) if text_len else max_search_len
+    min_search_len = min(min_search_len, text_len) if text_len else min_search_len
+    if max_search_len < min_search_len:
+        max_search_len = min_search_len
     substr_step = 2 # Paso fino para encontrar el fragmento más grande posible
 
     substring, file_path, line_num = find_unique_substring(
@@ -311,7 +479,7 @@ def identify_best_file(file_list, search_text):
     logging.info("[Arbitrary] No se pudo identificar fichero único.")
     return None, 0
 
-def get_match_context(file_path, match_text, approximate_line_num, margin=150):
+def get_match_context(file_path, match_text, approximate_line_num):
     try:
         with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
             content = f.read()
@@ -341,14 +509,9 @@ def get_match_context(file_path, match_text, approximate_line_num, margin=150):
             return None, 0, 0
             
         start_idx = selected_match.start()
-        end_idx = selected_match.end()
-        
-        context_start = max(0, start_idx - margin)
-        context_end = min(len(content_norm), end_idx + margin)
-        
-        full_block = content_norm[context_start:context_end]
-        
-        return full_block, context_start, context_end, start_idx
+        full_block = content_norm
+
+        return full_block, 0, len(content_norm), start_idx
 
     except Exception as e:
         logging.error(f"Error obteniendo contexto: {e}")
@@ -527,7 +690,9 @@ def show_popup(clipboard_text, match_text, file_path, ratio, line_num, app_insta
     state = {
         "start_idx": 0,
         "end_idx": 0,
-        "editor_job": None # Para debounce
+        "editor_job": None, # Para debounce
+        "search_current_start": None,
+        "search_current_end": None,
     }
 
     # Popup
@@ -587,17 +752,6 @@ def show_popup(clipboard_text, match_text, file_path, ratio, line_num, app_insta
     # Header Controls
     control_frame = tk.Frame(popup, bg=THEME["bg"])
     control_frame.pack(fill="x", padx=10, pady=5)
-    
-    lbl_scale = tk.Label(control_frame, text="Margen de Contexto:", bg=THEME["bg"], fg="#569cd6", font=FONT_UI)
-    lbl_scale.pack(side="left", padx=(0, 10))
-    
-    margin_var = tk.IntVar(value=5000)
-    scale_margin = tk.Scale(
-        control_frame, from_=0, to=5000, orient="horizontal", variable=margin_var,
-        bg=THEME["bg"], fg=THEME["fg"], highlightthickness=0, length=400,
-        sliderrelief="flat", activebackground="#569cd6", troughcolor="#333333"
-    )
-    scale_margin.pack(side="left")
 
     # --- BUTTONS (Header Right) ---
     def on_accept():
@@ -658,7 +812,13 @@ def show_popup(clipboard_text, match_text, file_path, ratio, line_num, app_insta
             return "break"
 
         logging.info("Arbitrary: Nueva búsqueda lanzada desde selección del panel izquierdo.")
-        popup.after_idle(lambda: run_arbitrary_search_with_text(app_instance, selected_text))
+        popup.after_idle(
+            lambda: run_arbitrary_search_with_text(
+                app_instance,
+                selected_text,
+                display_clipboard_text=clipboard_text,
+            )
+        )
         return "break"
 
     txt_clip.bind("<Button-2>", on_clip_right_click)
@@ -674,6 +834,44 @@ def show_popup(clipboard_text, match_text, file_path, ratio, line_num, app_insta
     # Borde para distinguir editor
     txt_edit.config(bd=1, relief="solid") 
     txt_edit.grid(row=1, column=1, sticky="nsew", padx=5, pady=5)
+
+    txt_edit.tag_configure("search_match", background="#264f78")
+    txt_edit.tag_configure("search_current", background="#d7ba7d", foreground="#111827")
+
+    search_var = tk.StringVar()
+    search_frame = tk.Frame(popup, bg="#252526", bd=1, relief="solid")
+    search_status_var = tk.StringVar(value="")
+
+    tk.Label(
+        search_frame,
+        text="Buscar:",
+        bg="#252526",
+        fg="#d4d4d4",
+        font=("Segoe UI", 11, "bold")
+    ).pack(side="left", padx=(8, 6), pady=6)
+
+    search_entry = tk.Entry(
+        search_frame,
+        textvariable=search_var,
+        font=("Segoe UI", 11),
+        bg=THEME["bg"],
+        fg=THEME["fg"],
+        insertbackground=THEME["cursor"],
+        relief="flat",
+        width=28,
+    )
+    search_entry.pack(side="left", padx=(0, 6), pady=6, ipady=2)
+
+    search_status = tk.Label(
+        search_frame,
+        textvariable=search_status_var,
+        bg="#252526",
+        fg="#9cdcfe",
+        font=("Segoe UI", 10),
+        width=14,
+        anchor="w"
+    )
+    search_status.pack(side="left", padx=(0, 6), pady=6)
 
     content_frame.columnconfigure(2, weight=0)  # columna para scrollbar compartida
 
@@ -691,13 +889,176 @@ def show_popup(clipboard_text, match_text, file_path, ratio, line_num, app_insta
         txt_edit.tag_remove("match_highlight", "1.0", tk.END)
 
     txt_edit.bind("<Button-1>", clear_match_highlight)
+
+    def _clear_search_tags():
+        txt_edit.tag_remove("search_match", "1.0", tk.END)
+        txt_edit.tag_remove("search_current", "1.0", tk.END)
+        state["search_current_start"] = None
+        state["search_current_end"] = None
+
+    def _set_current_search_match(start_index, end_index):
+        state["search_current_start"] = start_index
+        state["search_current_end"] = end_index
+        txt_edit.tag_remove("search_current", "1.0", tk.END)
+        txt_edit.tag_add("search_current", start_index, end_index)
+        txt_edit.tag_raise("search_current")
+        txt_edit.mark_set("insert", end_index)
+        txt_edit.see(start_index)
+
+    def _collect_search_matches():
+        term = search_var.get()
+        _clear_search_tags()
+
+        if not term:
+            search_status_var.set("")
+            return []
+
+        matches = []
+        start_index = "1.0"
+        term_length = len(term)
+        while True:
+            match_index = txt_edit.search(term, start_index, stopindex=tk.END, nocase=True)
+            if not match_index:
+                break
+            end_index = f"{match_index}+{term_length}c"
+            matches.append((match_index, end_index))
+            txt_edit.tag_add("search_match", match_index, end_index)
+            start_index = end_index
+
+        txt_edit.tag_raise("search_match")
+        search_status_var.set(
+            f"{len(matches)} coincidencia{'s' if len(matches) != 1 else ''}" if matches else "Sin resultados"
+        )
+        return matches
+
+    def _select_search_result(match_tuple):
+        if not match_tuple:
+            return
+        start_index, end_index = match_tuple
+        _set_current_search_match(start_index, end_index)
+
+    def _refresh_search_matches(select_first=False):
+        matches = _collect_search_matches()
+        if select_first and matches:
+            _select_search_result(matches[0])
+        elif not matches:
+            _clear_search_tags()
+        return matches
+
+    def _find_next_match(event=None):
+        term = search_var.get()
+        if not term:
+            return "break"
+
+        start_index = state["search_current_end"] or txt_edit.index("insert")
+        match_index = txt_edit.search(term, start_index, stopindex=tk.END, nocase=True)
+        if not match_index:
+            match_index = txt_edit.search(term, "1.0", stopindex=start_index, nocase=True)
+        if not match_index:
+            search_status_var.set("Sin resultados")
+            return "break"
+
+        end_index = f"{match_index}+{len(term)}c"
+        _set_current_search_match(match_index, end_index)
+        return "break"
+
+    def _find_previous_match(event=None):
+        term = search_var.get()
+        if not term:
+            return "break"
+
+        start_index = state["search_current_start"] or txt_edit.index("insert")
+        match_index = txt_edit.search(term, start_index, stopindex="1.0", nocase=True, backwards=True)
+        if not match_index:
+            match_index = txt_edit.search(term, tk.END, stopindex=start_index, nocase=True, backwards=True)
+        if not match_index:
+            search_status_var.set("Sin resultados")
+            return "break"
+
+        end_index = f"{match_index}+{len(term)}c"
+        _set_current_search_match(match_index, end_index)
+        return "break"
+
+    def _hide_search_bar(event=None):
+        search_frame.place_forget()
+        search_var.set("")
+        search_status_var.set("")
+        _clear_search_tags()
+        txt_edit.focus_set()
+        return "break"
+
+    def _show_search_bar(event=None):
+        try:
+            selected_text = txt_edit.get("sel.first", "sel.last").strip()
+        except tk.TclError:
+            selected_text = ""
+
+        if selected_text and "\n" not in selected_text:
+            search_var.set(selected_text)
+
+        search_frame.place(in_=txt_edit, relx=1.0, x=-12, y=12, anchor="ne")
+        search_entry.focus_set()
+        search_entry.selection_range(0, tk.END)
+        _refresh_search_matches(select_first=bool(search_var.get()))
+        return "break"
+
+    def _on_search_text_change(*_args):
+        _refresh_search_matches(select_first=True)
+
+    search_var.trace_add("write", _on_search_text_change)
+
+    tk.Button(
+        search_frame,
+        text="↑",
+        command=_find_previous_match,
+        bg="#333333",
+        fg="#d4d4d4",
+        font=("Segoe UI", 10, "bold"),
+        padx=6,
+        pady=1
+    ).pack(side="left", padx=(0, 4), pady=6)
+
+    tk.Button(
+        search_frame,
+        text="↓",
+        command=_find_next_match,
+        bg="#333333",
+        fg="#d4d4d4",
+        font=("Segoe UI", 10, "bold"),
+        padx=6,
+        pady=1
+    ).pack(side="left", padx=(0, 4), pady=6)
+
+    tk.Button(
+        search_frame,
+        text="✕",
+        command=_hide_search_bar,
+        bg="#5a1d1d",
+        fg="#ff9b9b",
+        font=("Segoe UI", 10, "bold"),
+        padx=6,
+        pady=1
+    ).pack(side="left", padx=(0, 8), pady=6)
+
+    search_entry.bind("<Return>", _find_next_match)
+    search_entry.bind("<Shift-Return>", _find_previous_match)
+    search_entry.bind("<Escape>", _hide_search_bar)
+    search_entry.bind("<Control-f>", _show_search_bar)
+    search_entry.bind("<Control-F>", _show_search_bar)
+    search_entry.bind("<Command-f>", _show_search_bar)
+    search_entry.bind("<Command-F>", _show_search_bar)
     
     def on_edit_change(event=None):
         """Re-highlighter con debounce simple"""
         if state["editor_job"]:
             popup.after_cancel(state["editor_job"])
         # Esperar 300ms de inactividad para colorear (performance)
-        state["editor_job"] = popup.after(300, lambda: highlight_syntax(txt_edit, file_path))
+        def _refresh_editor_visuals():
+            highlight_syntax(txt_edit, file_path)
+            if search_var.get():
+                _refresh_search_matches(select_first=False)
+
+        state["editor_job"] = popup.after(300, _refresh_editor_visuals)
 
     # --- UNDO / REDO (Ctrl+Z / Ctrl+Y) ---
     def on_undo(event=None):
@@ -828,10 +1189,17 @@ def show_popup(clipboard_text, match_text, file_path, ratio, line_num, app_insta
     txt_edit.bind("<Command-Shift-Z>", on_redo)
     txt_edit.bind("<Command-v>", on_paste)
     txt_edit.bind("<Command-V>", on_paste)
+    txt_edit.bind("<Control-f>", _show_search_bar)
+    txt_edit.bind("<Control-F>", _show_search_bar)
+    txt_edit.bind("<Command-f>", _show_search_bar)
+    txt_edit.bind("<Command-F>", _show_search_bar)
+    popup.bind("<Control-f>", _show_search_bar)
+    popup.bind("<Control-F>", _show_search_bar)
+    popup.bind("<Command-f>", _show_search_bar)
+    popup.bind("<Command-F>", _show_search_bar)
 
-    def update_view(val=None):
-        margin = margin_var.get()
-        full_block, start_idx, end_idx, match_abs_start = get_match_context(file_path, match_text, line_num, margin=margin)
+    def update_view():
+        full_block, start_idx, end_idx, match_abs_start = get_match_context(file_path, match_text, line_num)
         
         if full_block is None:
             return
@@ -843,6 +1211,8 @@ def show_popup(clipboard_text, match_text, file_path, ratio, line_num, app_insta
         txt_edit.delete("1.0", "end")
         txt_edit.insert("1.0", full_block)
         highlight_syntax(txt_edit, file_path)
+        if search_var.get():
+            _refresh_search_matches(select_first=False)
         
         # Highlight matched region with subtle gray background
         txt_edit.tag_remove("match_highlight", "1.0", tk.END)
@@ -905,7 +1275,6 @@ def show_popup(clipboard_text, match_text, file_path, ratio, line_num, app_insta
 
 
 
-    scale_margin.config(command=update_view)
     update_view() # Initial load
 
 
@@ -1029,17 +1398,50 @@ def _get_code_files_for_arbitrary_search(app_instance):
     return code_files
 
 
-def run_arbitrary_search_with_text(app_instance, search_text):
+def run_arbitrary_search_with_text(
+    app_instance,
+    search_text,
+    prioritize_clipboard_file=False,
+    display_clipboard_text=None,
+):
     try:
         search_text = (search_text or "").strip()
         if not search_text:
             logging.info("Arbitrary: Texto de búsqueda vacío.")
             return
 
+        if display_clipboard_text is None:
+            display_clipboard_text = search_text
+
         code_files = _get_code_files_for_arbitrary_search(app_instance)
         if not code_files:
              tk.messagebox.showwarning("Arbitrary", "No hay archivos listados en la sección de Código.")
              return
+
+        min_search_len, max_search_len = _get_arbitrary_search_bounds(app_instance, search_text)
+        forced_file = None
+        if prioritize_clipboard_file:
+            path_hint, cleaned_search_text = _extract_clipboard_file_hint(search_text)
+            if path_hint:
+                search_text = cleaned_search_text
+                min_search_len, max_search_len = _get_arbitrary_search_bounds(app_instance, search_text)
+                matched_files = _match_code_files_by_path_hint(path_hint, code_files)
+                if len(matched_files) == 1:
+                    forced_file = matched_files[0]
+                    logging.info(
+                        f"Arbitrary: Archivo detectado en portapapeles. "
+                        f"Priorizando {os.path.basename(forced_file)}."
+                    )
+                elif matched_files:
+                    logging.info(
+                        f"Arbitrary: La pista de archivo '{path_hint}' es ambigua. "
+                        "Se mantiene búsqueda global."
+                    )
+                else:
+                    logging.info(
+                        f"Arbitrary: La pista de archivo '{path_hint}' no coincide con "
+                        "ningún fichero visible. Se mantiene búsqueda global."
+                    )
 
         logging.info(f"Arbitrary: Buscando en {len(code_files)} ficheros listados.")
 
@@ -1048,13 +1450,24 @@ def run_arbitrary_search_with_text(app_instance, search_text):
 
         # El nuevo algoritmo de substring único determina el fichero automáticamente
         match, file_path, ratio, line_num = find_similar_region(
-            code_files, search_text
+            code_files,
+            search_text,
+            forced_file=forced_file,
+            min_search_len=min_search_len,
+            max_search_len=max_search_len,
         )
 
         app_instance.root.config(cursor="")
 
         if match and file_path:
-            show_popup(search_text, match, file_path, ratio, line_num, app_instance=app_instance)
+            show_popup(
+                display_clipboard_text,
+                match,
+                file_path,
+                ratio,
+                line_num,
+                app_instance=app_instance,
+            )
         else:
             logging.info("Arbitrary: Sin coincidencias exactas únicas.")
 
@@ -1064,13 +1477,17 @@ def run_arbitrary_search_with_text(app_instance, search_text):
         tk.messagebox.showerror("Error", str(e))
 
 
-def run_arbitrary_search(app_instance):
+def run_arbitrary_search(app_instance, prioritize_clipboard_file=False):
     clipboard_text = pyperclip.paste().strip()
     if not clipboard_text:
         logging.info("Arbitrary: Portapapeles vacío.")
         return
 
-    run_arbitrary_search_with_text(app_instance, clipboard_text)
+    run_arbitrary_search_with_text(
+        app_instance,
+        clipboard_text,
+        prioritize_clipboard_file=prioritize_clipboard_file,
+    )
 
 def process_smart_paste(app_instance):
     """
@@ -1130,7 +1547,10 @@ def process_smart_paste(app_instance):
 
         # 2. Fallback: Sustitución Manual
         logging.info("Smart Paste: No es región, lanzando búsqueda arbitraria.")
-        run_arbitrary_search(app_instance)
+        run_arbitrary_search(
+            app_instance,
+            prioritize_clipboard_file=_should_prioritize_clipboard_file_hint(app_instance),
+        )
 
     except Exception as e:
         logging.error(f"Error en Smart Paste: {e}")

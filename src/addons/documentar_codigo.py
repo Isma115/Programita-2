@@ -5,11 +5,12 @@ generar documentacion de flujo de codigo en Markdown.
 """
 
 from tkinter import simpledialog
+from src.logic.prompt_rules import ensure_file_path_comment_instruction
 
 
 def _build_prompt(target_functionality: str) -> str:
     """Construye el prompt final para el agente de codigo."""
-    return (
+    return ensure_file_path_comment_instruction(
         "Actua como un agente de codigo senior.\n"
         "Tu tarea es crear un documento Markdown sobre esta funcionalidad:\n\n"
         f"FUNCIONALIDAD A DOCUMENTAR: {target_functionality}\n\n"

@@ -10,6 +10,7 @@ import time
 import shutil
 from urllib.parse import quote, unquote
 from html import escape as html_escape
+from src.logic.prompt_rules import ensure_file_path_comment_instruction
 from markdown_it import MarkdownIt
 from tkinterweb import HtmlFrame
 from PIL import Image, ImageDraw, ImageTk
@@ -1476,7 +1477,9 @@ class DocView(ttk.Frame):
         def refresh_prompt(event=None):
             config = prompt_configs[prompt_index["value"]]
             functionality_name = functionality_var.get().strip() or config["placeholder"]
-            prompt = config["builder"](functionality_name)
+            prompt = ensure_file_path_comment_instruction(
+                config["builder"](functionality_name)
+            )
             prompt_text.delete("1.0", tk.END)
             prompt_text.insert("1.0", prompt)
 
@@ -1499,7 +1502,9 @@ class DocView(ttk.Frame):
             return "break"
 
         def copy_prompt():
-            content = prompt_text.get("1.0", "end-1c").strip()
+            content = ensure_file_path_comment_instruction(
+                prompt_text.get("1.0", "end-1c").strip()
+            )
             if not content:
                 return
             try:

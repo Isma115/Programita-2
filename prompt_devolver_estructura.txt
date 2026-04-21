@@ -1,3 +1,0 @@
-- Devuelve las funciones de código COMPLETAS modificadas
-- No me devuelvas los archivos completos
-- No uses formato diff/patch

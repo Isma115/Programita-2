@@ -27,6 +27,22 @@ class ConfigManager:
         else:
             self.config = {}
 
+        migrated = False
+        if "return_files" not in self.config:
+            self.config["return_files"] = False
+            migrated = True
+        if "return_chunks" not in self.config:
+            self.config["return_chunks"] = False
+            migrated = True
+
+        for legacy_key in ("return_regions", "return_structures"):
+            if legacy_key in self.config:
+                self.config.pop(legacy_key, None)
+                migrated = True
+
+        if migrated:
+            self.save_config()
+
     def save_config(self):
         """Saves current configuration to the JSON file."""
         try:
@@ -150,12 +166,34 @@ class ConfigManager:
         self.save_config()
 
     def get_file_limit(self):
-        """Returns the file limit, defaulting to 100."""
-        return self.config.get("file_limit", 100)
+        """Returns the file limit, defaulting to 20."""
+        try:
+            return max(1, int(self.config.get("file_limit", 20)))
+        except (TypeError, ValueError):
+            return 20
 
     def set_file_limit(self, limit):
         """Sets the file limit and saves config."""
-        self.config["file_limit"] = int(limit)
+        self.config["file_limit"] = max(1, int(limit))
+        self.save_config()
+
+    def get_file_limit_slider_max(self):
+        """Returns the configured max value for the Code View file limit slider."""
+        default_max = 20
+        legacy_expanded = bool(self.config.get("expand_file_limit_range", False))
+        legacy_max = 100 if legacy_expanded else default_max
+
+        try:
+            value = int(self.config.get("file_limit_slider_max", legacy_max))
+        except (TypeError, ValueError):
+            value = legacy_max
+
+        return max(default_max, value)
+
+    def set_file_limit_slider_max(self, value):
+        """Sets the max value for the Code View file limit slider."""
+        self.config["file_limit_slider_max"] = max(20, int(value))
+        self.config.pop("expand_file_limit_range", None)
         self.save_config()
 
     def get_code_extensions_filter(self):
@@ -168,22 +206,40 @@ class ConfigManager:
         self.config["code_extensions_filter"] = value if isinstance(value, str) else ""
         self.save_config()
 
-    def get_return_regions(self):
-        """Returns whether to return regions, defaulting to False."""
-        return self.config.get("return_regions", False)
+    def get_include_project_tree(self):
+        """Returns whether prompts should include the project tree."""
+        return bool(self.config.get("include_project_tree", False))
 
-    def set_return_regions(self, value):
-        """Sets whether to return regions and saves config."""
-        self.config["return_regions"] = bool(value)
+    def set_include_project_tree(self, value):
+        """Sets whether prompts should include the project tree and saves config."""
+        self.config["include_project_tree"] = bool(value)
         self.save_config()
 
-    def get_return_structures(self):
-        """Returns whether to return complete modified structures, defaulting to False."""
-        return self.config.get("return_structures", False)
+    def get_export_prompts_as_folder(self):
+        """Returns whether Code prompts should export to ~/Documents/codigo/."""
+        return bool(self.config.get("export_prompts_as_folder", False))
 
-    def set_return_structures(self, value):
-        """Sets whether to return complete modified structures and saves config."""
-        self.config["return_structures"] = bool(value)
+    def set_export_prompts_as_folder(self, value):
+        """Sets whether Code prompts should export to ~/Documents/codigo/."""
+        self.config["export_prompts_as_folder"] = bool(value)
+        self.save_config()
+
+    def get_return_files(self):
+        """Returns whether prompts should ask for complete modified files."""
+        return bool(self.config.get("return_files", False))
+
+    def set_return_files(self, value):
+        """Sets whether prompts should ask for complete modified files and saves config."""
+        self.config["return_files"] = bool(value)
+        self.save_config()
+
+    def get_return_chunks(self):
+        """Returns whether prompts should work with separated file parts."""
+        return bool(self.config.get("return_chunks", False))
+
+    def set_return_chunks(self, value):
+        """Sets whether prompts should work with separated file parts and saves config."""
+        self.config["return_chunks"] = bool(value)
         self.save_config()
 
     def get_enable_hotkeys(self):
@@ -214,6 +270,34 @@ class ConfigManager:
     def set_arbitrary_step(self, step):
         """Sets the arbitrary search step and saves config."""
         self.config["arbitrary_step"] = int(step)
+        self.save_config()
+
+    def get_arbitrary_search_min_chars(self):
+        """Returns the minimum substring length for Arbitrary search."""
+        default_value = 10
+        try:
+            value = int(self.config.get("arbitrary_search_min_chars", default_value))
+        except (TypeError, ValueError):
+            value = default_value
+        return max(1, value)
+
+    def set_arbitrary_search_min_chars(self, value):
+        """Sets the minimum substring length for Arbitrary search and saves config."""
+        self.config["arbitrary_search_min_chars"] = max(1, int(value))
+        self.save_config()
+
+    def get_arbitrary_search_max_chars(self):
+        """Returns the maximum substring length for Arbitrary search."""
+        default_value = 30
+        try:
+            value = int(self.config.get("arbitrary_search_max_chars", default_value))
+        except (TypeError, ValueError):
+            value = default_value
+        return max(1, value)
+
+    def set_arbitrary_search_max_chars(self, value):
+        """Sets the maximum substring length for Arbitrary search and saves config."""
+        self.config["arbitrary_search_max_chars"] = max(1, int(value))
         self.save_config()
 
     def get_db_config(self):

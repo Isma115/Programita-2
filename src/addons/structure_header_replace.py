@@ -55,6 +55,95 @@ def _normalize_code_text(text):
     return (text or "").replace("\r\n", "\n").replace("\r", "\n")
 
 
+def _clean_path_hint(text):
+    cleaned = (text or "").strip()
+    cleaned = cleaned.strip("`*[](){}<>")
+    cleaned = cleaned.rstrip(":")
+    cleaned = cleaned.replace("\\", "/")
+    cleaned = re.sub(r"^(?:[ab]/)", "", cleaned)
+    cleaned = re.sub(r"^\./+", "", cleaned)
+    return cleaned.strip()
+
+
+def _normalize_comment_body(line):
+    stripped = (line or "").strip()
+    if not stripped:
+        return ""
+
+    if stripped.startswith("<!--") and stripped.endswith("-->"):
+        return stripped[4:-3].strip()
+    if stripped.startswith("/*") and stripped.endswith("*/"):
+        return stripped[2:-2].strip()
+    if stripped.startswith("//"):
+        return stripped[2:].strip()
+    if stripped.startswith("--"):
+        return stripped[2:].strip()
+    if stripped.startswith("#") or stripped.startswith(";"):
+        return stripped[1:].strip()
+    if stripped.startswith("*"):
+        return stripped[1:].strip()
+    return stripped
+
+
+def _extract_structure_file_hint_from_line(line):
+    body = _normalize_comment_body(line)
+    if not body:
+        return None
+
+    match = re.match(r"^(?:Archivo|Fichero|File)\s*:\s*(.+?)\s*$", body, re.IGNORECASE)
+    if not match:
+        return None
+
+    hint = _clean_path_hint(match.group(1))
+    return hint or None
+
+
+def _is_comment_like_line(line):
+    stripped = (line or "").strip()
+    if not stripped:
+        return True
+
+    comment_patterns = (
+        r"^//",
+        r"^#",
+        r"^--",
+        r"^;",
+        r"^/\*.*\*/$",
+        r"^<!--.*-->$",
+        r"^\*",
+    )
+    return any(re.match(pattern, stripped) for pattern in comment_patterns)
+
+
+def _prepare_clipboard_structure_text(text):
+    normalized = _normalize_code_text(text)
+    lines = normalized.split("\n")
+
+    cleaned_lines = list(lines)
+    file_hint = None
+    start_idx = 0
+
+    while start_idx < len(cleaned_lines):
+        line = cleaned_lines[start_idx]
+        stripped = line.strip()
+
+        if not stripped:
+            start_idx += 1
+            continue
+
+        if not _is_comment_like_line(line):
+            break
+
+        hint = _extract_structure_file_hint_from_line(line)
+        if hint and not file_hint:
+            file_hint = hint
+        start_idx += 1
+        continue
+
+    cleaned_text = "\n".join(cleaned_lines[start_idx:]).strip("\n")
+    return cleaned_text, file_hint
+
+
 def _normalize_structure_header(text):
     return re.sub(r"\s+", "", (text or "").strip()).lower()
 
@@ -112,24 +201,6 @@ def _format_replacement_block(clipboard_content, target_block):
             formatted_lines.append("")
 
     return "\n".join(formatted_lines) + target_suffix
-
-
-def _is_structure_replace_enabled(app_instance):
-    try:
-        if hasattr(app_instance, "layout") and hasattr(app_instance.layout, "code_view"):
-            code_view = app_instance.layout.code_view
-            if hasattr(code_view, "var_return_structures"):
-                return bool(code_view.var_return_structures.get())
-    except Exception:
-        pass
-
-    try:
-        if hasattr(app_instance, "controller") and hasattr(app_instance.controller, "config_manager"):
-            return bool(app_instance.controller.config_manager.get_return_structures())
-    except Exception:
-        pass
-
-    return False
 
 
 def _indent_width(line):
@@ -989,17 +1060,56 @@ def _find_matching_structures_in_file(file_path, structure_info):
     return results
 
 
-def find_unique_code_structure_match(file_list, structure_info):
+def _match_files_by_hint(file_list, file_hint):
+    normalized_hint = _clean_path_hint(file_hint).lower()
+    if not normalized_hint:
+        return []
+
+    exact_matches = [
+        file_path for file_path in file_list
+        if normalized_hint == file_path.replace("\\", "/").lower()
+    ]
+    if exact_matches:
+        return exact_matches
+
+    suffix_matches = [
+        file_path for file_path in file_list
+        if file_path.replace("\\", "/").lower().endswith(normalized_hint)
+    ]
+    if suffix_matches:
+        return suffix_matches
+
+    basename = os.path.basename(normalized_hint)
+    if basename:
+        basename_matches = [
+            file_path for file_path in file_list
+            if os.path.basename(file_path).lower() == basename
+        ]
+        if basename_matches:
+            return basename_matches
+
+    return []
+
+
+def find_unique_code_structure_match(file_list, structure_info, file_hint=None):
+    target_files = list(file_list)
+    if file_hint:
+        hinted_files = _match_files_by_hint(file_list, file_hint)
+        if len(hinted_files) == 1:
+            target_files = hinted_files
+        elif len(hinted_files) > 1:
+            target_files = hinted_files
+
     matches = []
-    for file_path in file_list:
+    for file_path in target_files:
         for match in _find_matching_structures_in_file(file_path, structure_info):
             if match["header_key"] == structure_info["header_key"]:
                 matches.append(match)
     return matches
 
 
-def _show_structure_replace_dialog(header_text, file_path):
-    result = {"value": False}
+def _show_structure_replace_dialog(header_text, matches):
+    result = {"selection": None}
     dialog = tk.Toplevel()
     dialog.title("Coincidencia de estructura detectada")
     dialog.configure(bg=THEME["bg"])
@@ -1007,8 +1117,8 @@ def _show_structure_replace_dialog(header_text, file_path):
     dialog.attributes("-topmost", True)
     dialog.focus_force()
 
-    w = 780
-    h = 360
+    w = 860
+    h = 460 if len(matches) > 1 else 380
     ws = dialog.winfo_screenwidth()
     hs = dialog.winfo_screenheight()
     x = int((ws / 2) - (w / 2))
@@ -1018,30 +1128,23 @@ def _show_structure_replace_dialog(header_text, file_path):
     frame = tk.Frame(dialog, bg=THEME["bg"], padx=22, pady=20)
     frame.pack(fill="both", expand=True)
 
+    selected_var = tk.IntVar(value=0)
+
+    if len(matches) == 1:
+        intro_text = "Se ha encontrado una unica estructura con la misma cabecera dentro de la lista de ficheros de Codigo."
+    else:
+        intro_text = "Se han encontrado varias estructuras con la misma cabecera. Elige cuál quieres sustituir."
+
     tk.Label(
         frame,
-        text="Se ha encontrado una unica estructura con la misma cabecera dentro de la lista de ficheros de Codigo.",
+        text=intro_text,
         bg=THEME["bg"],
         fg=THEME["fg"],
         font=("Segoe UI", 12),
-        wraplength=720,
+        wraplength=800,
         justify="left",
         anchor="w",
     ).pack(fill="x", pady=(0, 14))
-
-    tk.Label(
-        frame,
-        text="Fichero coincidente:",
-        bg=THEME["bg"],
-        fg="#569cd6",
-        font=("Segoe UI", 12, "bold"),
-        anchor="w",
-    ).pack(fill="x")
-
-    file_box = tk.Text(frame, height=2, bg="#252526", fg="#ce9178", font=("Menlo", 12), relief="flat", wrap="word")
-    file_box.insert("1.0", file_path)
-    file_box.config(state="disabled")
-    file_box.pack(fill="x", pady=(4, 14))
 
     tk.Label(
         frame,
@@ -1052,16 +1155,61 @@ def _show_structure_replace_dialog(header_text, file_path):
         anchor="w",
     ).pack(fill="x")
 
-    header_box = tk.Text(frame, height=6, bg="#1f2430", fg="#dcdcaa", font=("Menlo", 12), relief="flat", wrap="word")
+    header_box = tk.Text(frame, height=5, bg="#1f2430", fg="#dcdcaa", font=("Menlo", 12), relief="flat", wrap="word")
     header_box.insert("1.0", header_text)
     header_box.config(state="disabled")
-    header_box.pack(fill="both", expand=True, pady=(4, 16))
+    header_box.pack(fill="x", pady=(4, 14))
+
+    tk.Label(
+        frame,
+        text="Estructura destino:",
+        bg=THEME["bg"],
+        fg="#569cd6",
+        font=("Segoe UI", 12, "bold"),
+        anchor="w",
+    ).pack(fill="x")
+
+    options_box = tk.Frame(frame, bg="#1f2430", padx=10, pady=8)
+    options_box.pack(fill="both", expand=True, pady=(4, 16))
+
+    for index, match in enumerate(matches):
+        option_frame = tk.Frame(options_box, bg="#1f2430")
+        option_frame.pack(fill="x", pady=(0, 8))
+
+        radio = tk.Radiobutton(
+            option_frame,
+            variable=selected_var,
+            value=index,
+            bg="#1f2430",
+            fg="#dcdcaa",
+            selectcolor="#1f2430",
+            activebackground="#1f2430",
+            activeforeground="#dcdcaa",
+            highlightthickness=0
+        )
+        radio.pack(side="left", anchor="n", padx=(0, 8), pady=(2, 0))
+
+        info_text = tk.Text(
+            option_frame,
+            height=2,
+            bg="#252526",
+            fg="#ce9178",
+            font=("Menlo", 11),
+            relief="flat",
+            wrap="word"
+        )
+        info_text.insert(
+            "1.0",
+            f"{os.path.basename(match['file_path'])}  |  línea {match['line_num']}\n{match['file_path']}"
+        )
+        info_text.config(state="disabled")
+        info_text.pack(side="left", fill="x", expand=True)
 
     btn_frame = tk.Frame(frame, bg=THEME["bg"])
     btn_frame.pack(fill="x")
 
     def on_yes():
-        result["value"] = True
+        result["selection"] = matches[selected_var.get()]
         dialog.destroy()
 
     def on_no():
@@ -1094,7 +1242,7 @@ def _show_structure_replace_dialog(header_text, file_path):
     dialog.protocol("WM_DELETE_WINDOW", on_no)
     dialog.grab_set()
     dialog.wait_window()
-    return result["value"]
+    return result["selection"]
 
 
 def _apply_structure_replacement(app_instance, structure_match, clipboard_content):
@@ -1136,41 +1284,34 @@ def _apply_structure_replacement(app_instance, structure_match, clipboard_conten
 
 
 def process_structure_header_replace(app_instance):
-    if not _is_structure_replace_enabled(app_instance):
-        return False
-
     clipboard_text = pyperclip.paste()
     if not clipboard_text:
         return False
 
-    structure_info = detect_code_structure(clipboard_text)
+    structure_text, file_hint = _prepare_clipboard_structure_text(clipboard_text)
+    if not structure_text.strip():
+        return False
+
+    structure_info = detect_code_structure(structure_text)
     if not structure_info:
         return False
 
     code_files = _get_listed_code_files(app_instance)
     if not code_files:
-        messagebox.showwarning(
-            "Smart Paste",
-            "No hay archivos visibles en la seccion de Codigo para buscar la estructura."
-        )
         return False
 
-    matches = find_unique_code_structure_match(code_files, structure_info)
+    matches = find_unique_code_structure_match(code_files, structure_info, file_hint=file_hint)
     if len(matches) == 0:
         return False
 
-    if len(matches) > 1:
-        messagebox.showwarning(
-            "Smart Paste",
-            "Se han encontrado varias estructuras con la misma cabecera en la lista de Codigo. No se realizara la sustitucion automatica."
-        )
-        return True
+    if len(matches) > 3:
+        return False
 
-    match = matches[0]
-    logging.info(
-        f"Structure Replace: Coincidencia unica en {os.path.basename(match['file_path'])}:{match['line_num']}"
-    )
-    if _show_structure_replace_dialog(match["header"], match["file_path"]):
-        _apply_structure_replacement(app_instance, match, clipboard_text)
+    chosen_match = _show_structure_replace_dialog(structure_info["header"], matches)
+    if chosen_match:
+        logging.info(
+            f"Structure Replace: Coincidencia elegida en {os.path.basename(chosen_match['file_path'])}:{chosen_match['line_num']}"
+        )
+        _apply_structure_replacement(app_instance, chosen_match, structure_text)
 
     return True

@@ -3,11 +3,13 @@ from src.logic.project_manager import ProjectManager
 from src.logic.section_manager import SectionManager
 from src.logic.config_manager import ConfigManager
 from src.logic.global_hotkeys import GlobalHotkeyListener
+from src.logic.prompt_rules import get_file_path_comment_inline_instruction
 from src.ui.styles import Styles
 import os
 import pyperclip
 import importlib
 import re
+import shutil
 
 class Controller:
     """
@@ -37,7 +39,6 @@ class Controller:
         )
         self.hotkey_listener = GlobalHotkeyListener(self)
         self._doc_file_cache = {}
-        self._structure_prompt_cache = None
 
     def get_sections_directory(self):
         """Returns the current directory used to store code sections."""
@@ -49,28 +50,34 @@ class Controller:
         self.config_manager.set_sections_path(resolved_path)
         return resolved_path
 
-    def get_return_structures_prompt(self):
-        """Returns the prompt text used when only modified structures should be returned."""
-        if self._structure_prompt_cache is not None:
-            return self._structure_prompt_cache
+    def get_code_output_prompt(self, return_files=False, return_chunks=False):
+        """Returns the instruction block that defines how the AI should return code."""
+        path_comment_instruction = get_file_path_comment_inline_instruction()
 
-        prompt_path = os.path.abspath(
-            os.path.join(os.path.dirname(__file__), "..", "..", "prompt_devolver_estructura.txt")
+        if return_chunks:
+            return (
+                "IMPORTANTE: Antes de contestar, indica la lista de partes que tienes que modificar. "
+                "Después, devuelve SOLO las partes individuales de código que hayan necesitado modificación, "
+                "respetando el formato \"Archivo ruta/al/archivo.ext (parte X/Y)\". "
+                "No devuelvas partes ni código sin cambios. "
+                f"{path_comment_instruction}"
+            )
+
+        if return_files:
+            return (
+                "IMPORTANTE: Antes de contestar, indica la lista de archivos que tienes que modificar. "
+                "Después, devuelve SOLO los archivos de código completos que hayan necesitado modificación. "
+                "No devuelvas archivos sin cambios. "
+                f"{path_comment_instruction}"
+            )
+
+        return (
+            "IMPORTANTE: Devuelve SOLO las partes de código que hayan necesitado modificación. "
+            "No devuelvas código sin cambios. "
+            "En cada sitio exacto donde hayas tenido que modificar el código, deja un comentario "
+            "que incluya exactamente [MODIFICACIÓN]. "
+            f"{path_comment_instruction}"
         )
-        fallback_prompt = (
-            "IMPORTANTE: Devuelve SOLO las estructuras de código que hayan sido modificadas "
-            "(clases, funciones, métodos, etc.) y que necesiten ser reemplazadas."
-        )
-
-        try:
-            with open(prompt_path, "r", encoding="utf-8") as prompt_file:
-                prompt_text = prompt_file.read().strip()
-                self._structure_prompt_cache = prompt_text or fallback_prompt
-        except Exception as e:
-            print(f"Controller: No se pudo cargar {prompt_path}: {e}")
-            self._structure_prompt_cache = fallback_prompt
-
-        return self._structure_prompt_cache
 
     def load_project_folder(self, path):
         """Loads a project folder and updates the UI."""
@@ -145,8 +152,9 @@ class Controller:
         user_text,
         selected_section=None,
         selected_subsection=None,
-        return_regions=False,
-        return_structures=False,
+        return_files=False,
+        return_chunks=False,
+        include_project_tree=False,
         min_files=10,
         file_paths=None
     ):
@@ -183,8 +191,14 @@ class Controller:
         # Build Prompt
         prompt = f"Petición del Usuario: {user_text}\n\nArchivos de Contexto:\n"
         for f in relevant_files: # All relevant files according to min_files
-            prompt += f"\n--- Archivo: {f['rel_path']} ---\n"
-            prompt += f.get('content', '') + "\n"
+            for part_label, part_content in self._split_file_for_prompt(f, return_chunks=return_chunks):
+                prompt += f"\n--- Archivo: {part_label} ---\n"
+                prompt += part_content + "\n"
+
+        if include_project_tree:
+            project_tree = self.project_manager.get_project_tree_text()
+            if project_tree:
+                prompt += f"\n\nÁrbol del Proyecto:\n{project_tree}"
         
         # Include table samples if section has tables
         if selected_section:
@@ -196,15 +210,80 @@ class Controller:
         
 
             
-        if return_structures:
-            prompt += f"\n\n{self.get_return_structures_prompt()}"
-
-        elif return_regions:
-            prompt += "\n\nIMPORTANTE: Primero, lista todas las regiones que necesitan modificación. Después, devuelve SOLO las regiones modificadas COMPLETAS. Solo las regiones que necesitaron modificación, y deben estar completas. No devuelvas código sin cambios."
-        else:
-            prompt += "\n\nIMPORTANTE: Indica cada cambio realizado con un comentario dentro del código que incluya exactamente la palabra: [MODIFICACIÓN]. Devuelve ÚNICAMENTE el código que ha sido modificado, omitiendo las partes que no han cambiado."
+        prompt += f"\n\n{self.get_code_output_prompt(return_files=return_files, return_chunks=return_chunks)}"
             
         return prompt
+
+    def _split_file_for_prompt(self, file_info, return_chunks=False):
+        """
+        Returns either the full file or its separated parts for prompt generation.
+        """
+        rel_path = file_info.get("rel_path", "archivo")
+        content = file_info.get("content") or ""
+
+        if not return_chunks:
+            return [(rel_path, content.rstrip("\n"))]
+
+        lines = content.splitlines(keepends=True)
+
+        segments = []
+        current = []
+
+        for line in lines:
+            if self._is_prompt_separator_line(line):
+                segment = "".join(current).rstrip("\n")
+                if segment.strip():
+                    segments.append(segment)
+                current = []
+                continue
+
+            current.append(line)
+
+        final_segment = "".join(current).rstrip("\n")
+        if final_segment.strip() or not segments:
+            segments.append(final_segment)
+
+        prompt_parts = []
+        total_parts = len(segments)
+        for index, segment in enumerate(segments, start=1):
+            label = f"{rel_path} (parte {index}/{total_parts})"
+            prompt_parts.append((label, segment))
+
+        return prompt_parts
+
+    def _is_prompt_separator_line(self, line):
+        """
+        Returns True when the line is a standalone comment with marker [separación].
+        Supports common single-line and block-comment wrappers.
+        """
+        stripped = line.strip()
+        if not stripped:
+            return False
+
+        normalized = stripped
+
+        if normalized.startswith("<!--") and normalized.endswith("-->"):
+            normalized = normalized[4:-3].strip()
+        elif normalized.startswith("/*") and normalized.endswith("*/"):
+            normalized = normalized[2:-2].strip()
+        elif normalized.startswith("//"):
+            normalized = normalized[2:].strip()
+        elif normalized.startswith("--"):
+            normalized = normalized[2:].strip()
+        elif normalized.startswith("#") or normalized.startswith(";"):
+            normalized = normalized[1:].strip()
+        elif normalized.startswith("*"):
+            normalized = normalized[1:].strip()
+
+        normalized = normalized.strip("*").strip().lower()
+        return normalized in ("[separación]", "[separacion]")
+
+    def get_project_tree_prompt_block(self):
+        """Returns the project tree block formatted for prompts."""
+        project_tree = self.project_manager.get_project_tree_text()
+        if not project_tree:
+            return ""
+        return f"ÁRBOL COMPLETO DEL PROYECTO:\n{project_tree}"
 
     def _get_table_samples_for_prompt(self, table_names, limit=5):
         """Gets sample data for given tables using only an existing active DB connection."""
@@ -377,6 +456,187 @@ class Controller:
 
         return False
 
+    def remove_modification_comments_from_project(self):
+        """
+        Removes comments containing [MODIFICACIÓN] from all loaded project files.
+        Returns (changed_files, removed_comments, errors).
+        """
+        changed_files = 0
+        removed_comments = 0
+        errors = []
+
+        for file_info in self.project_manager.get_files():
+            path = file_info.get("path")
+            original_content = file_info.get("content") or ""
+            cleaned_content, removed_in_file = self._strip_modification_comments(original_content)
+
+            if removed_in_file <= 0 or cleaned_content == original_content:
+                continue
+
+            try:
+                with open(path, "w", encoding="utf-8") as fh:
+                    fh.write(cleaned_content)
+                file_info["content"] = cleaned_content
+                changed_files += 1
+                removed_comments += removed_in_file
+            except Exception as e:
+                errors.append(f"{path}: {e}")
+
+        return changed_files, removed_comments, errors
+
+    def _strip_modification_comments(self, text):
+        """
+        Removes whole comments containing [MODIFICACIÓN] while preserving code and line structure.
+        Supports common single-line and block comment syntaxes.
+        """
+        marker = "[modificación]"
+        output = []
+        removed_comments = 0
+        i = 0
+        text_len = len(text)
+        string_delim = None
+        triple_string_delim = None
+
+        while i < text_len:
+            if triple_string_delim is not None:
+                if text.startswith(triple_string_delim, i):
+                    output.append(triple_string_delim)
+                    i += 3
+                    triple_string_delim = None
+                    continue
+
+                if text[i] == "\\" and i + 1 < text_len:
+                    output.append(text[i:i + 2])
+                    i += 2
+                    continue
+
+                output.append(text[i])
+                i += 1
+                continue
+
+            if string_delim is not None:
+                if text[i] == "\\" and i + 1 < text_len:
+                    output.append(text[i:i + 2])
+                    i += 2
+                    continue
+
+                output.append(text[i])
+                if text[i] == string_delim:
+                    string_delim = None
+                i += 1
+                continue
+
+            if text.startswith("'''", i) or text.startswith('"""', i):
+                triple_string_delim = text[i:i + 3]
+                output.append(triple_string_delim)
+                i += 3
+                continue
+
+            if text[i] in ("'", '"', "`"):
+                string_delim = text[i]
+                output.append(text[i])
+                i += 1
+                continue
+
+            if text.startswith("<!--", i):
+                comment_text, end_idx = self._consume_block_comment(text, i, "-->")
+                if marker in comment_text.lower():
+                    self._trim_current_line_whitespace(output)
+                    output.append(self._preserve_comment_newlines(comment_text))
+                    removed_comments += 1
+                else:
+                    output.append(comment_text)
+                i = end_idx
+                continue
+
+            if text.startswith("/*", i):
+                comment_text, end_idx = self._consume_block_comment(text, i, "*/")
+                if marker in comment_text.lower():
+                    self._trim_current_line_whitespace(output)
+                    output.append(self._preserve_comment_newlines(comment_text))
+                    removed_comments += 1
+                else:
+                    output.append(comment_text)
+                i = end_idx
+                continue
+
+            if text.startswith("//", i):
+                comment_text, end_idx = self._consume_line_comment(text, i)
+                if marker in comment_text.lower():
+                    self._trim_current_line_whitespace(output)
+                    removed_comments += 1
+                else:
+                    output.append(comment_text)
+                i = end_idx
+                continue
+
+            if self._is_dash_dash_comment_start(text, i):
+                comment_text, end_idx = self._consume_line_comment(text, i)
+                if marker in comment_text.lower():
+                    self._trim_current_line_whitespace(output)
+                    removed_comments += 1
+                else:
+                    output.append(comment_text)
+                i = end_idx
+                continue
+
+            if self._is_hash_comment_start(text, i):
+                comment_text, end_idx = self._consume_line_comment(text, i)
+                if marker in comment_text.lower():
+                    self._trim_current_line_whitespace(output)
+                    removed_comments += 1
+                else:
+                    output.append(comment_text)
+                i = end_idx
+                continue
+
+            output.append(text[i])
+            i += 1
+
+        return "".join(output), removed_comments
+
+    def _consume_line_comment(self, text, start_idx):
+        end_idx = text.find("\n", start_idx)
+        if end_idx == -1:
+            end_idx = len(text)
+        return text[start_idx:end_idx], end_idx
+
+    def _consume_block_comment(self, text, start_idx, end_marker):
+        end_idx = text.find(end_marker, start_idx + len(end_marker) - 1)
+        if end_idx == -1:
+            return text[start_idx:], len(text)
+        end_idx += len(end_marker)
+        return text[start_idx:end_idx], end_idx
+
+    def _trim_current_line_whitespace(self, output):
+        idx = len(output) - 1
+        while idx >= 0 and output[idx] in (" ", "\t"):
+            idx -= 1
+        del output[idx + 1:]
+
+    def _preserve_comment_newlines(self, comment_text):
+        return "".join(ch for ch in comment_text if ch in "\r\n")
+
+    def _is_hash_comment_start(self, text, index):
+        if index < 0 or index >= len(text) or text[index] != "#":
+            return False
+        if index == 0:
+            return True
+        return text[index - 1].isspace()
+
+    def _is_dash_dash_comment_start(self, text, index):
+        if not text.startswith("--", index):
+            return False
+
+        prev_ok = index == 0 or text[index - 1].isspace()
+        next_index = index + 2
+        next_ok = (
+            next_index >= len(text)
+            or text[next_index].isspace()
+            or text[next_index] == "["
+        )
+        return prev_ok and next_ok
+
     def save_content_to_codigo_txt(self, content, append=False):
         """Saves or appends content to ~/Documents/codigo.txt."""
         try:
@@ -392,6 +652,57 @@ class Controller:
             return True, file_path
         except Exception as e:
             return False, str(e)
+
+    def export_files_to_codigo_folder(self, files_data):
+        """Exports only the selected files to ~/Documents/codigo/ flatly."""
+        try:
+            documents_path = os.path.join(os.path.expanduser("~"), "Documents")
+            folder_path = os.path.join(documents_path, "codigo")
+            os.makedirs(documents_path, exist_ok=True)
+
+            if os.path.isdir(folder_path):
+                shutil.rmtree(folder_path)
+            os.makedirs(folder_path, exist_ok=True)
+
+            written_files = []
+            used_names = {}
+            for file_info in files_data or []:
+                rel_path = file_info.get("rel_path") or file_info.get("path") or "archivo.txt"
+                filename = self._get_flat_export_filename(rel_path, used_names)
+                target_path = os.path.join(folder_path, filename)
+
+                with open(target_path, "w", encoding="utf-8") as f:
+                    f.write(file_info.get("content", ""))
+
+                written_files.append(target_path)
+
+            return True, folder_path
+        except Exception as e:
+            return False, str(e)
+
+    def _get_flat_export_filename(self, rel_path, used_names):
+        """Returns a safe filename for flat exports, avoiding collisions."""
+        normalized = (rel_path or "").replace("\\", "/").strip()
+        filename = os.path.basename(normalized) or "archivo.txt"
+        filename = filename.replace("/", "_").replace("\\", "_")
+
+        base, ext = os.path.splitext(filename)
+        if not base:
+            base = "archivo"
+
+        counter = used_names.get(filename.lower(), 0)
+        if counter == 0:
+            used_names[filename.lower()] = 1
+            return filename
+
+        while True:
+            counter += 1
+            candidate = f"{base}__{counter}{ext}"
+            key = candidate.lower()
+            if key not in used_names:
+                used_names[filename.lower()] = counter
+                used_names[key] = 1
+                return candidate
 
     def _get_doc_root(self):
         """Returns the configured documentation root folder, if valid."""

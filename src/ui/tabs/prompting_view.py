@@ -3,6 +3,7 @@ from tkinter import ttk, filedialog, messagebox
 import os
 import json
 import re
+from src.logic.prompt_rules import ensure_file_path_comment_instruction
 from src.ui.styles import Styles
 
 
@@ -467,7 +468,8 @@ class PromptingView(ttk.Frame):
             except StopIteration:
                 return ""
 
-        return re.sub(r"\[(.*?)\]", repl, template_text)
+        filled_prompt = re.sub(r"\[(.*?)\]", repl, template_text)
+        return ensure_file_path_comment_instruction(filled_prompt)
 
     def _update_preview(self):
         template = self._get_template_text()

@@ -5,6 +5,10 @@ class ProjectManager:
     """
     Manages the loading and scanning of project files.
     """
+    IGNORED_DIRECTORIES = {
+        '.git', '__pycache__', 'node_modules', 'venv', 'env',
+        '.idea', '.vscode', '.next', 'dist', 'build'
+    }
     
     # Supported code extensions
     CODE_EXTENSIONS = {
@@ -78,7 +82,7 @@ class ProjectManager:
         """
         for root, _, filenames in os.walk(path):
             # Skip common junk directories
-            if any(part.startswith('.') or part in ('__pycache__', 'node_modules', 'venv', 'env') for part in root.split(os.sep)):
+            if any(part.startswith('.') or part in self.IGNORED_DIRECTORIES for part in root.split(os.sep)):
                 continue
                 
             for filename in filenames:
@@ -101,6 +105,39 @@ class ProjectManager:
     def get_files(self):
         """Returns the list of loaded files."""
         return self.files
+
+    def get_project_tree_text(self):
+        """Returns a text tree representation of the current project."""
+        if not self.current_project_path or not os.path.isdir(self.current_project_path):
+            return ""
+
+        root_path = self.current_project_path
+        root_name = os.path.basename(os.path.normpath(root_path)) or root_path
+        lines = [root_name + "/"]
+
+        def should_skip(name):
+            return name.startswith('.') or name in self.IGNORED_DIRECTORIES
+
+        def walk(directory_path, prefix=""):
+            try:
+                entries = sorted(os.listdir(directory_path), key=lambda item: (not os.path.isdir(os.path.join(directory_path, item)), item.lower()))
+            except Exception as e:
+                lines.append(f"{prefix}[Error leyendo directorio: {e}]")
+                return
+
+            visible_entries = [entry for entry in entries if not should_skip(entry)]
+            for index, entry in enumerate(visible_entries):
+                full_path = os.path.join(directory_path, entry)
+                is_last = index == len(visible_entries) - 1
+                branch = "└── " if is_last else "├── "
+                suffix = "/" if os.path.isdir(full_path) else ""
+                lines.append(f"{prefix}{branch}{entry}{suffix}")
+                if os.path.isdir(full_path):
+                    child_prefix = prefix + ("    " if is_last else "│   ")
+                    walk(full_path, child_prefix)
+
+        walk(root_path)
+        return "\n".join(lines)
 
     @classmethod
     def is_code_file(cls, filename):
@@ -237,12 +274,9 @@ class ProjectManager:
             return []
 
         non_code = []
-        IGNORE_DIRS = {'.git', '__pycache__', 'node_modules', 'venv', 'env',
-                       '.idea', '.vscode', '.next', 'dist', 'build'}
-
         for root, dirs, filenames in os.walk(self.current_project_path):
             # Filter dirs in-place to skip ignored
-            dirs[:] = [d for d in dirs if d not in IGNORE_DIRS and not d.startswith('.')]
+            dirs[:] = [d for d in dirs if d not in self.IGNORED_DIRECTORIES and not d.startswith('.')]
 
             for filename in filenames:
                 if filename.startswith('.'):

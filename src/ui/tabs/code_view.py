@@ -35,6 +35,7 @@ class CodeView(ttk.Frame):
     DEFAULT_SECTIONS_PANEL_WIDTH = Styles.scale_size(300)
     MIN_LEFT_PANEL_WIDTH = Styles.scale_size(320)
     MIN_SECTIONS_PANEL_WIDTH = Styles.scale_size(260)
+    DEFAULT_MAX_FILE_LIMIT = 20
 
     AI_URLS = {
         "DeepSeek (R1/V3)": "https://chat.deepseek.com",
@@ -138,19 +139,23 @@ class CodeView(ttk.Frame):
         self.top_bar.pack(side="top", fill="x", padx=10, pady=(2, 8))
 
         # Slider for File Limit
-        self.limit_var = tk.DoubleVar(value=100) # Default, will update from config
+        self.limit_var = tk.DoubleVar(value=self.DEFAULT_MAX_FILE_LIMIT)
 
         # Container for slider
         slider_frame = ttk.Frame(self.top_bar, style="Main.TFrame")
         slider_frame.pack(side="left", padx=20)
 
-        self.lbl_limit = ttk.Label(slider_frame, text="Mín. Ficheros: 100", style="TLabel")
+        self.lbl_limit = ttk.Label(
+            slider_frame,
+            text=f"Mín. Ficheros: {self.DEFAULT_MAX_FILE_LIMIT}",
+            style="TLabel"
+        )
         self.lbl_limit.pack(side="left", padx=(0, 15))
 
         self.slider = ttk.Scale(
             slider_frame, 
             from_=1, 
-            to=20, 
+            to=self.DEFAULT_MAX_FILE_LIMIT, 
             orient="horizontal", 
             variable=self.limit_var,
             command=self._on_limit_change,
@@ -206,11 +211,16 @@ class CodeView(ttk.Frame):
         self.txt_ext.pack(fill="both", expand=True, ipady=2)  # ipady aumenta altura vertical
         self.ext_var.trace_add("write", self._on_extension_change)
 
+        self._apply_limit_slider_range()
+
         # Initialize slider from config if controller available
         if hasattr(self, 'controller') and hasattr(self.controller, 'config_manager'):
             limit = self.controller.config_manager.get_file_limit()
+            self._apply_limit_slider_range()
+            limit = min(limit, self._get_limit_slider_max())
             self.limit_var.set(limit)
             self.lbl_limit.config(text=f"Mín. Ficheros: {int(limit)}")
+            self.controller.config_manager.set_file_limit(limit)
 
     def _create_file_tree(self, parent):
         """Creates the file listing treeview and its context menu."""
@@ -300,8 +310,8 @@ class CodeView(ttk.Frame):
         self._create_sections_header(self.right_top_frame)
         self._create_section_search(self.right_top_frame)
         self._create_section_tree(self.right_top_frame)
-        self._create_regions_checkbox(self.right_bottom_frame)
-        self._create_structures_checkbox(self.right_bottom_frame)
+        self._create_return_files_checkbox(self.right_bottom_frame)
+        self._create_return_chunks_checkbox(self.right_bottom_frame)
 
     def _create_sections_header(self, parent):
         """Creates the 'Secciones' header and directory label."""
@@ -400,13 +410,13 @@ class CodeView(ttk.Frame):
         self.section_tree.bind("<Button-3>", self._show_context_menu)
         self.section_tree.bind("<Control-Button-1>", self._show_context_menu)
 
-    def _create_regions_checkbox(self, parent):
-        """Creates the custom 'Devolver regiones' checkbox."""
-        val_regions = False
+    def _create_return_files_checkbox(self, parent):
+        """Creates the custom 'Devolver archivos' checkbox."""
+        val_return_files = False
         if hasattr(self.controller, 'config_manager'):
-            val_regions = self.controller.config_manager.get_return_regions()
-            
-        self.var_return_regions = tk.BooleanVar(value=val_regions)
+            val_return_files = self.controller.config_manager.get_return_files()
+
+        self.var_return_files = tk.BooleanVar(value=val_return_files)
         
         self.chk_container = ttk.Frame(parent, style="Sidebar.TFrame", cursor="hand2")
         self.chk_container.pack(fill="x", padx=15, pady=(0, 1))
@@ -424,57 +434,59 @@ class CodeView(ttk.Frame):
         
         self.lbl_chk_text = ttk.Label(
             self.chk_container, 
-            text="Devolver regiones", 
+            text="Devolver archivos", 
             style="TLabel",
             font=("Segoe UI", 18, "bold")
         )
         self.lbl_chk_text.configure(background=Styles.COLOR_BG_SIDEBAR)
         self.lbl_chk_text.pack(side="left", padx=(10, 0))
         
-        self.chk_container.bind("<Button-1>", self._toggle_return_regions)
-        self.chk_canvas.bind("<Button-1>", self._toggle_return_regions)
-        self.lbl_chk_text.bind("<Button-1>", self._toggle_return_regions)
+        self.chk_container.bind("<Button-1>", self._toggle_return_files)
+        self.chk_canvas.bind("<Button-1>", self._toggle_return_files)
+        self.lbl_chk_text.bind("<Button-1>", self._toggle_return_files)
         
         self.chk_container.bind("<Enter>", self._on_chk_hover_enter)
         self.chk_container.bind("<Leave>", self._on_chk_hover_leave)
 
-    def _create_structures_checkbox(self, parent):
-        """Creates the custom 'Retornar estructuras' checkbox."""
-        val_structures = False
+    def _create_return_chunks_checkbox(self, parent):
+        """Creates the custom 'Devolver Trozos' checkbox."""
+        val_return_chunks = False
         if hasattr(self.controller, 'config_manager'):
-            val_structures = self.controller.config_manager.get_return_structures()
+            val_return_chunks = self.controller.config_manager.get_return_chunks()
+        if hasattr(self, "var_return_files") and self.var_return_files.get() and val_return_chunks:
+            val_return_chunks = False
 
-        self.var_return_structures = tk.BooleanVar(value=val_structures)
+        self.var_return_chunks = tk.BooleanVar(value=val_return_chunks)
 
-        self.struct_container = ttk.Frame(parent, style="Sidebar.TFrame", cursor="hand2")
-        self.struct_container.pack(fill="x", padx=15, pady=(1, 5))
+        self.chk_chunks_container = ttk.Frame(parent, style="Sidebar.TFrame", cursor="hand2")
+        self.chk_chunks_container.pack(fill="x", padx=15, pady=(0, 1))
 
-        self.struct_canvas = tk.Canvas(
-            self.struct_container,
+        self.chk_chunks_canvas = tk.Canvas(
+            self.chk_chunks_container,
             width=30,
             height=30,
             bg=Styles.COLOR_BG_SIDEBAR,
             highlightthickness=0,
             bd=0
         )
-        self.struct_canvas.pack(side="left")
-        self._draw_struct_checkbox()
+        self.chk_chunks_canvas.pack(side="left")
+        self._draw_chunks_checkbox()
 
-        self.lbl_struct_text = ttk.Label(
-            self.struct_container,
-            text="Retornar estructuras",
+        self.lbl_chk_chunks_text = ttk.Label(
+            self.chk_chunks_container,
+            text="Devolver Trozos",
             style="TLabel",
             font=("Segoe UI", 18, "bold")
         )
-        self.lbl_struct_text.configure(background=Styles.COLOR_BG_SIDEBAR)
-        self.lbl_struct_text.pack(side="left", padx=(10, 0))
+        self.lbl_chk_chunks_text.configure(background=Styles.COLOR_BG_SIDEBAR)
+        self.lbl_chk_chunks_text.pack(side="left", padx=(10, 0))
 
-        self.struct_container.bind("<Button-1>", self._toggle_return_structures)
-        self.struct_canvas.bind("<Button-1>", self._toggle_return_structures)
-        self.lbl_struct_text.bind("<Button-1>", self._toggle_return_structures)
+        self.chk_chunks_container.bind("<Button-1>", self._toggle_return_chunks)
+        self.chk_chunks_canvas.bind("<Button-1>", self._toggle_return_chunks)
+        self.lbl_chk_chunks_text.bind("<Button-1>", self._toggle_return_chunks)
 
-        self.struct_container.bind("<Enter>", self._on_struct_hover_enter)
-        self.struct_container.bind("<Leave>", self._on_struct_hover_leave)
+        self.chk_chunks_container.bind("<Enter>", self._on_chk_chunks_hover_enter)
+        self.chk_chunks_container.bind("<Leave>", self._on_chk_chunks_hover_leave)
 
     def _create_layout(self):
         """Creates the split-pane layout."""
@@ -534,9 +546,7 @@ class CodeView(ttk.Frame):
         ext_width = max(Styles.scale_size(10 if compact_width else 12 if narrow_width else 15), 8)
         spacer_height = Styles.scale_size(18 if ultra_compact_height else 28 if compact_height else 42)
         top_prompt_pady = Styles.scale_size(6 if compact_height else 10)
-        chk_top_pady = Styles.scale_padding((0, 1))
-        chk_mid_pady = Styles.scale_padding((1, 5))
-        chk_bottom_pady = Styles.scale_padding((5, 5))
+        chk_bottom_pady = Styles.scale_padding((0, 5))
 
         self.lbl_project_name.configure(font=("Segoe UI", project_font_size))
         self.section_search_label.configure(font=("Segoe UI", section_label_size, "bold"))
@@ -555,17 +565,16 @@ class CodeView(ttk.Frame):
         self.txt_prompt.configure(height=prompt_height)
         self.prompt_frame.pack_configure(pady=top_prompt_pady)
 
-        for canvas in (self.chk_canvas, self.struct_canvas):
-            canvas.configure(width=self._checkbox_visual_size, height=self._checkbox_visual_size)
+        self.chk_canvas.configure(width=self._checkbox_visual_size, height=self._checkbox_visual_size)
+        self.chk_chunks_canvas.configure(width=self._checkbox_visual_size, height=self._checkbox_visual_size)
+        self.lbl_chk_text.configure(font=("Segoe UI", checkbox_font_size, "bold"))
+        self.lbl_chk_chunks_text.configure(font=("Segoe UI", checkbox_font_size, "bold"))
 
-        for label in (self.lbl_chk_text, self.lbl_struct_text):
-            label.configure(font=("Segoe UI", checkbox_font_size, "bold"))
-
-        self.chk_container.pack_configure(pady=chk_top_pady)
-        self.struct_container.pack_configure(pady=chk_mid_pady)
+        self.chk_container.pack_configure(pady=chk_bottom_pady)
+        self.chk_chunks_container.pack_configure(pady=chk_bottom_pady)
 
         self._draw_checkbox()
-        self._draw_struct_checkbox()
+        self._draw_chunks_checkbox()
 
     def _on_ai_selected(self, event=None):
         pass
@@ -601,7 +610,7 @@ class CodeView(ttk.Frame):
         rect_end = size - rect_start
         line_width = max(int(round(3 * factor)), 2)
 
-        is_checked = self.var_return_regions.get()
+        is_checked = self.var_return_files.get()
         outline_color = Styles.COLOR_ACCENT if is_checked else Styles.COLOR_DIM
 
         self.chk_canvas.create_rectangle(
@@ -623,39 +632,19 @@ class CodeView(ttk.Frame):
                 fill="white", width=line_width, capstyle=tk.ROUND
             )
 
-    def _on_chk_hover_enter(self, event):
-        self.lbl_chk_text.configure(foreground=Styles.COLOR_ACCENT)
-        # Subtle glow or border change could go here
-
-    def _on_chk_hover_leave(self, event):
-        self.lbl_chk_text.configure(foreground=Styles.COLOR_FG_TEXT)
-
-    def _toggle_return_regions(self, event=None):
-        """Toggles the custom checkbox state."""
-        new_val = not self.var_return_regions.get()
-        self.var_return_regions.set(new_val)
-        self._draw_checkbox()
-
-        # Update Config
-        if hasattr(self.controller, 'config_manager'):
-             self.controller.config_manager.set_return_regions(new_val)
-
-        # Initial Refresh
-        self._refresh_sections()
-
-    def _draw_struct_checkbox(self):
-        """Draws the current state on the structure checkbox canvas."""
-        self.struct_canvas.delete("all")
+    def _draw_chunks_checkbox(self):
+        """Draws the current state on the chunks checkbox canvas."""
+        self.chk_chunks_canvas.delete("all")
         size = max(int(getattr(self, "_checkbox_visual_size", 30)), 20)
         factor = size / 30.0
         rect_start = max(int(round(4 * factor)), 3)
         rect_end = size - rect_start
         line_width = max(int(round(3 * factor)), 2)
 
-        is_checked = self.var_return_structures.get()
+        is_checked = self.var_return_chunks.get()
         outline_color = Styles.COLOR_ACCENT if is_checked else Styles.COLOR_DIM
 
-        self.struct_canvas.create_rectangle(
+        self.chk_chunks_canvas.create_rectangle(
             rect_start, rect_start, rect_end, rect_end,
             outline=outline_color,
             width=2,
@@ -663,31 +652,53 @@ class CodeView(ttk.Frame):
         )
 
         if is_checked:
-            self.struct_canvas.create_line(
+            self.chk_chunks_canvas.create_line(
                 int(round(8 * factor)), int(round(15 * factor)),
                 int(round(13 * factor)), int(round(20 * factor)),
                 fill="white", width=line_width, capstyle=tk.ROUND
             )
-            self.struct_canvas.create_line(
+            self.chk_chunks_canvas.create_line(
                 int(round(13 * factor)), int(round(20 * factor)),
                 int(round(22 * factor)), int(round(10 * factor)),
                 fill="white", width=line_width, capstyle=tk.ROUND
             )
 
-    def _on_struct_hover_enter(self, event):
-        self.lbl_struct_text.configure(foreground=Styles.COLOR_ACCENT)
+    def _on_chk_hover_enter(self, event):
+        self.lbl_chk_text.configure(foreground=Styles.COLOR_ACCENT)
+        # Subtle glow or border change could go here
 
-    def _on_struct_hover_leave(self, event):
-        self.lbl_struct_text.configure(foreground=Styles.COLOR_FG_TEXT)
+    def _on_chk_hover_leave(self, event):
+        self.lbl_chk_text.configure(foreground=Styles.COLOR_FG_TEXT)
 
-    def _toggle_return_structures(self, event=None):
-        """Toggles the structure-output checkbox state."""
-        new_val = not self.var_return_structures.get()
-        self.var_return_structures.set(new_val)
-        self._draw_struct_checkbox()
+    def _on_chk_chunks_hover_enter(self, event):
+        self.lbl_chk_chunks_text.configure(foreground=Styles.COLOR_ACCENT)
+
+    def _on_chk_chunks_hover_leave(self, event):
+        self.lbl_chk_chunks_text.configure(foreground=Styles.COLOR_FG_TEXT)
+
+    def _set_return_mode(self, return_files, return_chunks, refresh_sections=True):
+        """Updates both return-mode selectors keeping them mutually exclusive."""
+        self.var_return_files.set(bool(return_files))
+        self.var_return_chunks.set(bool(return_chunks))
+        self._draw_checkbox()
+        self._draw_chunks_checkbox()
 
         if hasattr(self.controller, 'config_manager'):
-             self.controller.config_manager.set_return_structures(new_val)
+            self.controller.config_manager.set_return_files(return_files)
+            self.controller.config_manager.set_return_chunks(return_chunks)
+
+        if refresh_sections:
+            self._refresh_sections()
+
+    def _toggle_return_files(self, event=None):
+        """Acts like a deselectable radio button with square styling."""
+        is_selected = self.var_return_files.get()
+        self._set_return_mode(return_files=not is_selected, return_chunks=False)
+
+    def _toggle_return_chunks(self, event=None):
+        """Acts like a deselectable radio button with square styling."""
+        is_selected = self.var_return_chunks.get()
+        self._set_return_mode(return_files=False, return_chunks=not is_selected)
 
     def _get_structure_size_tag(self, line_count):
         """Returns the visual severity tag for a structure size row."""
@@ -892,6 +903,35 @@ class CodeView(ttk.Frame):
              
         # Refresh list to apply limit (re-run search so filter is preserved)
         self._on_prompt_change()
+
+    def _get_limit_slider_max(self):
+        """Returns the configured max value for the file-limit slider."""
+        if hasattr(self.controller, 'config_manager'):
+            return self.controller.config_manager.get_file_limit_slider_max()
+        return self.DEFAULT_MAX_FILE_LIMIT
+
+    def _apply_limit_slider_range(self):
+        """Applies the current slider range and clamps the value if needed."""
+        max_limit = self._get_limit_slider_max()
+        self.slider.configure(to=max_limit)
+
+        current_limit = int(float(self.limit_var.get()))
+        if current_limit > max_limit:
+            current_limit = max_limit
+            self.limit_var.set(current_limit)
+
+        self.lbl_limit.config(text=f"Mín. Ficheros: {current_limit}")
+        return current_limit
+
+    def apply_file_limit_slider_settings(self, refresh=True):
+        """Reapplies the configured slider max and refreshes search results if needed."""
+        current_limit = self._apply_limit_slider_range()
+
+        if hasattr(self.controller, 'config_manager'):
+            self.controller.config_manager.set_file_limit(current_limit)
+
+        if refresh:
+            self._on_prompt_change()
 
     def _on_load_project(self):
         path = filedialog.askdirectory()
@@ -1132,13 +1172,12 @@ class CodeView(ttk.Frame):
         # Check selected section/subsection
         section, subsection = self._get_selected_section_info()
         
-        # Check return regions
-        return_regions = self.var_return_regions.get()
+        return_files = self.var_return_files.get()
+        return_chunks = self.var_return_chunks.get()
 
-        # Check return structures
-        return_structures = self.var_return_structures.get()
-
-
+        include_project_tree = False
+        if hasattr(self.controller, 'config_manager'):
+            include_project_tree = self.controller.config_manager.get_include_project_tree()
 
         # Get file limit from slider
         try:
@@ -1149,66 +1188,71 @@ class CodeView(ttk.Frame):
         selected_files_data = self._get_files_for_prompt()
         selected_file_paths = [f['path'] for f in selected_files_data]
 
-        prompt = self.controller.generate_prompt(
-            text, 
-            selected_section=section,
-            selected_subsection=subsection,
-            return_regions=return_regions, 
-            return_structures=return_structures,
-            min_files=min_files, 
-            file_paths=selected_file_paths
-        )
-        
-        # Save prompt to file in Documents
+        # Resolve AI selection (auto mode or manual)
+        selected_ai = self.cmb_ai.get()
+        if selected_ai == "Automático":
+            selected_ai = self._get_auto_ai()
+
+        if selected_ai == "🤖 Agente":
+            clipboard_content = self._build_agent_clipboard_prompt(
+                text=text,
+                selected_files=selected_files_data,
+                selected_section=section,
+                selected_subsection=subsection,
+                return_files=return_files,
+                return_chunks=return_chunks,
+                include_project_tree=include_project_tree
+            )
+
+            self.clipboard_clear()
+            self.clipboard_append(clipboard_content)
+            print(f"Agente: Prompt copiado con {len(selected_files_data)} ficheros priorizados")
+        else:
+            clipboard_content = text
+            clipboard_content += f"\n\n{self.controller.get_code_output_prompt(return_files=return_files, return_chunks=return_chunks)}"
+
+            if include_project_tree:
+                project_tree_block = self.controller.get_project_tree_prompt_block()
+                if project_tree_block:
+                    clipboard_content += f"\n\n{project_tree_block}"
+
+            self.clipboard_clear()
+            self.clipboard_append(clipboard_content)
+
         try:
-            documents_path = os.path.join(os.path.expanduser("~"), "Documents")
-            file_path = os.path.join(documents_path, "codigo.txt")
-            
-            # Ensure directory exists (should exist on Mac, but good practice)
-            os.makedirs(documents_path, exist_ok=True)
-            
-            with open(file_path, "w", encoding="utf-8") as f:
-                f.write(prompt)
-                
-            # Resolve AI selection (auto mode or manual)
-            selected_ai = self.cmb_ai.get()
-            if selected_ai == "Automático":
-                selected_ai = self._get_auto_ai()
-            
-            if selected_ai == "🤖 Agente":
-                clipboard_content = self._build_agent_clipboard_prompt(
-                    text=text,
-                    selected_files=selected_files_data,
+            if self._should_export_prompts_as_folder():
+                success, export_path = self.controller.export_files_to_codigo_folder(selected_files_data)
+                if not success:
+                    raise RuntimeError(export_path)
+            else:
+                prompt = self.controller.generate_prompt(
+                    text,
                     selected_section=section,
                     selected_subsection=subsection,
-                    return_regions=return_regions,
-                    return_structures=return_structures
+                    return_files=return_files,
+                    return_chunks=return_chunks,
+                    include_project_tree=include_project_tree,
+                    min_files=min_files,
+                    file_paths=selected_file_paths
                 )
-                
-                self.clipboard_clear()
-                self.clipboard_append(clipboard_content)
-                print(f"Agente: Prompt copiado con {len(selected_files_data)} ficheros priorizados")
-            else:
-                # --- Modo normal: mensaje + instrucciones regiones ---
-                clipboard_content = text
-                if return_structures:
-                    clipboard_content += f"\n\n{self.controller.get_return_structures_prompt()}"
-                elif return_regions:
-                    clipboard_content += "\n\nIMPORTANTE: Primero, lista todas las regiones que necesitan modificación. Después, devuelve SOLO las regiones modificadas COMPLETAS. Solo las regiones que necesitaron modificación, y deben estar completas. No devuelvas código sin cambios."
 
-                
-                self.clipboard_clear()
-                self.clipboard_append(clipboard_content)
-                
-                # Record usage & open AI URL
+                documents_path = os.path.join(os.path.expanduser("~"), "Documents")
+                export_path = os.path.join(documents_path, "codigo.txt")
+
+                # Ensure directory exists (should exist on Mac, but good practice)
+                os.makedirs(documents_path, exist_ok=True)
+
+                with open(export_path, "w", encoding="utf-8") as f:
+                    f.write(prompt)
+
+            if selected_ai != "🤖 Agente":
                 self._ai_usage_history.append(selected_ai)
-                
+
                 if selected_ai in self.AI_URLS:
                     url = self.AI_URLS[selected_ai]
                     webbrowser.open_new_tab(url)
                     print(f"AutoAI: Abriendo {selected_ai} (usos recientes: {self._ai_usage_history[-5:]})")
 
-            
         except Exception as e:
             messagebox.showerror("Error", f"No se pudo guardar el fichero:\n{e}")
 
@@ -1239,8 +1283,9 @@ class CodeView(ttk.Frame):
         selected_files,
         selected_section=None,
         selected_subsection=None,
-        return_regions=False,
-        return_structures=False
+        return_files=False,
+        return_chunks=False,
+        include_project_tree=False
     ):
         """Builds a clipboard prompt tailored for coding agents."""
         lines = [
@@ -1277,6 +1322,11 @@ class CodeView(ttk.Frame):
                 "No hay ficheros seleccionados o visibles. Empieza por localizar el punto mínimo necesario para resolver la tarea."
             ])
 
+        if include_project_tree:
+            project_tree_block = self.controller.get_project_tree_prompt_block()
+            if project_tree_block:
+                lines.extend(["", project_tree_block])
+
         lines.extend([
             "",
             "FORMA DE TRABAJO:",
@@ -1285,22 +1335,18 @@ class CodeView(ttk.Frame):
             "- Antes de modificar, identifica qué archivos vas a tocar.",
             "- Si hay varias opciones, elige la menos invasiva compatible con la tarea."
         ])
-
-
-
-        if return_structures:
-            lines.extend([
-                "",
-                self.controller.get_return_structures_prompt()
-            ])
-        elif return_regions:
-            lines.extend([
-                "",
-                "IMPORTANTE:",
-                "Primero, lista todas las regiones que necesitan modificación. Después, devuelve SOLO las regiones modificadas COMPLETAS. Solo las regiones que necesitaron modificación, y deben estar completas. No devuelvas código sin cambios."
-            ])
+        lines.extend([
+            "",
+            self.controller.get_code_output_prompt(return_files=return_files, return_chunks=return_chunks)
+        ])
 
         return "\n".join(lines)
+
+    def _should_export_prompts_as_folder(self):
+        """Returns whether prompt exports should use ~/Documents/codigo/."""
+        if hasattr(self.controller, "config_manager"):
+            return bool(self.controller.config_manager.get_export_prompts_as_folder())
+        return False
 
     def _show_context_menu(self, event):
         """Shows the appropriate context menu on right click."""
@@ -1458,14 +1504,17 @@ class CodeView(ttk.Frame):
         )
 
         try:
-            # 2. Build prompt manually for the specific list of files
-            prompt = f"Petición del Usuario: {prompt_instruction}\n\nArchivos de Contexto:\n"
-            for f in selected_files_data:
-                prompt += f"\n--- Archivo: {f['rel_path']} ---\n"
-                prompt += f.get('content', '') + "\n"
+            if self._should_export_prompts_as_folder():
+                success, result = self.controller.export_files_to_codigo_folder(selected_files_data)
+            else:
+                # 2. Build prompt manually for the specific list of files
+                prompt = f"Petición del Usuario: {prompt_instruction}\n\nArchivos de Contexto:\n"
+                for f in selected_files_data:
+                    prompt += f"\n--- Archivo: {f['rel_path']} ---\n"
+                    prompt += f.get('content', '') + "\n"
 
-            # 3. Save to Documents/codigo.txt
-            success, result = self.controller.save_content_to_codigo_txt(prompt, append=False)
+                # 3. Save to Documents/codigo.txt
+                success, result = self.controller.save_content_to_codigo_txt(prompt, append=False)
             
             if success:
                 # 4. Copy Instruction to Clipboard

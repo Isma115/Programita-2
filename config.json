@@ -1,7 +1,7 @@
 {
-    "last_project": "/Users/ismaelmoraledalopez/Desktop/Programita 2",
-    "file_limit": 20,
-    "return_regions": false,
+    "last_project": "/Users/ismaelmoraledalopez/Documents/Azure-Irrigation-Web/HidraSmart-Irrigation-System",
+    "file_limit": 50,
+    "return_files": false,
     "doc_path": "/Users/ismaelmoraledalopez/Documents/Documentacion Irrigation",
     "doc_path_history": [
         "/Users/ismaelmoraledalopez/Documents/Documentacion Irrigation",
@@ -16,9 +16,10 @@
         "/Users/ismaelmoraledalopez/Documents/Azure-Irrigation-Web/HidraSmart-Irrigation-System",
         "/Users/ismaelmoraledalopez/Desktop/Programita 2",
         "/Users/ismaelmoraledalopez/Desktop/pruebas/Iterador/TrustedSearch",
-        "/Users/ismaelmoraledalopez/Desktop/SDD-Proyecto Aurora 2"
+        "/Users/ismaelmoraledalopez/Desktop/SDD-Proyecto Aurora 2",
+        "/Users/ismaelmoraledalopez/Desktop/pruebas/TreeConv"
     ],
-    "current_project_index": 1,
+    "current_project_index": 0,
     "db_config": {
         "host": "hidralab-server.mysql.database.azure.com",
         "port": "3306",
@@ -34,9 +35,15 @@
         "markdown_preview_zoom": 1.0
     },
     "last_doc_section": "Gestor de Equipos",
-    "last_code_section": "Documentaci\u00f3n",
+    "last_code_section": "Catastro",
     "implementation_mode": false,
-    "last_doc_file": "/Users/ismaelmoraledalopez/Documents/Documentacion Irrigation/Ordenes riego.md",
-    "return_structures": false,
-    "sections_path": "/Users/ismaelmoraledalopez/Documents/SeccionesProgramita"
+    "last_doc_file": "/Users/ismaelmoraledalopez/Documents/Documentacion Irrigation/Conexi\u00f3n a servidor - Subida a produccion.md",
+    "sections_path": "/Users/ismaelmoraledalopez/Documents/Documentacion Irrigation/SeccionesCodigo/Catastro",
+    "code_extensions_filter": "jsx, css",
+    "include_project_tree": false,
+    "file_limit_slider_max": 50,
+    "return_chunks": false,
+    "arbitrary_search_min_chars": 5,
+    "arbitrary_search_max_chars": 30,
+    "export_prompts_as_folder": false
 }

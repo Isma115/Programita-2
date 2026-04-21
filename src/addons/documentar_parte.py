@@ -5,11 +5,12 @@ de una app/software en formato Markdown.
 """
 
 from tkinter import simpledialog
+from src.logic.prompt_rules import ensure_file_path_comment_instruction
 
 
 def _build_prompt(target_part: str) -> str:
     """Construye el prompt final para el agente de codigo."""
-    return (
+    return ensure_file_path_comment_instruction(
         "Actua como un agente de codigo senior y genera un documento en Markdown "
         "detallado, claro y directo sobre la siguiente parte del sistema:\n\n"
         f"PARTE A DOCUMENTAR: {target_part}\n\n"
