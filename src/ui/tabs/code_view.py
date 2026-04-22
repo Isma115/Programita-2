@@ -1,4 +1,5 @@
 import tkinter as tk
+import tkinter.font as tkfont
 from tkinter import ttk, filedialog
 import tkinter.messagebox as messagebox
 import threading
@@ -171,6 +172,8 @@ class CodeView(ttk.Frame):
         self._checkbox_visual_size = Styles.scale_size(30)
         self.sections_dir_var = tk.StringVar(value="")
         self.file_type_icons = {}
+        self.folder_chip_widgets = []
+        self._folder_chip_refresh_after = None
 
         self._load_file_type_icons()
         self._create_layout()
@@ -351,10 +354,30 @@ class CodeView(ttk.Frame):
         )
         self.slider.pack(side="left", fill="x")
 
-        # AI Selector - BORDE ELIMINADO
+        # AI Selector
+        self.ai_selector_shell = tk.Frame(
+            slider_frame,
+            bg=Styles.COLOR_INPUT_BG,
+            highlightthickness=1,
+            highlightbackground=Styles.COLOR_BORDER,
+            highlightcolor=Styles.COLOR_ACCENT,
+            bd=0
+        )
+        self.ai_selector_shell.pack(side="left", padx=(20, 0))
+
+        self.ai_selector_title = tk.Label(
+            self.ai_selector_shell,
+            text="Seleccionar IA",
+            bg=Styles.COLOR_INPUT_BG,
+            fg=Styles.COLOR_DIM,
+            font=("Segoe UI", 11, "bold"),
+            anchor="w"
+        )
+        self.ai_selector_title.pack(fill="x", padx=10, pady=(7, 0))
+
         self.ai_var = tk.StringVar()
         self.cmb_ai = ttk.Combobox(
-            slider_frame, 
+            self.ai_selector_shell,
             textvariable=self.ai_var, 
             values=self.AI_ORDER,
             state="readonly",
@@ -362,7 +385,7 @@ class CodeView(ttk.Frame):
             style="Borderless.TCombobox"
         )
         self.cmb_ai.current(0)
-        self.cmb_ai.pack(side="left", padx=(20, 0))
+        self.cmb_ai.pack(fill="x", padx=8, pady=(2, 6), ipady=2)
 
         # Extension Filter - BORDE TOTALMENTE ELIMINADO
         saved_extensions = ""
@@ -423,7 +446,7 @@ class CodeView(ttk.Frame):
         )
         self.file_list_shell.pack(fill="both", expand=True)
 
-        self.columns = ("folder", "size", "type", "full_path")
+        self.columns = ("folder", "size", "type", "full_path", "folder_chip")
         self.tree = ttk.Treeview(
             self.file_list_shell,
             columns=self.columns,
@@ -442,15 +465,27 @@ class CodeView(ttk.Frame):
         self.tree.column("size", anchor="center", stretch=False, width=110, minwidth=90)
         self.tree.column("type", anchor="center", stretch=False, width=140, minwidth=110)
         self.tree.column("full_path", width=0, stretch=False, minwidth=0)
+        self.tree.column("folder_chip", width=0, stretch=False, minwidth=0)
         self._configure_file_tree_style()
 
         # Scrollbar
-        scrollbar = ttk.Scrollbar(self.file_list_shell, orient="vertical", command=self.tree.yview, style="Vertical.TScrollbar")
-        self.tree.configure(yscrollcommand=scrollbar.set)
+        self.file_tree_scrollbar = ttk.Scrollbar(
+            self.file_list_shell,
+            orient="vertical",
+            command=self._on_file_tree_scroll,
+            style="Vertical.TScrollbar"
+        )
+        self.tree.configure(yscrollcommand=self._on_file_tree_yscroll)
 
         self.tree.pack(side="left", fill="both", expand=True)
-        scrollbar.pack(side="right", fill="y")
+        self.file_tree_scrollbar.pack(side="right", fill="y")
         self.tree.bind("<Configure>", self._on_file_tree_resize)
+        self.tree.bind("<<TreeviewSelect>>", self._schedule_folder_chip_refresh, add="+")
+        self.tree.bind("<ButtonRelease-1>", self._schedule_folder_chip_refresh, add="+")
+        self.tree.bind("<ButtonRelease-3>", self._schedule_folder_chip_refresh, add="+")
+        self.tree.bind("<MouseWheel>", self._schedule_folder_chip_refresh, add="+")
+        self.tree.bind("<Button-4>", self._schedule_folder_chip_refresh, add="+")
+        self.tree.bind("<Button-5>", self._schedule_folder_chip_refresh, add="+")
 
         # Binding para doble click
         self.tree.bind("<Double-1>", self._on_file_double_click)
@@ -514,6 +549,171 @@ class CodeView(ttk.Frame):
     def _on_file_tree_resize(self, event=None):
         """Keeps the file list proportions balanced."""
         self._update_file_tree_columns()
+        self._schedule_folder_chip_refresh()
+
+    def _on_file_tree_scroll(self, *args):
+        """Scrolls the file table and refreshes route chips."""
+        self.tree.yview(*args)
+        self._schedule_folder_chip_refresh()
+
+    def _on_file_tree_yscroll(self, first, last):
+        """Keeps scrollbar and route chips in sync with tree scrolling."""
+        if hasattr(self, "file_tree_scrollbar"):
+            self.file_tree_scrollbar.set(first, last)
+        self._schedule_folder_chip_refresh()
+
+    def _schedule_folder_chip_refresh(self, event=None):
+        """Debounces route-chip overlay updates."""
+        if self._folder_chip_refresh_after:
+            try:
+                self.after_cancel(self._folder_chip_refresh_after)
+            except Exception:
+                pass
+        self._folder_chip_refresh_after = self.after(15, self._refresh_folder_chip_overlays)
+
+    def _clear_folder_chip_overlays(self):
+        """Removes any existing route chip overlays."""
+        for widget in self.folder_chip_widgets:
+            try:
+                widget.destroy()
+            except Exception:
+                pass
+        self.folder_chip_widgets = []
+
+    def _get_file_row_background(self, item_id):
+        """Returns the visual row background for a given tree item."""
+        try:
+            tags = self.tree.item(item_id, "tags") or ()
+        except Exception:
+            tags = ()
+
+        if "row_odd" in tags:
+            return "#16243a"
+        return Styles.COLOR_INPUT_BG
+
+    def _draw_rounded_rect(self, canvas, x1, y1, x2, y2, radius, fill, outline, width):
+        """Draws a rounded rectangle in a canvas."""
+        radius = max(0, min(radius, int((x2 - x1) / 2), int((y2 - y1) / 2)))
+
+        canvas.create_rectangle(x1 + radius, y1, x2 - radius, y2, fill=fill, outline=outline, width=width)
+        canvas.create_rectangle(x1, y1 + radius, x2, y2 - radius, fill=fill, outline=outline, width=width)
+
+        for corner in (
+            (x1, y1, x1 + radius * 2, y1 + radius * 2),
+            (x2 - radius * 2, y1, x2, y1 + radius * 2),
+            (x1, y2 - radius * 2, x1 + radius * 2, y2),
+            (x2 - radius * 2, y2 - radius * 2, x2, y2),
+        ):
+            canvas.create_oval(*corner, fill=fill, outline=outline, width=width)
+
+    def _on_folder_chip_mousewheel(self, event):
+        """Delegates scroll events captured by the Ruta chip overlay."""
+        if getattr(event, "delta", 0):
+            step = -1 if event.delta > 0 else 1
+            self.tree.yview_scroll(step, "units")
+        elif getattr(event, "num", None) == 4:
+            self.tree.yview_scroll(-1, "units")
+        elif getattr(event, "num", None) == 5:
+            self.tree.yview_scroll(1, "units")
+        self._schedule_folder_chip_refresh()
+        return "break"
+
+    def _refresh_folder_chip_overlays(self):
+        """Renders a gray chip over each visible Ruta cell."""
+        self._folder_chip_refresh_after = None
+        if not hasattr(self, "tree"):
+            return
+
+        self._clear_folder_chip_overlays()
+
+        chip_bg = "#2e3747"
+        chip_fg = "#c2cad8"
+        chip_font = ("Segoe UI", Styles.scale_size(12), "bold")
+        chip_font_obj = tkfont.Font(font=chip_font)
+        viewport_width = max(self.tree.winfo_width(), 0)
+        viewport_height = max(self.tree.winfo_height(), 0)
+
+        for item_id in self.tree.get_children():
+            try:
+                bbox = self.tree.bbox(item_id, "folder")
+            except Exception:
+                bbox = None
+
+            if not bbox:
+                continue
+
+            x, y, width, height = bbox
+            if width <= 8 or height <= 6:
+                continue
+            if x < 0 or y < 0:
+                continue
+            if (x + width) > viewport_width or (y + height) > viewport_height:
+                continue
+
+            folder_text = self.tree.set(item_id, "folder_chip")
+            if not folder_text:
+                continue
+
+            text_width = chip_font_obj.measure(folder_text)
+            text_height = chip_font_obj.metrics("linespace")
+            chip_width = min(max(text_width + 14, 28), max(width - 10, 28))
+            chip_height = min(max(text_height + 6, 18), max(height - 10, 18))
+            row_bg = self._get_file_row_background(item_id)
+            canvas = tk.Canvas(
+                self.tree,
+                bg=row_bg,
+                bd=0,
+                highlightthickness=0,
+                relief="flat"
+            )
+            chip_x = x + max((width - chip_width) // 2, 4)
+            chip_y = y + max((height - chip_height) // 2, 3)
+            canvas.place(x=chip_x, y=chip_y, width=chip_width, height=chip_height)
+            self._draw_rounded_rect(
+                canvas,
+                1,
+                1,
+                chip_width - 2,
+                chip_height - 2,
+                radius=min(7, int(chip_height * 0.26)),
+                fill=chip_bg,
+                outline=chip_bg,
+                width=0
+            )
+            canvas.create_text(
+                chip_width / 2,
+                chip_height / 2,
+                text=folder_text,
+                fill=chip_fg,
+                font=chip_font
+            )
+            canvas.bind("<Button-1>", lambda event, iid=item_id: self._on_folder_chip_left_click(iid))
+            canvas.bind("<Double-1>", lambda event, iid=item_id: self._on_folder_chip_double_click(iid))
+            canvas.bind("<Button-2>", lambda event, iid=item_id: self._on_folder_chip_right_click(event, iid))
+            canvas.bind("<Button-3>", lambda event, iid=item_id: self._on_folder_chip_right_click(event, iid))
+            canvas.bind("<Control-Button-1>", lambda event, iid=item_id: self._on_folder_chip_right_click(event, iid))
+            canvas.bind("<MouseWheel>", self._on_folder_chip_mousewheel)
+            canvas.bind("<Button-4>", self._on_folder_chip_mousewheel)
+            canvas.bind("<Button-5>", self._on_folder_chip_mousewheel)
+            self.folder_chip_widgets.append(canvas)
+
+    def _select_file_tree_item(self, item_id):
+        """Selects one file row in the table."""
+        if not item_id:
+            return
+        self.tree.selection_set(item_id)
+        self.tree.focus(item_id)
+
+    def _on_folder_chip_left_click(self, item_id):
+        self._select_file_tree_item(item_id)
+
+    def _on_folder_chip_double_click(self, item_id):
+        self._select_file_tree_item(item_id)
+        self._remove_file_tree_item(item_id)
+
+    def _on_folder_chip_right_click(self, event, item_id):
+        self._select_file_tree_item(item_id)
+        self.file_context_menu.tk_popup(event.x_root, event.y_root)
 
     def _update_file_tree_columns(self):
         """Recomputes column widths to keep a dashboard-like layout."""
@@ -531,6 +731,7 @@ class CodeView(ttk.Frame):
         self.tree.column("folder", width=folder_width)
         self.tree.column("size", width=size_width)
         self.tree.column("type", width=type_width)
+        self._schedule_folder_chip_refresh()
 
     def _format_file_size(self, num_bytes):
         """Formats file sizes in a compact explorer-friendly way."""
@@ -650,9 +851,9 @@ class CodeView(ttk.Frame):
         normalized_path = rel_path.replace(os.sep, "/")
         parts = [part for part in normalized_path.split("/") if part]
         if len(parts) <= 2:
-            return "| raiz |"
+            return "raiz"
         ancestor_parts = parts[:-2]
-        return f"| {'/'.join(ancestor_parts[-2:])} |"
+        return "/".join(ancestor_parts[-2:])
 
     def _get_tree_item_path(self, item_id):
         """Returns the hidden absolute path stored for a file row."""
@@ -1016,6 +1217,7 @@ class CodeView(ttk.Frame):
         file_font_size = Styles.scale_size(13 if compact_width else 14 if narrow_width else 15)
         file_heading_size = Styles.scale_size(13 if compact_width else 14 if narrow_width else 15)
         file_row_height = Styles.scale_size(42 if ultra_compact_height else 46 if compact_height else 52)
+        ai_title_size = Styles.scale_size(9 if ultra_compact_height else 10 if compact_height else 11)
 
         self.lbl_project_name.configure(font=("Segoe UI", project_font_size))
         self.section_search_label.configure(font=("Segoe UI", section_label_size, "bold"))
@@ -1037,6 +1239,7 @@ class CodeView(ttk.Frame):
 
         self.slider.configure(length=slider_length)
         self.cmb_ai.configure(width=ai_width)
+        self.ai_selector_title.configure(font=("Segoe UI", ai_title_size, "bold"))
         self.txt_ext.configure(width=ext_width)
         self.txt_prompt.configure(height=prompt_height)
         self.prompt_frame.pack_configure(pady=top_prompt_pady)
@@ -1571,15 +1774,17 @@ class CodeView(ttk.Frame):
                 text=self._build_file_name_display(rel_path),
                 image=self._get_file_icon(rel_path),
                 values=(
-                    self._build_file_folder_display(rel_path),
+                    "",
                     size_label,
                     type_label,
-                    f['path']
+                    f['path'],
+                    self._build_file_folder_display(rel_path)
                 ),
                 tags=(row_tag,)
             )
 
         self._update_file_tree_columns()
+        self._schedule_folder_chip_refresh()
 
 
     def _on_prompt_change(self, event=None):
@@ -2289,15 +2494,18 @@ class CodeView(ttk.Frame):
         # Obtener el item seleccionado bajo el cursor
         iid = self.tree.identify_row(event.y)
         if iid:
-            file_path = self._get_tree_item_path(iid)
-            if file_path:
-                filename = os.path.basename(file_path)
-                
-                # Eliminar el item del treeview
-                self.tree.delete(iid)
-                
-                # Log de la acción
-                print(f"CodeView: Fichero '{filename}' eliminado de la lista.")
+            self._remove_file_tree_item(iid)
+
+    def _remove_file_tree_item(self, item_id):
+        """Removes a file row from the visible table."""
+        file_path = self._get_tree_item_path(item_id)
+        if not file_path:
+            return
+
+        filename = os.path.basename(file_path)
+        self.tree.delete(item_id)
+        self._schedule_folder_chip_refresh()
+        print(f"CodeView: Fichero '{filename}' eliminado de la lista.")
 
     def _show_file_context_menu(self, event):
         """Shows the context menu on right click for files."""
