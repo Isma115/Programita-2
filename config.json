@@ -39,11 +39,12 @@
     "implementation_mode": false,
     "last_doc_file": "/Users/ismaelmoraledalopez/Documents/Documentacion Irrigation/Conexi\u00f3n a servidor - Subida a produccion.md",
     "sections_path": "/Users/ismaelmoraledalopez/Documents/Documentacion Irrigation/SeccionesCodigo/Catastro",
-    "code_extensions_filter": "jsx, css",
+    "code_extensions_filter": "",
     "include_project_tree": false,
     "file_limit_slider_max": 50,
     "return_chunks": false,
     "arbitrary_search_min_chars": 5,
     "arbitrary_search_max_chars": 30,
-    "export_prompts_as_folder": false
+    "export_prompts_as_folder": false,
+    "include_file_headers_in_codigo_txt": true
 }

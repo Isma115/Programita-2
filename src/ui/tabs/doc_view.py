@@ -1363,6 +1363,23 @@ class DocView(ttk.Frame):
             "Guarda el documento en docs."
         )
 
+    def _build_relevant_files_list_prompt(self, target_name):
+        target_name = (target_name or "").strip()
+
+        return (
+            "Actúa como un agente de código senior.\n\n"
+            f"Tu tarea es identificar los archivos de código relevantes para la parte del sistema "
+            f"\"{target_name}\".\n\n"
+            "Devuelve únicamente una lista simple de rutas de archivos de código relevantes.\n"
+            "No añadas explicaciones, descripciones, encabezados, categorías, viñetas anidadas, comentarios ni texto extra.\n"
+            "No incluyas archivos no relacionados.\n"
+            "Prioriza archivos donde esté la lógica principal, los puntos de entrada, dependencias directas y piezas claramente implicadas.\n\n"
+            "Formato obligatorio de salida:\n"
+            "- Una ruta por línea.\n"
+            "- Solo texto plano con las rutas.\n"
+            "- Sin nada antes ni después de la lista."
+        )
+
     def _open_prompt_builder(self):
         dialog = tk.Toplevel(self)
         dialog.title("Construir Prompt")
@@ -1399,6 +1416,13 @@ class DocView(ttk.Frame):
                 "input_label": "Característica a probar",
                 "placeholder": "[CARACTERISTICA]",
                 "builder": self._build_test_prompt,
+            },
+            {
+                "name": "Lista de ficheros",
+                "input_label": "Parte del código",
+                "placeholder": "[PARTE_CODIGO]",
+                "builder": self._build_relevant_files_list_prompt,
+                "include_file_path_instruction": False,
             },
         ]
         prompt_index = {"value": 0}
@@ -1474,14 +1498,17 @@ class DocView(ttk.Frame):
         prompt_scroll.place(relx=1.0, rely=0.23, relheight=0.66, anchor="ne")
         prompt_text.configure(yscrollcommand=prompt_scroll.set)
 
-        def refresh_prompt(event=None):
+        def build_prompt_content():
             config = prompt_configs[prompt_index["value"]]
             functionality_name = functionality_var.get().strip() or config["placeholder"]
-            prompt = ensure_file_path_comment_instruction(
-                config["builder"](functionality_name)
-            )
+            prompt = config["builder"](functionality_name)
+            if config.get("include_file_path_instruction", True):
+                prompt = ensure_file_path_comment_instruction(prompt)
+            return prompt
+
+        def refresh_prompt(event=None):
             prompt_text.delete("1.0", tk.END)
-            prompt_text.insert("1.0", prompt)
+            prompt_text.insert("1.0", build_prompt_content())
 
         def sync_prompt_selector():
             config = prompt_configs[prompt_index["value"]]
@@ -1502,9 +1529,10 @@ class DocView(ttk.Frame):
             return "break"
 
         def copy_prompt():
-            content = ensure_file_path_comment_instruction(
-                prompt_text.get("1.0", "end-1c").strip()
-            )
+            config = prompt_configs[prompt_index["value"]]
+            content = prompt_text.get("1.0", "end-1c").strip()
+            if config.get("include_file_path_instruction", True):
+                content = ensure_file_path_comment_instruction(content)
             if not content:
                 return
             try:

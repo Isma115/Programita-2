@@ -154,6 +154,7 @@ class Controller:
         selected_subsection=None,
         return_files=False,
         return_chunks=False,
+        include_file_headers=True,
         include_project_tree=False,
         min_files=10,
         file_paths=None
@@ -192,8 +193,11 @@ class Controller:
         prompt = f"Petición del Usuario: {user_text}\n\nArchivos de Contexto:\n"
         for f in relevant_files: # All relevant files according to min_files
             for part_label, part_content in self._split_file_for_prompt(f, return_chunks=return_chunks):
-                prompt += f"\n--- Archivo: {part_label} ---\n"
-                prompt += part_content + "\n"
+                if include_file_headers:
+                    prompt += f"\n--- Archivo: {part_label} ---\n"
+                    prompt += part_content + "\n"
+                else:
+                    prompt += part_content
 
         if include_project_tree:
             project_tree = self.project_manager.get_project_tree_text()
@@ -637,7 +641,7 @@ class Controller:
         )
         return prev_ok and next_ok
 
-    def save_content_to_codigo_txt(self, content, append=False):
+    def save_content_to_codigo_txt(self, content, append=False, append_separator="\n\n"):
         """Saves or appends content to ~/Documents/codigo.txt."""
         try:
             documents_path = os.path.join(os.path.expanduser("~"), "Documents")
@@ -647,7 +651,7 @@ class Controller:
             mode = "a" if append else "w"
             with open(file_path, mode, encoding="utf-8") as f:
                 if append and os.path.exists(file_path) and os.path.getsize(file_path) > 0:
-                    f.write("\n\n") # Separator for append
+                    f.write(append_separator)
                 f.write(content)
             return True, file_path
         except Exception as e:

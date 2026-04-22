@@ -1,0 +1,17 @@
+# Formato: Nombre | URL
+# Se respeta el orden de las líneas para el modo "Automático".
+# Lista revisada y actualizada el 2026-04-21 con URLs oficiales.
+
+# IAs chinas con acceso gratuito o gratuito con límites
+DeepSeek | https://chat.deepseek.com/
+Kimi | https://www.kimi.com/
+Qwen Studio | https://qwen.ai/qwenchat
+Z.ai | https://chat.z.ai/
+
+# IAs occidentales con acceso gratuito o gratuito con límites
+ChatGPT | https://chatgpt.com/
+Claude | https://claude.ai/
+Gemini | https://gemini.google.com/
+Le Chat | https://chat.mistral.ai/
+Perplexity | https://www.perplexity.ai/
+Grok | https://grok.com/

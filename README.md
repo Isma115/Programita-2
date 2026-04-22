@@ -28,5 +28,6 @@ python main.py
 - **Modern Dark Interface**: Custom styled `ttk` widgets.
 - **Modular Design**: Easy to extend with new tabs or logic.
 - **Navigation**: Switch between "Code" and "Documentation" views.
+- **AI Selector Configurable**: The available IAs are loaded from `ias_disponibles.txt` using the format `Nombre | URL`.
 # Programita-2
 # Programita-2

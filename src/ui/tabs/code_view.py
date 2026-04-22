@@ -12,24 +12,25 @@ class CodeView(ttk.Frame):
     The main view for the 'Code' tab.
     Allows loading projects, listing files, and generating AI prompts.
     """
-    
-    
-    # AI List sorted by estimated coding/reasoning quality (Mixed Western & Chinese)
-    AI_MODELS = [
-        "DeepSeek (R1/V3)", 
-        "Claude (Sonnet 3.5)", 
-        "ChatGPT (o1/4o)", 
-        "Gemini (1.5 Pro)", 
-        "Qwen (Max/2.5)", 
-        "Kimi (Moonshot)", 
-        "GLM (Zhipu)", 
-        "Mistral (Le Chat)",
-        "Perplexity",
-        "Grok"
+
+    AI_CONFIG_FILENAME = "ias_disponibles.txt"
+    AUTO_AI_OPTION = "Automático"
+    AGENT_AI_OPTION = "Agente"
+
+    # Orden por defecto, usado también como fallback si el fichero no existe o es inválido.
+    DEFAULT_AI_SOURCES = [
+        ("DeepSeek (R1/V3)", "https://chat.deepseek.com"),
+        ("Claude (Sonnet 3.5)", "https://claude.ai"),
+        ("ChatGPT (o1/4o)", "https://chat.openai.com"),
+        ("Gemini (1.5 Pro)", "https://gemini.google.com"),
+        ("Qwen (Max/2.5)", "https://tongyi.aliyun.com"),
+        ("Kimi (Moonshot)", "https://kimi.moonshot.cn"),
+        ("GLM (Zhipu)", "https://chatglm.cn"),
+        ("Mistral (Le Chat)", "https://chat.mistral.ai"),
+        ("Perplexity", "https://www.perplexity.ai"),
+        ("Grok", "https://x.com/i/grok"),
     ]
 
-    # Combobox values: Auto mode first, then individual models
-    AI_ORDER = ["Automático", "Agente"] + AI_MODELS
     # Max consecutive uses of the same AI before rotating
     MAX_CONSECUTIVE = 3
     DEFAULT_SECTIONS_PANEL_WIDTH = Styles.scale_size(300)
@@ -37,22 +38,12 @@ class CodeView(ttk.Frame):
     MIN_SECTIONS_PANEL_WIDTH = Styles.scale_size(260)
     DEFAULT_MAX_FILE_LIMIT = 20
 
-    AI_URLS = {
-        "DeepSeek (R1/V3)": "https://chat.deepseek.com",
-        "Claude (Sonnet 3.5)": "https://claude.ai",
-        "ChatGPT (o1/4o)": "https://chat.openai.com",
-        "Gemini (1.5 Pro)": "https://gemini.google.com",
-        "Qwen (Max/2.5)": "https://tongyi.aliyun.com",
-        "Kimi (Moonshot)": "https://kimi.moonshot.cn",
-        "GLM (Zhipu)": "https://chatglm.cn",
-        "Mistral (Le Chat)": "https://chat.mistral.ai",
-        "Perplexity": "https://www.perplexity.ai",
-        "Grok": "https://x.com/i/grok"
-    }
-
     def __init__(self, parent):
         super().__init__(parent, style="Main.TFrame")
         self.controller = parent.master.controller 
+
+        self.AI_MODELS, self.AI_URLS = self._load_available_ais()
+        self.AI_ORDER = [self.AUTO_AI_OPTION, self.AGENT_AI_OPTION] + self.AI_MODELS
         
         # In-memory AI usage history (resets on restart)
         self._ai_usage_history = []
@@ -71,6 +62,65 @@ class CodeView(ttk.Frame):
         self.sections_dir_var = tk.StringVar(value="")
 
         self._create_layout()
+
+    @classmethod
+    def _get_ai_config_path(cls):
+        cwd_path = os.path.join(os.getcwd(), cls.AI_CONFIG_FILENAME)
+        bundled_path = os.path.normpath(
+            os.path.join(os.path.dirname(__file__), "..", "..", "..", cls.AI_CONFIG_FILENAME)
+        )
+
+        if os.path.exists(cwd_path):
+            return cwd_path
+        if os.path.exists(bundled_path):
+            return bundled_path
+        return cwd_path
+
+    @classmethod
+    def _parse_ai_config_line(cls, raw_line):
+        for separator in ("|", "\t", ";"):
+            if separator in raw_line:
+                name, url = raw_line.split(separator, 1)
+                name = name.strip()
+                url = url.strip()
+                if name and url:
+                    return name, url
+                break
+        return None, None
+
+    @classmethod
+    def _load_available_ais(cls):
+        ai_models = []
+        ai_urls = {}
+        config_path = cls._get_ai_config_path()
+
+        if os.path.exists(config_path):
+            try:
+                with open(config_path, "r", encoding="utf-8") as config_file:
+                    for line_number, raw_line in enumerate(config_file, start=1):
+                        cleaned_line = raw_line.strip()
+                        if not cleaned_line or cleaned_line.startswith("#"):
+                            continue
+
+                        name, url = cls._parse_ai_config_line(cleaned_line)
+                        if not name or not url:
+                            print(
+                                f"CodeView: Ignorando línea inválida en {config_path}:{line_number} -> {cleaned_line}"
+                            )
+                            continue
+
+                        if name not in ai_urls:
+                            ai_models.append(name)
+                        ai_urls[name] = url
+            except Exception as exc:
+                print(f"CodeView: Error cargando {config_path}: {exc}")
+
+        if ai_models:
+            return ai_models, ai_urls
+
+        fallback_models = [name for name, _ in cls.DEFAULT_AI_SOURCES]
+        fallback_urls = dict(cls.DEFAULT_AI_SOURCES)
+        return fallback_models, fallback_urls
 
     def set_controller(self, controller):
         """Explicitly set controller if not available via hierarchy."""
@@ -225,22 +275,28 @@ class CodeView(ttk.Frame):
     def _create_file_tree(self, parent):
         """Creates the file listing treeview and its context menu."""
         self.tree_frame = ttk.Frame(parent, style="Main.TFrame")
-        
+
         self.columns = ("path", "size")
         self.tree = ttk.Treeview(self.tree_frame, columns=self.columns, show="", selectmode="extended", style="Treeview")
         self.tree.column("path", width=400)
         self.tree.column("size", width=80)
-        
+
+        # [MODIFICACIÓN] Configurar estilo de fuente más legible para la lista de ficheros
+        # Aumentar tamaño de fuente y usar tipografía más clara
+        self.tree.tag_configure("file_item", font=("Segoe UI", 13))
+        self.tree.tag_configure("file_item_large", font=("Segoe UI", 14))
+        self.tree.tag_configure("size_item", font=("Segoe UI", 12))
+
         # Scrollbar
         scrollbar = ttk.Scrollbar(self.tree_frame, orient="vertical", command=self.tree.yview, style="Vertical.TScrollbar")
         self.tree.configure(yscrollcommand=scrollbar.set)
-        
+
         self.tree.pack(side="left", fill="both", expand=True)
         scrollbar.pack(side="right", fill="y")
-        
+
         # Binding para doble click
         self.tree.bind("<Double-1>", self._on_file_double_click)
-        
+
         # Context Menu for Files
         self.file_context_menu = tk.Menu(self, tearoff=0)
         self.file_context_menu.add_command(label="📋 Copiar al Portapapeles", command=self._on_file_copy)
@@ -312,6 +368,7 @@ class CodeView(ttk.Frame):
         self._create_section_tree(self.right_top_frame)
         self._create_return_files_checkbox(self.right_bottom_frame)
         self._create_return_chunks_checkbox(self.right_bottom_frame)
+        self._create_file_headers_checkbox(self.right_bottom_frame)
 
     def _create_sections_header(self, parent):
         """Creates the 'Secciones' header and directory label."""
@@ -488,6 +545,44 @@ class CodeView(ttk.Frame):
         self.chk_chunks_container.bind("<Enter>", self._on_chk_chunks_hover_enter)
         self.chk_chunks_container.bind("<Leave>", self._on_chk_chunks_hover_leave)
 
+    def _create_file_headers_checkbox(self, parent):
+        """Creates the custom 'Cabecera Archivo' checkbox used for codigo.txt exports."""
+        include_headers = True
+        if hasattr(self.controller, 'config_manager'):
+            include_headers = self.controller.config_manager.get_include_file_headers_in_codigo_txt()
+
+        self.var_include_file_headers = tk.BooleanVar(value=include_headers)
+
+        self.chk_headers_container = ttk.Frame(parent, style="Sidebar.TFrame", cursor="hand2")
+        self.chk_headers_container.pack(fill="x", padx=15, pady=(0, 1))
+
+        self.chk_headers_canvas = tk.Canvas(
+            self.chk_headers_container,
+            width=30,
+            height=30,
+            bg=Styles.COLOR_BG_SIDEBAR,
+            highlightthickness=0,
+            bd=0
+        )
+        self.chk_headers_canvas.pack(side="left")
+        self._draw_file_headers_checkbox()
+
+        self.lbl_chk_headers_text = ttk.Label(
+            self.chk_headers_container,
+            text="Cabecera Archivo",
+            style="TLabel",
+            font=("Segoe UI", 18, "bold")
+        )
+        self.lbl_chk_headers_text.configure(background=Styles.COLOR_BG_SIDEBAR)
+        self.lbl_chk_headers_text.pack(side="left", padx=(10, 0))
+
+        self.chk_headers_container.bind("<Button-1>", self._toggle_file_headers)
+        self.chk_headers_canvas.bind("<Button-1>", self._toggle_file_headers)
+        self.lbl_chk_headers_text.bind("<Button-1>", self._toggle_file_headers)
+
+        self.chk_headers_container.bind("<Enter>", self._on_chk_headers_hover_enter)
+        self.chk_headers_container.bind("<Leave>", self._on_chk_headers_hover_leave)
+
     def _create_layout(self):
         """Creates the split-pane layout."""
         # Main PanedWindow (Split Left / Right)
@@ -548,6 +643,10 @@ class CodeView(ttk.Frame):
         top_prompt_pady = Styles.scale_size(6 if compact_height else 10)
         chk_bottom_pady = Styles.scale_padding((0, 5))
 
+        # [MODIFICACIÓN] Ajustar tamaño de fuente de la lista de ficheros según resolución
+        file_font_size = Styles.scale_size(11 if compact_width else 12 if narrow_width else 13)
+        file_font_size_large = Styles.scale_size(12 if compact_width else 13 if narrow_width else 14)
+
         self.lbl_project_name.configure(font=("Segoe UI", project_font_size))
         self.section_search_label.configure(font=("Segoe UI", section_label_size, "bold"))
         self.lbl_sections_dir.configure(
@@ -559,6 +658,11 @@ class CodeView(ttk.Frame):
         self.section_tree.tag_configure("subsection", font=("Segoe UI", tree_subsection_size))
         self.section_tree_bottom_spacer.configure(height=spacer_height)
 
+        # [MODIFICACIÓN] Aplicar tamaños de fuente responsivos a la lista de ficheros
+        self.tree.tag_configure("file_item", font=("Segoe UI", file_font_size))
+        self.tree.tag_configure("file_item_large", font=("Segoe UI", file_font_size_large))
+        self.tree.tag_configure("size_item", font=("Segoe UI", file_font_size - 1))
+
         self.slider.configure(length=slider_length)
         self.cmb_ai.configure(width=ai_width)
         self.txt_ext.configure(width=ext_width)
@@ -567,14 +671,18 @@ class CodeView(ttk.Frame):
 
         self.chk_canvas.configure(width=self._checkbox_visual_size, height=self._checkbox_visual_size)
         self.chk_chunks_canvas.configure(width=self._checkbox_visual_size, height=self._checkbox_visual_size)
+        self.chk_headers_canvas.configure(width=self._checkbox_visual_size, height=self._checkbox_visual_size)
         self.lbl_chk_text.configure(font=("Segoe UI", checkbox_font_size, "bold"))
         self.lbl_chk_chunks_text.configure(font=("Segoe UI", checkbox_font_size, "bold"))
+        self.lbl_chk_headers_text.configure(font=("Segoe UI", checkbox_font_size, "bold"))
 
         self.chk_container.pack_configure(pady=chk_bottom_pady)
         self.chk_chunks_container.pack_configure(pady=chk_bottom_pady)
+        self.chk_headers_container.pack_configure(pady=chk_bottom_pady)
 
         self._draw_checkbox()
         self._draw_chunks_checkbox()
+        self._draw_file_headers_checkbox()
 
     def _on_ai_selected(self, event=None):
         pass
@@ -663,6 +771,37 @@ class CodeView(ttk.Frame):
                 fill="white", width=line_width, capstyle=tk.ROUND
             )
 
+    def _draw_file_headers_checkbox(self):
+        """Draws the current state on the file headers checkbox canvas."""
+        self.chk_headers_canvas.delete("all")
+        size = max(int(getattr(self, "_checkbox_visual_size", 30)), 20)
+        factor = size / 30.0
+        rect_start = max(int(round(4 * factor)), 3)
+        rect_end = size - rect_start
+        line_width = max(int(round(3 * factor)), 2)
+
+        is_checked = self.var_include_file_headers.get()
+        outline_color = Styles.COLOR_ACCENT if is_checked else Styles.COLOR_DIM
+
+        self.chk_headers_canvas.create_rectangle(
+            rect_start, rect_start, rect_end, rect_end,
+            outline=outline_color,
+            width=2,
+            fill=Styles.COLOR_INPUT_BG if not is_checked else Styles.COLOR_ACCENT
+        )
+
+        if is_checked:
+            self.chk_headers_canvas.create_line(
+                int(round(8 * factor)), int(round(15 * factor)),
+                int(round(13 * factor)), int(round(20 * factor)),
+                fill="white", width=line_width, capstyle=tk.ROUND
+            )
+            self.chk_headers_canvas.create_line(
+                int(round(13 * factor)), int(round(20 * factor)),
+                int(round(22 * factor)), int(round(10 * factor)),
+                fill="white", width=line_width, capstyle=tk.ROUND
+            )
+
     def _on_chk_hover_enter(self, event):
         self.lbl_chk_text.configure(foreground=Styles.COLOR_ACCENT)
         # Subtle glow or border change could go here
@@ -675,6 +814,12 @@ class CodeView(ttk.Frame):
 
     def _on_chk_chunks_hover_leave(self, event):
         self.lbl_chk_chunks_text.configure(foreground=Styles.COLOR_FG_TEXT)
+
+    def _on_chk_headers_hover_enter(self, event):
+        self.lbl_chk_headers_text.configure(foreground=Styles.COLOR_ACCENT)
+
+    def _on_chk_headers_hover_leave(self, event):
+        self.lbl_chk_headers_text.configure(foreground=Styles.COLOR_FG_TEXT)
 
     def _set_return_mode(self, return_files, return_chunks, refresh_sections=True):
         """Updates both return-mode selectors keeping them mutually exclusive."""
@@ -699,6 +844,25 @@ class CodeView(ttk.Frame):
         """Acts like a deselectable radio button with square styling."""
         is_selected = self.var_return_chunks.get()
         self._set_return_mode(return_files=False, return_chunks=not is_selected)
+
+    def _toggle_file_headers(self, event=None):
+        """Toggles whether codigo.txt exports should include file headers."""
+        is_selected = self.var_include_file_headers.get()
+        self.var_include_file_headers.set(not is_selected)
+        self._draw_file_headers_checkbox()
+        if hasattr(self.controller, 'config_manager'):
+            self.controller.config_manager.set_include_file_headers_in_codigo_txt(not is_selected)
+
+    def _should_include_file_headers_in_codigo_txt(self):
+        return bool(getattr(self, "var_include_file_headers", tk.BooleanVar(value=True)).get())
+
+    def _get_codigo_txt_append_separator(self):
+        return "\n\n" if self._should_include_file_headers_in_codigo_txt() else ""
+
+    def _build_codigo_txt_file_content(self, file_data):
+        if self._should_include_file_headers_in_codigo_txt():
+            return f"--- Archivo: {file_data['rel_path']} ---\n{file_data['content']}"
+        return file_data['content']
 
     def _get_structure_size_tag(self, line_count):
         """Returns the visual severity tag for a structure size row."""
@@ -1190,10 +1354,10 @@ class CodeView(ttk.Frame):
 
         # Resolve AI selection (auto mode or manual)
         selected_ai = self.cmb_ai.get()
-        if selected_ai == "Automático":
+        if selected_ai == self.AUTO_AI_OPTION:
             selected_ai = self._get_auto_ai()
 
-        if selected_ai == "🤖 Agente":
+        if selected_ai == self.AGENT_AI_OPTION:
             clipboard_content = self._build_agent_clipboard_prompt(
                 text=text,
                 selected_files=selected_files_data,
@@ -1231,6 +1395,7 @@ class CodeView(ttk.Frame):
                     selected_subsection=subsection,
                     return_files=return_files,
                     return_chunks=return_chunks,
+                    include_file_headers=self._should_include_file_headers_in_codigo_txt(),
                     include_project_tree=include_project_tree,
                     min_files=min_files,
                     file_paths=selected_file_paths
@@ -1245,7 +1410,7 @@ class CodeView(ttk.Frame):
                 with open(export_path, "w", encoding="utf-8") as f:
                     f.write(prompt)
 
-            if selected_ai != "🤖 Agente":
+            if selected_ai != self.AGENT_AI_OPTION:
                 self._ai_usage_history.append(selected_ai)
 
                 if selected_ai in self.AI_URLS:
@@ -1510,8 +1675,11 @@ class CodeView(ttk.Frame):
                 # 2. Build prompt manually for the specific list of files
                 prompt = f"Petición del Usuario: {prompt_instruction}\n\nArchivos de Contexto:\n"
                 for f in selected_files_data:
-                    prompt += f"\n--- Archivo: {f['rel_path']} ---\n"
-                    prompt += f.get('content', '') + "\n"
+                    if self._should_include_file_headers_in_codigo_txt():
+                        prompt += f"\n--- Archivo: {f['rel_path']} ---\n"
+                        prompt += f.get('content', '') + "\n"
+                    else:
+                        prompt += f.get('content', '')
 
                 # 3. Save to Documents/codigo.txt
                 success, result = self.controller.save_content_to_codigo_txt(prompt, append=False)
@@ -1530,7 +1698,7 @@ class CodeView(ttk.Frame):
                 
                 # 5. Open AI URL
                 selected_ai = self.cmb_ai.get()
-                if selected_ai == "Automático":
+                if selected_ai == self.AUTO_AI_OPTION:
                     selected_ai = self._get_auto_ai()
                 
                 if selected_ai in self.AI_URLS:
@@ -1661,9 +1829,6 @@ class CodeView(ttk.Frame):
         full_path = tags[0]
         file_data = self.controller.get_file_content_by_path(full_path)
         if file_data:
-            # Prepend header
-            header = f"--- Archivo: {file_data['rel_path']} ---\n"
-            file_data['full_content'] = header + file_data['content']
             return file_data
         return None
 
@@ -1671,17 +1836,18 @@ class CodeView(ttk.Frame):
         file_data = self._get_selected_file_content()
         if file_data:
             self.clipboard_clear()
-            self.clipboard_append(file_data['full_content'])
+            self.clipboard_append(f"--- Archivo: {file_data['rel_path']} ---\n{file_data['content']}")
             print(f"CodeView: Copied {file_data['rel_path']} to clipboard")
 
     def _on_file_concat_clipboard(self):
         file_data = self._get_selected_file_content()
         if file_data:
+            clipboard_content = f"--- Archivo: {file_data['rel_path']} ---\n{file_data['content']}"
             try:
                 current = self.clipboard_get()
-                new_content = current + "\n\n" + file_data['full_content']
+                new_content = current + "\n\n" + clipboard_content
             except:
-                new_content = file_data['full_content']
+                new_content = clipboard_content
             
             self.clipboard_clear()
             self.clipboard_append(new_content)
@@ -1690,7 +1856,10 @@ class CodeView(ttk.Frame):
     def _on_file_save_txt(self):
         file_data = self._get_selected_file_content()
         if file_data:
-            success, result = self.controller.save_content_to_codigo_txt(file_data['full_content'], append=False)
+            success, result = self.controller.save_content_to_codigo_txt(
+                self._build_codigo_txt_file_content(file_data),
+                append=False
+            )
             if success:
                 print(f"CodeView: Saved {file_data['rel_path']} to {result}")
             else:
@@ -1699,7 +1868,11 @@ class CodeView(ttk.Frame):
     def _on_file_concat_txt(self):
         file_data = self._get_selected_file_content()
         if file_data:
-            success, result = self.controller.save_content_to_codigo_txt(file_data['full_content'], append=True)
+            success, result = self.controller.save_content_to_codigo_txt(
+                self._build_codigo_txt_file_content(file_data),
+                append=True,
+                append_separator=self._get_codigo_txt_append_separator()
+            )
             if success:
                 print(f"CodeView: Concatenated {file_data['rel_path']} to {result}")
             else:

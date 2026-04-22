@@ -46,6 +46,19 @@ class SubsectionCreationPopup(tk.Toplevel):
 
         # Checkbox variables: {abs_path: BooleanVar}
         self.file_vars = {}
+        self.file_checkbuttons = {}
+        self.parent_file_paths = self.controller.section_manager.get_files_in_section(self.section_name)
+        self.file_display_levels = tk.IntVar(value=2)
+
+        all_project_files = self.controller.project_manager.get_files()
+        self.abs_to_rel = {f['path']: f['rel_path'] for f in all_project_files}
+        self.max_display_levels = max(
+            1,
+            max((self._count_displayable_parts(self.abs_to_rel.get(path, os.path.basename(path))) for path in self.parent_file_paths), default=1)
+        )
+
+        if self.file_display_levels.get() > self.max_display_levels:
+            self.file_display_levels.set(self.max_display_levels)
 
         self._create_widgets()
 
@@ -71,6 +84,34 @@ class SubsectionCreationPopup(tk.Toplevel):
 
         if self.original_sub_name:
             self.entry_name.insert(0, self.original_sub_name)
+
+        # ── File Path Depth Slider ──
+        path_depth_frame = ttk.Frame(self, style="Main.TFrame")
+        path_depth_frame.pack(fill="x", padx=15, pady=(0, 10))
+
+        self.lbl_path_depth = ttk.Label(
+            path_depth_frame,
+            text="Niveles en nombre: 2",
+            style="TLabel"
+        )
+        self.lbl_path_depth.pack(side="left", padx=(0, 15))
+
+        self.path_depth_slider = ttk.Scale(
+            path_depth_frame,
+            from_=1,
+            to=self.max_display_levels,
+            orient="horizontal",
+            variable=self.file_display_levels,
+            command=self._on_path_depth_change,
+            length=180,
+            style="Horizontal.TScale"
+        )
+        self.path_depth_slider.pack(side="left", fill="x")
+
+        if self.max_display_levels <= 1:
+            self.path_depth_slider.state(["disabled"])
+
+        self._update_path_depth_label()
 
         # ── Select All / Deselect All buttons ──
         btn_frame = ttk.Frame(self, style="Main.TFrame")
@@ -149,25 +190,13 @@ class SubsectionCreationPopup(tk.Toplevel):
         self.checks_frame.bind("<Leave>", _unbind_mousewheel)
 
         # Populate checkboxes with parent section files
-        parent_files = self.controller.section_manager.get_files_in_section(self.section_name)
-        all_project_files = self.controller.project_manager.get_files()
-        abs_to_rel = {f['path']: f['rel_path'] for f in all_project_files}
-
-        for abs_path in parent_files:
+        for abs_path in self.parent_file_paths:
             var = tk.BooleanVar(value=(abs_path in self.initial_files))
             self.file_vars[abs_path] = var
 
-            # Display as parent_dir/filename for readability
-            rel_path = abs_to_rel.get(abs_path, os.path.basename(abs_path))
-            parts = rel_path.split(os.sep)
-            if len(parts) > 1:
-                display = os.path.join(parts[-2], parts[-1])
-            else:
-                display = rel_path
-
             cb = tk.Checkbutton(
                 self.checks_frame,
-                text=display,
+                text=self._format_display_path(abs_path),
                 variable=var,
                 bg=Styles.COLOR_INPUT_BG,
                 fg=Styles.COLOR_FG_TEXT,
@@ -182,6 +211,7 @@ class SubsectionCreationPopup(tk.Toplevel):
                 borderwidth=0
             )
             cb.pack(fill="x", anchor="w")
+            self.file_checkbuttons[abs_path] = cb
 
         # Clean up mousewheel bindings on close
         def _on_destroy(event):
@@ -205,6 +235,41 @@ class SubsectionCreationPopup(tk.Toplevel):
         btn_save = ttk.Button(footer, text=btn_text, style="Action.TButton", command=self._on_save)
         btn_save.pack(side="right", padx=5)
         attach_tooltip(btn_save, "Guardar subsección")
+
+    def _normalize_rel_path_parts(self, rel_path):
+        normalized_path = os.path.normpath(rel_path)
+        if normalized_path in {"", "."}:
+            return []
+        return [part for part in normalized_path.split(os.sep) if part and part != "."]
+
+    def _count_displayable_parts(self, rel_path):
+        parts = self._normalize_rel_path_parts(rel_path)
+        return max(1, len(parts)) if parts else 1
+
+    def _format_display_path(self, abs_path):
+        rel_path = self.abs_to_rel.get(abs_path, os.path.basename(abs_path))
+        parts = self._normalize_rel_path_parts(rel_path)
+        if not parts:
+            return os.path.basename(abs_path)
+
+        levels = min(self.file_display_levels.get(), len(parts))
+        return os.path.join(*parts[-levels:])
+
+    def _update_path_depth_label(self):
+        levels = int(self.file_display_levels.get())
+        self.lbl_path_depth.config(text=f"Niveles en nombre: {levels}")
+
+    def _refresh_file_labels(self):
+        for abs_path, checkbutton in self.file_checkbuttons.items():
+            checkbutton.config(text=self._format_display_path(abs_path))
+
+    def _on_path_depth_change(self, val):
+        rounded_value = max(1, min(self.max_display_levels, int(round(float(val)))))
+        if self.file_display_levels.get() != rounded_value:
+            self.file_display_levels.set(rounded_value)
+
+        self._update_path_depth_label()
+        self._refresh_file_labels()
 
     def _select_all(self):
         for var in self.file_vars.values():

@@ -34,6 +34,9 @@ class ConfigManager:
         if "return_chunks" not in self.config:
             self.config["return_chunks"] = False
             migrated = True
+        if "include_file_headers_in_codigo_txt" not in self.config:
+            self.config["include_file_headers_in_codigo_txt"] = True
+            migrated = True
 
         for legacy_key in ("return_regions", "return_structures"):
             if legacy_key in self.config:
@@ -240,6 +243,15 @@ class ConfigManager:
     def set_return_chunks(self, value):
         """Sets whether prompts should work with separated file parts and saves config."""
         self.config["return_chunks"] = bool(value)
+        self.save_config()
+
+    def get_include_file_headers_in_codigo_txt(self):
+        """Returns whether codigo.txt exports should include 'Archivo:' headers."""
+        return bool(self.config.get("include_file_headers_in_codigo_txt", True))
+
+    def set_include_file_headers_in_codigo_txt(self, value):
+        """Sets whether codigo.txt exports should include 'Archivo:' headers."""
+        self.config["include_file_headers_in_codigo_txt"] = bool(value)
         self.save_config()
 
     def get_enable_hotkeys(self):
