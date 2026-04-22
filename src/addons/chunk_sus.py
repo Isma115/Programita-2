@@ -194,10 +194,13 @@ def _get_listed_chunk_targets(app_instance):
         code_view = app_instance.layout.code_view
         if hasattr(code_view, "tree"):
             for item_id in code_view.tree.get_children():
-                tags = code_view.tree.item(item_id, "tags")
-                if not tags:
-                    continue
-                file_path = tags[0] if isinstance(tags, (list, tuple)) else tags
+                file_path = None
+                if hasattr(code_view, "_get_tree_item_path"):
+                    file_path = code_view._get_tree_item_path(item_id)
+                else:
+                    tags = code_view.tree.item(item_id, "tags")
+                    if tags:
+                        file_path = tags[0] if isinstance(tags, (list, tuple)) else tags
                 if file_path and os.path.exists(file_path):
                     listed_paths.append(file_path)
 

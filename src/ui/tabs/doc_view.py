@@ -597,7 +597,7 @@ class DocView(ttk.Frame):
         self.right_frame = ttk.Frame(self.paned_window, style="Sidebar.TFrame", width=self.DEFAULT_SECTIONS_PANEL_WIDTH)
         self.paned_window.add(self.right_frame, minsize=self.DEFAULT_SECTIONS_PANEL_WIDTH, stretch="never")
 
-        # [MODIFICACIÓN] Reemplazar ttk.Button por tk.Label para un control más preciso del ancho
+
         self.btn_toggle_sidebar = tk.Label(
             self.paned_window,
             text="›",
@@ -2636,7 +2636,7 @@ class DocView(ttk.Frame):
                 if is_dir:
                     # Create node
                     node_id = full_path
-                    # [MODIFICACIÓN] Eliminado el emoji "📁" de las carpetas
+
                     self.section_tree.insert(parent_id, "end", iid=node_id, text=f"{name}", tags=("folder",), open=bool(query))
                     self._build_tree(full_path, node_id)
                     
@@ -2645,7 +2645,7 @@ class DocView(ttk.Frame):
                         self.section_tree.delete(node_id)
                 else:
                     if not query or query in name.lower():
-                        # [MODIFICACIÓN] Eliminados los emojis "📝" y "📄" de los archivos
+
                         tag = "md" if ext == ".md" else "document"
                         self.section_tree.insert(parent_id, "end", iid=full_path, text=f"{name}", tags=(tag,))
         except Exception as e:

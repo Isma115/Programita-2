@@ -33,6 +33,7 @@ class Application:
         # Attach controller to root for easy access by views via winfo_toplevel()
         if not hasattr(self.root, 'controller'):
             self.root.controller = self.controller
+        self.root.app_instance = self
 
         # Configure Styles AFTER loading config (so theme colors are correct)
         Styles.configure_styles(self.root)
@@ -79,6 +80,14 @@ class Application:
 
     def _create_menu_bar(self):
         """Creates the native menu bar for global options."""
+        current_return_files = self.controller.config_manager.get_return_files()
+        current_return_chunks = self.controller.config_manager.get_return_chunks()
+        if current_return_files and current_return_chunks:
+            current_return_chunks = False
+            self.controller.config_manager.set_return_chunks(False)
+
+        self.output_return_files_var = tk.BooleanVar(value=current_return_files)
+        self.output_return_chunks_var = tk.BooleanVar(value=current_return_chunks)
         self.include_project_tree_var = tk.BooleanVar(
             value=self.controller.config_manager.get_include_project_tree()
         )
@@ -87,6 +96,34 @@ class Application:
         )
 
         self.menu_bar = tk.Menu(self.root)
+        self.output_menu = tk.Menu(self.menu_bar, tearoff=0)
+        self.output_menu.add_checkbutton(
+            label="Devolver archivos",
+            variable=self.output_return_files_var,
+            command=self._on_toggle_output_return_files
+        )
+        self.output_menu.add_checkbutton(
+            label="Devolver trozos",
+            variable=self.output_return_chunks_var,
+            command=self._on_toggle_output_return_chunks
+        )
+        self.configure_params_menu = tk.Menu(self.menu_bar, tearoff=0)
+        self.configure_params_menu.add_command(
+            label="Configurar máximo de Mín. Ficheros...",
+            command=self._on_configure_code_file_limit_max
+        )
+        self.configure_params_menu.add_command(
+            label="Configurar máximo de Máx. Ficheros...",
+            command=self._on_configure_code_max_file_limit_max
+        )
+        self.configure_params_menu.add_command(
+            label="Configurar mínimo de búsqueda Arbitrary...",
+            command=self._on_configure_arbitrary_search_min_chars
+        )
+        self.configure_params_menu.add_command(
+            label="Configurar máximo de búsqueda Arbitrary...",
+            command=self._on_configure_arbitrary_search_max_chars
+        )
         self.options_menu = tk.Menu(self.menu_bar, tearoff=0)
         self.options_menu.add_checkbutton(
             label="Incluir árbol de proyecto",
@@ -98,25 +135,53 @@ class Application:
             variable=self.export_prompts_as_folder_var,
             command=self._on_toggle_export_prompts_as_folder
         )
-        self.options_menu.add_command(
-            label="Configurar máximo de Mín. Ficheros...",
-            command=self._on_configure_code_file_limit_max
-        )
-        self.options_menu.add_command(
-            label="Configurar mínimo de búsqueda Arbitrary...",
-            command=self._on_configure_arbitrary_search_min_chars
-        )
-        self.options_menu.add_command(
-            label="Configurar máximo de búsqueda Arbitrary...",
-            command=self._on_configure_arbitrary_search_max_chars
-        )
         self.options_menu.add_separator()
         self.options_menu.add_command(
             label="Eliminar comentarios [MODIFICACIÓN]",
             command=self._on_remove_modification_comments
         )
+        self.menu_bar.add_cascade(label="Output", menu=self.output_menu)
+        self.menu_bar.add_cascade(label="Configurar parámetros", menu=self.configure_params_menu)
         self.menu_bar.add_cascade(label="Opciones", menu=self.options_menu)
         self.root.config(menu=self.menu_bar)
+        self.sync_output_menu_state()
+
+    def sync_output_menu_state(self, return_files=None, return_chunks=None):
+        """Keeps the Output menu vars in sync with CodeView state."""
+        if not hasattr(self, "output_return_files_var") or not hasattr(self, "output_return_chunks_var"):
+            return
+
+        if return_files is None or return_chunks is None:
+            code_view = getattr(getattr(self, "layout", None), "code_view", None)
+            if code_view is not None and hasattr(code_view, "var_return_files") and hasattr(code_view, "var_return_chunks"):
+                return_files = bool(code_view.var_return_files.get())
+                return_chunks = bool(code_view.var_return_chunks.get())
+            else:
+                return_files = self.controller.config_manager.get_return_files()
+                return_chunks = self.controller.config_manager.get_return_chunks()
+
+        self.output_return_files_var.set(bool(return_files))
+        self.output_return_chunks_var.set(bool(return_chunks))
+
+    def _on_toggle_output_return_files(self):
+        """Updates the return-files mode from the Output menu."""
+        code_view = getattr(getattr(self, "layout", None), "code_view", None)
+        if code_view is None:
+            return
+
+        should_enable = bool(self.output_return_files_var.get())
+        code_view._set_return_mode(return_files=should_enable, return_chunks=False)
+        self.sync_output_menu_state()
+
+    def _on_toggle_output_return_chunks(self):
+        """Updates the return-chunks mode from the Output menu."""
+        code_view = getattr(getattr(self, "layout", None), "code_view", None)
+        if code_view is None:
+            return
+
+        should_enable = bool(self.output_return_chunks_var.get())
+        code_view._set_return_mode(return_files=False, return_chunks=should_enable)
+        self.sync_output_menu_state()
 
     def _on_toggle_include_project_tree(self):
         """Persists the menu option for including the project tree in prompts."""
@@ -132,7 +197,9 @@ class Application:
 
     def _on_configure_code_file_limit_max(self):
         """Lets the user configure the max value for the Code View file-limit slider."""
-        current_max = self.controller.config_manager.get_file_limit_slider_max()
+        config = self.controller.config_manager
+        current_max = config.get_file_limit_slider_max()
+        current_value = config.get_file_limit()
         new_max = simpledialog.askinteger(
             "Opciones",
             "Introduce el nuevo máximo para el slider 'Mín. Ficheros':",
@@ -143,7 +210,41 @@ class Application:
         if new_max is None:
             return
 
-        self.controller.config_manager.set_file_limit_slider_max(new_max)
+        if new_max < current_value:
+            messagebox.showwarning(
+                "Opciones",
+                f"El máximo del slider no puede ser menor que el valor actual de Mín. Ficheros ({current_value})."
+            )
+            return
+
+        config.set_file_limit_slider_max(new_max)
+
+        if hasattr(self.layout, "code_view"):
+            self.layout.code_view.apply_file_limit_slider_settings(refresh=True)
+
+    def _on_configure_code_max_file_limit_max(self):
+        """Lets the user configure the max value for the Code View max-file slider."""
+        config = self.controller.config_manager
+        current_max = config.get_max_file_limit_slider_max()
+        current_value = config.get_max_file_limit()
+        new_max = simpledialog.askinteger(
+            "Opciones",
+            "Introduce el nuevo máximo para el slider 'Máx. Ficheros':",
+            initialvalue=current_max,
+            minvalue=20,
+            parent=self.root
+        )
+        if new_max is None:
+            return
+
+        if new_max < current_value:
+            messagebox.showwarning(
+                "Opciones",
+                f"El máximo del slider no puede ser menor que el valor actual de Máx. Ficheros ({current_value})."
+            )
+            return
+
+        config.set_max_file_limit_slider_max(new_max)
 
         if hasattr(self.layout, "code_view"):
             self.layout.code_view.apply_file_limit_slider_settings(refresh=True)

@@ -473,12 +473,12 @@ class Styles:
             foreground=[("active", Styles.COLOR_BUTTON_FG_ACTIVE), ("pressed", Styles.COLOR_BUTTON_FG_ACTIVE), ("disabled", Styles.COLOR_DIM)]
         )
 
-        # Action Button (Primary Call to Action)
+
         style.configure(
             "Action.TButton",
             background=Styles.COLOR_BUTTON_BG,
             foreground=Styles.COLOR_BUTTON_FG,
-            font=Styles.FONT_BUTTON,
+            font=Styles.scale_font(("Segoe UI", 14, "bold")),
             borderwidth=Styles.SOFT_EDGE_BORDER,
             bordercolor=Styles.COLOR_BUTTON_BORDER,
             lightcolor=Styles.COLOR_BUTTON_BORDER,
@@ -523,8 +523,8 @@ class Styles:
             bordercolor=Styles.COLOR_INPUT_BG,
             lightcolor=Styles.COLOR_ACCENT,
             darkcolor=Styles.COLOR_ACCENT,
-            sliderlength=Styles.scale_size(40),
-            sliderthickness=Styles.scale_size(40),
+            sliderlength=Styles.scale_size(28),
+            sliderthickness=Styles.scale_size(28),
             borderwidth=0
         )
 

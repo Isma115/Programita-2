@@ -157,7 +157,7 @@ class ProjectManager:
 
 
 
-    def find_relevant_files(self, user_query, relevant_files_subset=None, min_files=0):
+    def find_relevant_files(self, user_query, relevant_files_subset=None, min_files=0, max_files=None):
         """
         Finds files that are most relevant to the user_query.
         This is a simple heuristic based on keyword overlap.
@@ -167,6 +167,7 @@ class ProjectManager:
             relevant_files_subset: Optional list of file dicts to search within. 
                                    If None, searches all project files.
             min_files: The minimum number of files to return (pads with score 0 files if needed).
+            max_files: Optional maximum number of files to return after padding.
         
         Returns:
             List of file dicts sorted by relevance.
@@ -208,6 +209,14 @@ class ProjectManager:
         # If we have less than min_files matching files, pad with the rest
         if len(relevant) < min_files:
             relevant = [f[1] for f in scored_files][:min_files]
+
+        if max_files is not None:
+            try:
+                max_files = max(int(max_files), int(min_files))
+            except (TypeError, ValueError):
+                max_files = None
+            if max_files is not None:
+                relevant = relevant[:max_files]
             
         return relevant
 

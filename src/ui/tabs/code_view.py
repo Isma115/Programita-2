@@ -175,8 +175,30 @@ class CodeView(ttk.Frame):
         self.folder_chip_widgets = []
         self._folder_chip_refresh_after = None
 
+        self._initialize_output_state()
         self._load_file_type_icons()
         self._create_layout()
+        self._set_return_mode(self.var_return_files.get(), self.var_return_chunks.get(), refresh_sections=False)
+
+    def _initialize_output_state(self):
+        """Initializes output-related toggles without rendering in-panel checkboxes."""
+        val_return_files = False
+        val_return_chunks = False
+        if hasattr(self.controller, 'config_manager'):
+            val_return_files = self.controller.config_manager.get_return_files()
+            val_return_chunks = self.controller.config_manager.get_return_chunks()
+
+        if val_return_files and val_return_chunks:
+            val_return_chunks = False
+
+        self.var_return_files = tk.BooleanVar(value=val_return_files)
+        self.var_return_chunks = tk.BooleanVar(value=val_return_chunks)
+        self.var_include_file_headers = tk.BooleanVar(value=True)
+
+        if hasattr(self.controller, 'config_manager'):
+            self.controller.config_manager.set_return_files(val_return_files)
+            self.controller.config_manager.set_return_chunks(val_return_chunks)
+            self.controller.config_manager.set_include_file_headers_in_codigo_txt(True)
 
     def _load_file_type_icons(self):
         """Loads file type icons used by the code table."""
@@ -328,35 +350,105 @@ class CodeView(ttk.Frame):
         self.top_bar = ttk.Frame(parent, style="Main.TFrame")
         self.top_bar.pack(side="top", fill="x", padx=10, pady=(2, 8))
 
-        # Slider for File Limit
+        # Sliders for file limits
         self.limit_var = tk.DoubleVar(value=self.DEFAULT_MAX_FILE_LIMIT)
+        self.max_limit_var = tk.DoubleVar(value=self.DEFAULT_MAX_FILE_LIMIT)
 
-        # Container for slider
-        slider_frame = ttk.Frame(self.top_bar, style="Main.TFrame")
-        slider_frame.pack(side="left", padx=20)
+        # Container for controls
+        self.slider_frame = ttk.Frame(self.top_bar, style="Main.TFrame")
+        self.slider_frame.pack(padx=20)
 
-        self.lbl_limit = ttk.Label(
-            slider_frame,
-            text=f"Mín. Ficheros: {self.DEFAULT_MAX_FILE_LIMIT}",
-            style="TLabel"
+        # Shell for minimum file limit
+        self.limit_shell = tk.Frame(
+            self.slider_frame,
+            bg=Styles.COLOR_INPUT_BG,
+            highlightthickness=1,
+            highlightbackground=Styles.COLOR_BORDER,
+            highlightcolor=Styles.COLOR_ACCENT,
+            bd=0
         )
-        self.lbl_limit.pack(side="left", padx=(0, 15))
+        self.limit_shell.pack(side="left", padx=(0, 0))
+
+        self.lbl_limit = tk.Label(
+            self.limit_shell,
+            text=f"Mín. Ficheros: {self.DEFAULT_MAX_FILE_LIMIT}",
+            bg=Styles.COLOR_INPUT_BG,
+            fg=Styles.COLOR_DIM,
+            font=("Segoe UI", 11, "bold"),
+            anchor="w"
+        )
+        self.lbl_limit.pack(fill="x", padx=10, pady=(3, 0))
+
+        self.limit_input_frame = tk.Frame(
+            self.limit_shell,
+            bg=Styles.COLOR_INPUT_BG,
+            bd=0,
+            highlightthickness=0,
+            width=Styles.scale_size(210),
+            height=Styles.scale_size(28)
+        )
+        self.limit_input_frame.pack(fill="x", padx=8, pady=(0, 3))
+        self.limit_input_frame.pack_propagate(False)
 
         self.slider = ttk.Scale(
-            slider_frame, 
+            self.limit_input_frame,
             from_=1, 
             to=self.DEFAULT_MAX_FILE_LIMIT, 
             orient="horizontal", 
             variable=self.limit_var,
             command=self._on_limit_change,
-            length=200,
+            length=Styles.scale_size(200),
             style="Horizontal.TScale"
         )
-        self.slider.pack(side="left", fill="x")
+        self.slider.pack(fill="x", expand=True, pady=(0, 0))
+
+        # Shell for maximum file limit
+        self.max_limit_shell = tk.Frame(
+            self.slider_frame,
+            bg=Styles.COLOR_INPUT_BG,
+            highlightthickness=1,
+            highlightbackground=Styles.COLOR_BORDER,
+            highlightcolor=Styles.COLOR_ACCENT,
+            bd=0
+        )
+        self.max_limit_shell.pack(side="left", padx=(20, 0))
+
+        self.lbl_max_limit = tk.Label(
+            self.max_limit_shell,
+            text=f"Máx. Ficheros: {self.DEFAULT_MAX_FILE_LIMIT}",
+            bg=Styles.COLOR_INPUT_BG,
+            fg=Styles.COLOR_DIM,
+            font=("Segoe UI", 11, "bold"),
+            anchor="w"
+        )
+        self.lbl_max_limit.pack(fill="x", padx=10, pady=(3, 0))
+
+        self.max_limit_input_frame = tk.Frame(
+            self.max_limit_shell,
+            bg=Styles.COLOR_INPUT_BG,
+            bd=0,
+            highlightthickness=0,
+            width=Styles.scale_size(210),
+            height=Styles.scale_size(28)
+        )
+        self.max_limit_input_frame.pack(fill="x", padx=8, pady=(0, 3))
+        self.max_limit_input_frame.pack_propagate(False)
+
+        self.max_slider = ttk.Scale(
+            self.max_limit_input_frame,
+            from_=1,
+            to=self.DEFAULT_MAX_FILE_LIMIT,
+            orient="horizontal",
+            variable=self.max_limit_var,
+            command=self._on_max_limit_change,
+            length=Styles.scale_size(200),
+            style="Horizontal.TScale"
+        )
+        self.max_slider.pack(fill="x", expand=True, pady=(0, 0))
 
         # AI Selector
         self.ai_selector_shell = tk.Frame(
-            slider_frame,
+            self.slider_frame,
             bg=Styles.COLOR_INPUT_BG,
             highlightthickness=1,
             highlightbackground=Styles.COLOR_BORDER,
@@ -373,7 +465,7 @@ class CodeView(ttk.Frame):
             font=("Segoe UI", 11, "bold"),
             anchor="w"
         )
-        self.ai_selector_title.pack(fill="x", padx=10, pady=(7, 0))
+        self.ai_selector_title.pack(fill="x", padx=10, pady=(3, 0))
 
         self.ai_var = tk.StringVar()
         self.cmb_ai = ttk.Combobox(
@@ -385,52 +477,79 @@ class CodeView(ttk.Frame):
             style="Borderless.TCombobox"
         )
         self.cmb_ai.current(0)
-        self.cmb_ai.pack(fill="x", padx=8, pady=(2, 6), ipady=2)
+        self.cmb_ai.pack(fill="x", padx=8, pady=(0, 3), ipady=0)
 
-        # Extension Filter - BORDE TOTALMENTE ELIMINADO
+        # Extension Filter
         saved_extensions = ""
         if hasattr(self, 'controller') and hasattr(self.controller, 'config_manager'):
             saved_extensions = self.controller.config_manager.get_code_extensions_filter()
         self.ext_var = tk.StringVar(value=saved_extensions)
 
-        lbl_ext = ttk.Label(slider_frame, text="Exts:", style="TLabel")
-        lbl_ext.pack(side="left", padx=(20, 5))
+        self.ext_shell = tk.Frame(
+            self.slider_frame,
+            bg=Styles.COLOR_INPUT_BG,
+            highlightthickness=1,
+            highlightbackground=Styles.COLOR_BORDER,
+            highlightcolor=Styles.COLOR_ACCENT,
+            bd=0
+        )
+        self.ext_shell.pack(side="left", padx=(20, 0))
+
+        self.ext_title = tk.Label(
+            self.ext_shell,
+            text="Extensiones",
+            bg=Styles.COLOR_INPUT_BG,
+            fg=Styles.COLOR_DIM,
+            font=("Segoe UI", 11, "bold"),
+            anchor="w"
+        )
+        self.ext_title.pack(fill="x", padx=10, pady=(3, 0))
 
         ext_frame = tk.Frame(
-            slider_frame,
+            self.ext_shell,
             bg=Styles.COLOR_INPUT_BG,
             bd=0,
             highlightthickness=0
         )
-        ext_frame.pack(side="left", padx=(0, 0))
+        ext_frame.pack(fill="x", padx=8, pady=(0, 3))
+
+        self.ext_input_shell = tk.Frame(
+            ext_frame,
+            bg=Styles.COLOR_INPUT_BG,
+            bd=0,
+            highlightthickness=0
+        )
+        self.ext_input_shell.pack(fill="x")
 
         self.txt_ext = tk.Entry(
-            ext_frame,
+            self.ext_input_shell,
             textvariable=self.ext_var,
-            bg=Styles.COLOR_INPUT_BG,
+            bg="#1a2a3a",
             fg=Styles.COLOR_INPUT_FG,
             insertbackground="white",
             bd=0,
             highlightthickness=0,
             relief="flat",
             width=15,
-            font=Styles.FONT_MAIN
+            font=("Segoe UI", 12)
         )
         self.txt_ext._skip_soften = True
         Styles.strip_classic_widget_chrome(self.txt_ext)
-        self.txt_ext.pack(fill="both", expand=True, ipady=2)  # ipady aumenta altura vertical
+        self.txt_ext.pack(fill="both", expand=True, padx=(2, 2), pady=(1, 1), ipady=4)  # [
         self.ext_var.trace_add("write", self._on_extension_change)
 
-        self._apply_limit_slider_range()
+        self._apply_limit_slider_ranges()
 
         # Initialize slider from config if controller available
         if hasattr(self, 'controller') and hasattr(self.controller, 'config_manager'):
-            limit = self.controller.config_manager.get_file_limit()
-            self._apply_limit_slider_range()
-            limit = min(limit, self._get_limit_slider_max())
-            self.limit_var.set(limit)
-            self.lbl_limit.config(text=f"Mín. Ficheros: {int(limit)}")
-            self.controller.config_manager.set_file_limit(limit)
+            min_limit = self.controller.config_manager.get_file_limit()
+            max_limit = self.controller.config_manager.get_max_file_limit()
+            self.limit_var.set(min_limit)
+            self.max_limit_var.set(max_limit)
+            min_limit, max_limit = self._apply_limit_slider_ranges()
+            self._persist_file_limits(min_limit, max_limit)
+
+        self.after_idle(self._update_top_bar_alignment)
 
     def _create_file_tree(self, parent):
         """Creates the file listing treeview and its context menu."""
@@ -468,7 +587,40 @@ class CodeView(ttk.Frame):
         self.tree.column("folder_chip", width=0, stretch=False, minwidth=0)
         self._configure_file_tree_style()
 
-        # Scrollbar
+
+        self.file_list_shell = tk.Frame(
+            self.tree_frame,
+            bg=Styles.COLOR_INPUT_BG,
+            highlightthickness=1,
+            highlightbackground=Styles.COLOR_BORDER,
+            highlightcolor=Styles.COLOR_ACCENT,
+            bd=0
+        )
+        self.file_list_shell.pack(fill="both", expand=True)
+
+        self.columns = ("folder", "size", "type", "full_path", "folder_chip")
+        self.tree = ttk.Treeview(
+            self.file_list_shell,
+            columns=self.columns,
+            displaycolumns=("folder", "size", "type"),
+            show="tree headings",
+            selectmode="extended",
+            style="Files.Treeview"
+        )
+        self.tree.heading("#0", text="Nombre")
+        self.tree.heading("folder", text="Ruta")
+        self.tree.heading("size", text="Tamaño")
+        self.tree.heading("type", text="Tipo")
+
+        self.tree.column("#0", anchor="w", stretch=True, width=360, minwidth=240)
+        self.tree.column("folder", anchor="w", stretch=True, width=180, minwidth=120)
+        self.tree.column("size", anchor="center", stretch=False, width=110, minwidth=90)
+        self.tree.column("type", anchor="center", stretch=False, width=140, minwidth=110)
+        self.tree.column("full_path", width=0, stretch=False, minwidth=0)
+        self.tree.column("folder_chip", width=0, stretch=False, minwidth=0)
+        self._configure_file_tree_style()
+
+
         self.file_tree_scrollbar = ttk.Scrollbar(
             self.file_list_shell,
             orient="vertical",
@@ -890,13 +1042,17 @@ class CodeView(ttk.Frame):
         self.txt_prompt.bind("<Command-Return>", self._on_copy_prompt)
         self.txt_prompt.pack(side="left", fill="x", expand=True, pady=5)
         
+        # [MODIFICACIÓN] Se añade un Frame contenedor con padding superior para desplazar el botón hacia abajo
+        btn_container = tk.Frame(self.prompt_frame, bg=Styles.COLOR_BG_MAIN) # Usar bg del tema principal o transparente si es posible, aquí se usa un frame simple
+        btn_container.pack(side="right", padx=(10, 0), anchor="n", pady=(5, 0)) # pady=(5, 0) desplaza el botón 5 pixeles hacia abajo
+
         self.btn_copy = ttk.Button(
-            self.prompt_frame,
+            btn_container, # [MODIFICACIÓN] El botón ahora se empaqueta dentro del contenedor desplazado
             text="Copiar Prompt",
             style="Action.TButton",
             command=self._on_copy_prompt
         )
-        self.btn_copy.pack(side="right", padx=(10, 0), anchor="n")
+        self.btn_copy.pack(side="right") # [MODIFICACIÓN] Eliminado padx y anchor ya que están en el contenedor padre
         attach_tooltip(self.btn_copy, "Copiar prompt")
 
     def _create_right_pane(self):
@@ -919,9 +1075,6 @@ class CodeView(ttk.Frame):
         self._create_section_search(self.right_top_frame)
         self._create_section_actions(self.right_top_frame)
         self._create_section_tree(self.right_top_frame)
-        self._create_return_files_checkbox(self.right_bottom_frame)
-        self._create_return_chunks_checkbox(self.right_bottom_frame)
-        self._create_file_headers_checkbox(self.right_bottom_frame)
 
     def _create_sections_header(self, parent):
         """Creates the 'Secciones' header and directory label."""
@@ -1204,20 +1357,19 @@ class CodeView(ttk.Frame):
         section_entry_size = Styles.scale_size(13 if compact_height else 15)
         tree_section_size = Styles.scale_size(13 if compact_height else 15)
         tree_subsection_size = Styles.scale_size(11 if compact_height else 13)
-        checkbox_font_size = Styles.scale_size(14 if ultra_compact_height else 16 if compact_height else 18)
-        self._checkbox_visual_size = Styles.scale_size(24 if ultra_compact_height else 26 if compact_height else 30)
         prompt_height = max(Styles.scale_size(4 if ultra_compact_height else 5 if compact_height else 8), 3)
-        slider_length = Styles.scale_size(110 if compact_width else 150 if narrow_width else 200)
+        slider_length = Styles.scale_size(130 if compact_width else 165 if narrow_width else 200)
         ai_width = max(Styles.scale_size(14 if compact_width else 17 if narrow_width else 20), 10)
         ext_width = max(Styles.scale_size(10 if compact_width else 12 if narrow_width else 15), 8)
         spacer_height = Styles.scale_size(18 if ultra_compact_height else 28 if compact_height else 42)
         top_prompt_pady = Styles.scale_size(6 if compact_height else 10)
-        chk_bottom_pady = Styles.scale_padding((0, 5))
 
         file_font_size = Styles.scale_size(13 if compact_width else 14 if narrow_width else 15)
         file_heading_size = Styles.scale_size(13 if compact_width else 14 if narrow_width else 15)
         file_row_height = Styles.scale_size(42 if ultra_compact_height else 46 if compact_height else 52)
         ai_title_size = Styles.scale_size(9 if ultra_compact_height else 10 if compact_height else 11)
+        slider_input_height = Styles.scale_size(22 if ultra_compact_height else 24 if compact_height else 26)
+        slider_input_width = slider_length + Styles.scale_size(8)
 
         self.lbl_project_name.configure(font=("Segoe UI", project_font_size))
         self.section_search_label.configure(font=("Segoe UI", section_label_size, "bold"))
@@ -1238,26 +1390,35 @@ class CodeView(ttk.Frame):
         self._update_file_tree_columns()
 
         self.slider.configure(length=slider_length)
+        self.max_slider.configure(length=slider_length)
+        self.limit_input_frame.configure(width=slider_input_width)
+        self.max_limit_input_frame.configure(width=slider_input_width)
+        self.limit_input_frame.configure(height=slider_input_height)
+        self.max_limit_input_frame.configure(height=slider_input_height)
         self.cmb_ai.configure(width=ai_width)
         self.ai_selector_title.configure(font=("Segoe UI", ai_title_size, "bold"))
-        self.txt_ext.configure(width=ext_width)
+        self.ext_title.configure(font=("Segoe UI", ai_title_size, "bold"))
+        self.txt_ext.configure(font=("Segoe UI", max(ai_title_size + 2, 11)))
+        self.txt_ext.configure(width=20)
         self.txt_prompt.configure(height=prompt_height)
         self.prompt_frame.pack_configure(pady=top_prompt_pady)
+        self._update_top_bar_alignment()
 
-        self.chk_canvas.configure(width=self._checkbox_visual_size, height=self._checkbox_visual_size)
-        self.chk_chunks_canvas.configure(width=self._checkbox_visual_size, height=self._checkbox_visual_size)
-        self.chk_headers_canvas.configure(width=self._checkbox_visual_size, height=self._checkbox_visual_size)
-        self.lbl_chk_text.configure(font=("Segoe UI", checkbox_font_size, "bold"))
-        self.lbl_chk_chunks_text.configure(font=("Segoe UI", checkbox_font_size, "bold"))
-        self.lbl_chk_headers_text.configure(font=("Segoe UI", checkbox_font_size, "bold"))
+    def _update_top_bar_alignment(self):
+        """Centers the top controls visually between the left and right arrow buttons."""
+        if not hasattr(self, "slider_frame") or not hasattr(self, "btn_add_project"):
+            return
 
-        self.chk_container.pack_configure(pady=chk_bottom_pady)
-        self.chk_chunks_container.pack_configure(pady=chk_bottom_pady)
-        self.chk_headers_container.pack_configure(pady=chk_bottom_pady)
-
-        self._draw_checkbox()
-        self._draw_chunks_checkbox()
-        self._draw_file_headers_checkbox()
+        try:
+            self.update_idletasks()
+            add_width = self.btn_add_project.winfo_width()
+            next_right_gap = self.btn_add_project.winfo_x() - (
+                self.btn_next_project.winfo_x() + self.btn_next_project.winfo_width()
+            )
+            right_bias = max(0, add_width + max(next_right_gap, 0))
+            self.slider_frame.pack_configure(padx=(0, right_bias))
+        except Exception:
+            pass
 
     def _on_ai_selected(self, event=None):
         pass
@@ -1400,12 +1561,18 @@ class CodeView(ttk.Frame):
         """Updates both return-mode selectors keeping them mutually exclusive."""
         self.var_return_files.set(bool(return_files))
         self.var_return_chunks.set(bool(return_chunks))
-        self._draw_checkbox()
-        self._draw_chunks_checkbox()
+        if hasattr(self, "chk_canvas"):
+            self._draw_checkbox()
+        if hasattr(self, "chk_chunks_canvas"):
+            self._draw_chunks_checkbox()
 
         if hasattr(self.controller, 'config_manager'):
             self.controller.config_manager.set_return_files(return_files)
             self.controller.config_manager.set_return_chunks(return_chunks)
+
+        app_instance = getattr(self.winfo_toplevel(), "app_instance", None)
+        if app_instance and hasattr(app_instance, "sync_output_menu_state"):
+            app_instance.sync_output_menu_state(return_files=return_files, return_chunks=return_chunks)
 
         if refresh_sections:
             self._refresh_sections()
@@ -1422,22 +1589,17 @@ class CodeView(ttk.Frame):
 
     def _toggle_file_headers(self, event=None):
         """Toggles whether codigo.txt exports should include file headers."""
-        is_selected = self.var_include_file_headers.get()
-        self.var_include_file_headers.set(not is_selected)
-        self._draw_file_headers_checkbox()
         if hasattr(self.controller, 'config_manager'):
-            self.controller.config_manager.set_include_file_headers_in_codigo_txt(not is_selected)
+            self.controller.config_manager.set_include_file_headers_in_codigo_txt(True)
 
     def _should_include_file_headers_in_codigo_txt(self):
-        return bool(getattr(self, "var_include_file_headers", tk.BooleanVar(value=True)).get())
+        return True
 
     def _get_codigo_txt_append_separator(self):
-        return "\n\n" if self._should_include_file_headers_in_codigo_txt() else ""
+        return "\n\n"
 
     def _build_codigo_txt_file_content(self, file_data):
-        if self._should_include_file_headers_in_codigo_txt():
-            return f"--- Archivo: {file_data['rel_path']} ---\n{file_data['content']}"
-        return file_data['content']
+        return f"--- Archivo: {file_data['rel_path']} ---\n{file_data['content']}"
 
     def _get_structure_size_tag(self, line_count):
         """Returns the visual severity tag for a structure size row."""
@@ -1631,16 +1793,56 @@ class CodeView(ttk.Frame):
 
 
 
-    def _on_limit_change(self, val):
-        """Handle slider movement."""
-        limit = int(float(val))
-        self.lbl_limit.config(text=f"Mín. Ficheros: {limit}")
-        
-        # Update Config (Debouncing would be better but direct update is okay for now)
+    def _update_file_limit_labels(self, min_limit=None, max_limit=None):
+        """Refreshes both file-limit labels."""
+        if min_limit is None:
+            min_limit = int(float(self.limit_var.get()))
+        if max_limit is None:
+            max_limit = int(float(self.max_limit_var.get()))
+        self.lbl_limit.config(text=f"Mín. Ficheros: {min_limit}")
+        self.lbl_max_limit.config(text=f"Máx. Ficheros: {max_limit}")
+
+    def _persist_file_limits(self, min_limit, max_limit):
+        """Stores the current min/max file limits in config."""
         if hasattr(self.controller, 'config_manager'):
-             self.controller.config_manager.set_file_limit(limit)
-             
-        # Refresh list to apply limit (re-run search so filter is preserved)
+            self.controller.config_manager.set_file_limit(min_limit)
+            self.controller.config_manager.set_max_file_limit(max_limit)
+
+    def _normalize_file_limits(self, preferred=None):
+        """Clamps and synchronizes min/max file limits so min never exceeds max."""
+        min_slider_max = self._get_limit_slider_max()
+        max_slider_max = self._get_max_file_limit_slider_max()
+
+        min_limit = max(1, min(int(float(self.limit_var.get())), min_slider_max))
+        max_limit = max(1, min(int(float(self.max_limit_var.get())), max_slider_max))
+
+        if min_limit > max_limit:
+            if preferred == "min":
+                max_limit = min_limit
+                if max_limit > max_slider_max:
+                    max_limit = max_slider_max
+                    min_limit = min(min_limit, max_limit)
+            else:
+                min_limit = max_limit
+                if min_limit > min_slider_max:
+                    min_limit = min_slider_max
+                    max_limit = max(max_limit, min_limit)
+
+        self.limit_var.set(min_limit)
+        self.max_limit_var.set(max_limit)
+        self._update_file_limit_labels(min_limit, max_limit)
+        return min_limit, max_limit
+
+    def _on_limit_change(self, val):
+        """Handles minimum-file slider movement."""
+        min_limit, max_limit = self._normalize_file_limits(preferred="min")
+        self._persist_file_limits(min_limit, max_limit)
+        self._on_prompt_change()
+
+    def _on_max_limit_change(self, val):
+        """Handles maximum-file slider movement."""
+        min_limit, max_limit = self._normalize_file_limits(preferred="max")
+        self._persist_file_limits(min_limit, max_limit)
         self._on_prompt_change()
 
     def _get_limit_slider_max(self):
@@ -1649,25 +1851,22 @@ class CodeView(ttk.Frame):
             return self.controller.config_manager.get_file_limit_slider_max()
         return self.DEFAULT_MAX_FILE_LIMIT
 
-    def _apply_limit_slider_range(self):
-        """Applies the current slider range and clamps the value if needed."""
-        max_limit = self._get_limit_slider_max()
-        self.slider.configure(to=max_limit)
+    def _get_max_file_limit_slider_max(self):
+        """Returns the configured max value for the max-file slider."""
+        if hasattr(self.controller, 'config_manager'):
+            return self.controller.config_manager.get_max_file_limit_slider_max()
+        return self.DEFAULT_MAX_FILE_LIMIT
 
-        current_limit = int(float(self.limit_var.get()))
-        if current_limit > max_limit:
-            current_limit = max_limit
-            self.limit_var.set(current_limit)
-
-        self.lbl_limit.config(text=f"Mín. Ficheros: {current_limit}")
-        return current_limit
+    def _apply_limit_slider_ranges(self):
+        """Applies the current slider ranges and clamps their values if needed."""
+        self.slider.configure(to=self._get_limit_slider_max())
+        self.max_slider.configure(to=self._get_max_file_limit_slider_max())
+        return self._normalize_file_limits()
 
     def apply_file_limit_slider_settings(self, refresh=True):
-        """Reapplies the configured slider max and refreshes search results if needed."""
-        current_limit = self._apply_limit_slider_range()
-
-        if hasattr(self.controller, 'config_manager'):
-            self.controller.config_manager.set_file_limit(current_limit)
+        """Reapplies the configured slider ranges and refreshes search results if needed."""
+        min_limit, max_limit = self._apply_limit_slider_ranges()
+        self._persist_file_limits(min_limit, max_limit)
 
         if refresh:
             self._on_prompt_change()
@@ -1748,20 +1947,20 @@ class CodeView(ttk.Frame):
                 section, subsection = self._get_selected_section_info()
                 extension = self.ext_var.get() if hasattr(self, 'ext_var') else ""
                 min_files = int(self.limit_var.get()) if hasattr(self, 'limit_var') else 0
+                max_files = int(self.max_limit_var.get()) if hasattr(self, 'max_limit_var') else None
                 files = self.controller.get_relevant_files_for_ui(
                     text,
                     selected_section=section,
                     selected_subsection=subsection,
                     extension=extension,
-                    min_files=min_files
+                    min_files=min_files,
+                    max_files=max_files
                 )
             elif hasattr(self.controller, 'project_manager'):
                 files = self.controller.project_manager.get_files()
             else:
                 files = []
 
-        # We no longer apply a hard limit here; we show all files returned
-        # (the padding for minimum files is already handled in find_relevant_files)
         for index, f in enumerate(files):
             rel_path = f['rel_path']
             size_label = self._format_file_size(len(f.get('content', '') or ""))
@@ -1810,17 +2009,28 @@ class CodeView(ttk.Frame):
         extension = self.ext_var.get()
         
         min_files = 0
+        max_files = None
         if hasattr(self.controller, 'config_manager'):
             min_files = self.controller.config_manager.get_file_limit()
+            max_files = self.controller.config_manager.get_max_file_limit()
 
         # Run search in thread
-        threading.Thread(target=self._perform_search, args=(text, section, subsection, extension, min_files), daemon=True).start()
+        threading.Thread(
+            target=self._perform_search,
+            args=(text, section, subsection, extension, min_files, max_files),
+            daemon=True
+        ).start()
 
-    def _perform_search(self, text, section, subsection=None, extension="Todos", min_files=0):
+    def _perform_search(self, text, section, subsection=None, extension="Todos", min_files=0, max_files=None):
         """Executes search logic (Thread Safe)."""
         try:
             relevant_files = self.controller.get_relevant_files_for_ui(
-                text, selected_section=section, selected_subsection=subsection, extension=extension, min_files=min_files
+                text,
+                selected_section=section,
+                selected_subsection=subsection,
+                extension=extension,
+                min_files=min_files,
+                max_files=max_files
             )
             # Schedule UI update on main thread
             self.after(0, lambda: self._update_file_list_safe(relevant_files))

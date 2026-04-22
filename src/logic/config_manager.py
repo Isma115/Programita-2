@@ -180,6 +180,18 @@ class ConfigManager:
         self.config["file_limit"] = max(1, int(limit))
         self.save_config()
 
+    def get_max_file_limit(self):
+        """Returns the maximum number of files, defaulting to 20."""
+        try:
+            return max(1, int(self.config.get("max_file_limit", 20)))
+        except (TypeError, ValueError):
+            return 20
+
+    def set_max_file_limit(self, limit):
+        """Sets the maximum number of files and saves config."""
+        self.config["max_file_limit"] = max(1, int(limit))
+        self.save_config()
+
     def get_file_limit_slider_max(self):
         """Returns the configured max value for the Code View file limit slider."""
         default_max = 20
@@ -197,6 +209,20 @@ class ConfigManager:
         """Sets the max value for the Code View file limit slider."""
         self.config["file_limit_slider_max"] = max(20, int(value))
         self.config.pop("expand_file_limit_range", None)
+        self.save_config()
+
+    def get_max_file_limit_slider_max(self):
+        """Returns the configured max value for the Code View max-file slider."""
+        default_max = 20
+        try:
+            value = int(self.config.get("max_file_limit_slider_max", default_max))
+        except (TypeError, ValueError):
+            value = default_max
+        return max(default_max, value)
+
+    def set_max_file_limit_slider_max(self, value):
+        """Sets the max value for the Code View max-file slider."""
+        self.config["max_file_limit_slider_max"] = max(20, int(value))
         self.save_config()
 
     def get_code_extensions_filter(self):

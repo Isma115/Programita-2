@@ -121,6 +121,7 @@ VSCODE_TOKEN_COLORS = {
 FONT_CODE_FAMILY = "Menlo"
 FONT_CODE = (FONT_CODE_FAMILY, 14)
 FONT_UI = ("Segoe UI", 14) # Aumentado tamano base a 14
+_ACTIVE_ARBITRARY_POPUP = None
 
 def _normalize_text(text):
     return (text or "").replace("\r\n", "\n").replace("\r", "\n")
@@ -683,20 +684,32 @@ def show_popup(clipboard_text, match_text, file_path, ratio, line_num, app_insta
     """
     Muestra popup de 3 paneles con estilo VS Code Highlighting.
     """
+    global _ACTIVE_ARBITRARY_POPUP
+
     if not match_text:
         return
+
+    previous_popup = None
+    try:
+        if _ACTIVE_ARBITRARY_POPUP and _ACTIVE_ARBITRARY_POPUP.winfo_exists():
+            previous_popup = _ACTIVE_ARBITRARY_POPUP
+    except Exception:
+        previous_popup = None
 
     # Estado mutable
     state = {
         "start_idx": 0,
         "end_idx": 0,
         "editor_job": None, # Para debounce
+        "search_job": None,
         "search_current_start": None,
         "search_current_end": None,
+        "search_trace_suspended": False,
     }
 
     # Popup
     popup = tk.Toplevel()
+    _ACTIVE_ARBITRARY_POPUP = popup
     popup.title(f"✨ Comparación y Edición - {os.path.basename(file_path)}")
     
     # Centrar ventana
@@ -812,13 +825,20 @@ def show_popup(clipboard_text, match_text, file_path, ratio, line_num, app_insta
             return "break"
 
         logging.info("Arbitrary: Nueva búsqueda lanzada desde selección del panel izquierdo.")
-        popup.after_idle(
-            lambda: run_arbitrary_search_with_text(
+        if app_instance and hasattr(app_instance, "root"):
+            app_instance.root.after_idle(
+                lambda: run_arbitrary_search_with_text(
+                    app_instance,
+                    selected_text,
+                    display_clipboard_text=clipboard_text,
+                )
+            )
+        else:
+            run_arbitrary_search_with_text(
                 app_instance,
                 selected_text,
                 display_clipboard_text=clipboard_text,
             )
-        )
         return "break"
 
     txt_clip.bind("<Button-2>", on_clip_right_click)
@@ -827,8 +847,21 @@ def show_popup(clipboard_text, match_text, file_path, ratio, line_num, app_insta
     txt_clip.config(state="disabled")
     txt_clip.grid(row=1, column=0, sticky="nsew", padx=5, pady=5)
 
-    lbl_edit = tk.Label(content_frame, text="✏️ Editor (VS Code Style)", bg=THEME["bg"], fg="#dcdcaa", font=FONT_UI)
-    lbl_edit.grid(row=0, column=1, sticky="w", padx=5, pady=(5,0))
+    edit_header_frame = tk.Frame(content_frame, bg=THEME["bg"])
+    edit_header_frame.grid(row=0, column=1, sticky="ew", padx=5, pady=(5, 0))
+    edit_header_frame.columnconfigure(0, weight=1)
+
+    lbl_edit = tk.Label(
+        edit_header_frame,
+        text="✏️ Editor (VS Code Style)",
+        bg=THEME["bg"],
+        fg="#dcdcaa",
+        font=FONT_UI,
+    )
+    lbl_edit.grid(row=0, column=0, sticky="w")
+
+    search_host = tk.Frame(edit_header_frame, bg=THEME["bg"])
+    search_host.grid(row=0, column=1, sticky="e")
     
     txt_edit = create_styled_text_widget(content_frame, editable=True)
     # Borde para distinguir editor
@@ -839,8 +872,12 @@ def show_popup(clipboard_text, match_text, file_path, ratio, line_num, app_insta
     txt_edit.tag_configure("search_current", background="#d7ba7d", foreground="#111827")
 
     search_var = tk.StringVar()
-    search_frame = tk.Frame(popup, bg="#252526", bd=1, relief="solid")
+    search_frame = tk.Frame(search_host, bg="#252526", bd=1, relief="solid")
     search_status_var = tk.StringVar(value="")
+    search_bar_visible = {"value": False}
+    search_live_delay_ms = 120
+    search_live_min_chars = 2
+    search_highlight_limit = 250
 
     tk.Label(
         search_frame,
@@ -890,6 +927,23 @@ def show_popup(clipboard_text, match_text, file_path, ratio, line_num, app_insta
 
     txt_edit.bind("<Button-1>", clear_match_highlight)
 
+    def _cancel_search_job():
+        if state["search_job"]:
+            try:
+                popup.after_cancel(state["search_job"])
+            except Exception:
+                pass
+            state["search_job"] = None
+
+    def _set_search_text(value):
+        if search_var.get() == value:
+            return
+        state["search_trace_suspended"] = True
+        try:
+            search_var.set(value)
+        finally:
+            state["search_trace_suspended"] = False
+
     def _clear_search_tags():
         txt_edit.tag_remove("search_match", "1.0", tk.END)
         txt_edit.tag_remove("search_current", "1.0", tk.END)
@@ -913,9 +967,14 @@ def show_popup(clipboard_text, match_text, file_path, ratio, line_num, app_insta
             search_status_var.set("")
             return []
 
+        if len(term) < search_live_min_chars:
+            search_status_var.set(f"Enter para buscar {len(term)} carácter" if len(term) == 1 else "")
+            return []
+
         matches = []
         start_index = "1.0"
         term_length = len(term)
+        truncated = False
         while True:
             match_index = txt_edit.search(term, start_index, stopindex=tk.END, nocase=True)
             if not match_index:
@@ -924,11 +983,18 @@ def show_popup(clipboard_text, match_text, file_path, ratio, line_num, app_insta
             matches.append((match_index, end_index))
             txt_edit.tag_add("search_match", match_index, end_index)
             start_index = end_index
+            if len(matches) >= search_highlight_limit:
+                truncated = True
+                break
 
         txt_edit.tag_raise("search_match")
-        search_status_var.set(
-            f"{len(matches)} coincidencia{'s' if len(matches) != 1 else ''}" if matches else "Sin resultados"
-        )
+        if matches:
+            if truncated:
+                search_status_var.set(f"{search_highlight_limit}+ coincidencias")
+            else:
+                search_status_var.set(f"{len(matches)} coincidencia{'s' if len(matches) != 1 else ''}")
+        else:
+            search_status_var.set("Sin resultados")
         return matches
 
     def _select_search_result(match_tuple):
@@ -938,12 +1004,23 @@ def show_popup(clipboard_text, match_text, file_path, ratio, line_num, app_insta
         _set_current_search_match(start_index, end_index)
 
     def _refresh_search_matches(select_first=False):
+        if not popup.winfo_exists() or not txt_edit.winfo_exists():
+            state["search_job"] = None
+            return []
         matches = _collect_search_matches()
         if select_first and matches:
             _select_search_result(matches[0])
         elif not matches:
             _clear_search_tags()
+        state["search_job"] = None
         return matches
+
+    def _schedule_search_refresh(select_first=False, delay_ms=None):
+        _cancel_search_job()
+        if not search_bar_visible["value"]:
+            return
+        delay = search_live_delay_ms if delay_ms is None else delay_ms
+        state["search_job"] = popup.after(delay, lambda: _refresh_search_matches(select_first=select_first))
 
     def _find_next_match(event=None):
         term = search_var.get()
@@ -980,30 +1057,38 @@ def show_popup(clipboard_text, match_text, file_path, ratio, line_num, app_insta
         return "break"
 
     def _hide_search_bar(event=None):
-        search_frame.place_forget()
-        search_var.set("")
+        _cancel_search_job()
+        if search_bar_visible["value"]:
+            search_frame.pack_forget()
+            search_bar_visible["value"] = False
+        _set_search_text("")
         search_status_var.set("")
         _clear_search_tags()
         txt_edit.focus_set()
         return "break"
 
     def _show_search_bar(event=None):
+        if not search_bar_visible["value"]:
+            search_frame.pack(side="right")
+            search_bar_visible["value"] = True
+
         try:
             selected_text = txt_edit.get("sel.first", "sel.last").strip()
         except tk.TclError:
             selected_text = ""
 
         if selected_text and "\n" not in selected_text:
-            search_var.set(selected_text)
+            _set_search_text(selected_text)
 
-        search_frame.place(in_=txt_edit, relx=1.0, x=-12, y=12, anchor="ne")
         search_entry.focus_set()
         search_entry.selection_range(0, tk.END)
-        _refresh_search_matches(select_first=bool(search_var.get()))
+        _schedule_search_refresh(select_first=bool(search_var.get()), delay_ms=0)
         return "break"
 
     def _on_search_text_change(*_args):
-        _refresh_search_matches(select_first=True)
+        if state["search_trace_suspended"] or not search_bar_visible["value"]:
+            return
+        _schedule_search_refresh(select_first=True)
 
     search_var.trace_add("write", _on_search_text_change)
 
@@ -1043,11 +1128,6 @@ def show_popup(clipboard_text, match_text, file_path, ratio, line_num, app_insta
     search_entry.bind("<Return>", _find_next_match)
     search_entry.bind("<Shift-Return>", _find_previous_match)
     search_entry.bind("<Escape>", _hide_search_bar)
-    search_entry.bind("<Control-f>", _show_search_bar)
-    search_entry.bind("<Control-F>", _show_search_bar)
-    search_entry.bind("<Command-f>", _show_search_bar)
-    search_entry.bind("<Command-F>", _show_search_bar)
-    
     def on_edit_change(event=None):
         """Re-highlighter con debounce simple"""
         if state["editor_job"]:
@@ -1056,7 +1136,7 @@ def show_popup(clipboard_text, match_text, file_path, ratio, line_num, app_insta
         def _refresh_editor_visuals():
             highlight_syntax(txt_edit, file_path)
             if search_var.get():
-                _refresh_search_matches(select_first=False)
+                _schedule_search_refresh(select_first=False, delay_ms=0)
 
         state["editor_job"] = popup.after(300, _refresh_editor_visuals)
 
@@ -1193,10 +1273,6 @@ def show_popup(clipboard_text, match_text, file_path, ratio, line_num, app_insta
     txt_edit.bind("<Control-F>", _show_search_bar)
     txt_edit.bind("<Command-f>", _show_search_bar)
     txt_edit.bind("<Command-F>", _show_search_bar)
-    popup.bind("<Control-f>", _show_search_bar)
-    popup.bind("<Control-F>", _show_search_bar)
-    popup.bind("<Command-f>", _show_search_bar)
-    popup.bind("<Command-F>", _show_search_bar)
 
     def update_view():
         full_block, start_idx, end_idx, match_abs_start = get_match_context(file_path, match_text, line_num)
@@ -1212,7 +1288,7 @@ def show_popup(clipboard_text, match_text, file_path, ratio, line_num, app_insta
         txt_edit.insert("1.0", full_block)
         highlight_syntax(txt_edit, file_path)
         if search_var.get():
-            _refresh_search_matches(select_first=False)
+            _schedule_search_refresh(select_first=False, delay_ms=0)
         
         # Highlight matched region with subtle gray background
         txt_edit.tag_remove("match_highlight", "1.0", tk.END)
@@ -1276,6 +1352,31 @@ def show_popup(clipboard_text, match_text, file_path, ratio, line_num, app_insta
 
 
     update_view() # Initial load
+
+    def _close_previous_popup():
+        if previous_popup is popup:
+            return
+        try:
+            if previous_popup and previous_popup.winfo_exists():
+                previous_popup.destroy()
+        except Exception:
+            pass
+
+    popup.after_idle(_close_previous_popup)
+
+    def _on_popup_destroy(event=None):
+        global _ACTIVE_ARBITRARY_POPUP
+        _cancel_search_job()
+        if state["editor_job"]:
+            try:
+                popup.after_cancel(state["editor_job"])
+            except Exception:
+                pass
+            state["editor_job"] = None
+        if _ACTIVE_ARBITRARY_POPUP is popup:
+            _ACTIVE_ARBITRARY_POPUP = None
+
+    popup.bind("<Destroy>", _on_popup_destroy, add="+")
 
 
 
@@ -1389,11 +1490,16 @@ def _get_code_files_for_arbitrary_search(app_instance):
         code_view = app_instance.layout.code_view
         if hasattr(code_view, 'tree'):
             for item_id in code_view.tree.get_children():
-                tags = code_view.tree.item(item_id, 'tags')
-                if tags:
-                    file_path = tags[0] if isinstance(tags, (list, tuple)) else tags
-                    if file_path and os.path.exists(file_path):
-                        code_files.append(file_path)
+                file_path = None
+                if hasattr(code_view, "_get_tree_item_path"):
+                    file_path = code_view._get_tree_item_path(item_id)
+                else:
+                    tags = code_view.tree.item(item_id, 'tags')
+                    if tags:
+                        file_path = tags[0] if isinstance(tags, (list, tuple)) else tags
+
+                if file_path and os.path.exists(file_path):
+                    code_files.append(file_path)
 
     return code_files
 

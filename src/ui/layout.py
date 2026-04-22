@@ -52,12 +52,10 @@ class MainLayout(ttk.Frame):
         # Configure columns to distribute space equally
         self.nav_buttons_frame.columnconfigure(0, weight=1)
         self.nav_buttons_frame.columnconfigure(1, weight=1)
-        self.nav_buttons_frame.columnconfigure(2, weight=1)
 
         self.nav_tabs = {}
         self._create_nav_tab(0, "docs", "Documentación", self.controller.show_docs_view)
-        self._create_nav_tab(1, "database", "BBDD", self.controller.show_database_view)
-        self._create_nav_tab(2, "code", "Código", self.controller.show_code_view)
+        self._create_nav_tab(1, "code", "Código", self.controller.show_code_view)
 
     def _create_nav_tab(self, column, key, text, command):
         tab_frame = tk.Frame(

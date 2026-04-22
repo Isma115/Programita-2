@@ -350,7 +350,15 @@ class Controller:
             print(f"Controller: Error getting table samples: {e}")
             return ""
 
-    def get_relevant_files_for_ui(self, user_text, selected_section=None, selected_subsection=None, extension="", min_files=0):
+    def get_relevant_files_for_ui(
+        self,
+        user_text,
+        selected_section=None,
+        selected_subsection=None,
+        extension="",
+        min_files=0,
+        max_files=None
+    ):
         """Helper to get relevant files for UI display."""
         all_files = self.project_manager.get_files()
         
@@ -383,14 +391,24 @@ class Controller:
         else:
             pool = [f for f in pool if self.project_manager.is_default_code_file(f['rel_path'])]
             
-        # 3. Search and Min Files Padding
+        # 3. Search, minimum padding and optional maximum cap
         if not user_text:
-            # No query: if min_files is set and pool is smaller, return as-is (already all scoped files).
-            # If pool is larger than min_files, still return the full pool (no truncation — min means minimum).
+            if max_files is not None:
+                try:
+                    max_files = max(int(max_files), int(min_files))
+                except (TypeError, ValueError):
+                    max_files = None
+            if max_files is not None:
+                return pool[:max_files]
             return pool
         else:
             # find_relevant_files scores and ranks files, then pads up to min_files from the pool
-            return self.project_manager.find_relevant_files(user_text, relevant_files_subset=pool, min_files=min_files)
+            return self.project_manager.find_relevant_files(
+                user_text,
+                relevant_files_subset=pool,
+                min_files=min_files,
+                max_files=max_files
+            )
 
     def show_code_view(self):
         """
