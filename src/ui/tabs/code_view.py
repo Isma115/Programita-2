@@ -3,7 +3,9 @@ from tkinter import ttk, filedialog
 import tkinter.messagebox as messagebox
 import threading
 import os
+import time
 import webbrowser
+from PIL import Image, ImageTk
 from src.ui.styles import Styles
 from src.ui.tooltip import attach_tooltip
 
@@ -37,6 +39,114 @@ class CodeView(ttk.Frame):
     MIN_LEFT_PANEL_WIDTH = Styles.scale_size(320)
     MIN_SECTIONS_PANEL_WIDTH = Styles.scale_size(260)
     DEFAULT_MAX_FILE_LIMIT = 20
+    FILE_ICON_EXTENSION_MAP = {
+        ".js": "javascript",
+        ".mjs": "javascript",
+        ".cjs": "javascript",
+        ".jsx": "react",
+        ".ts": "typescript",
+        ".tsx": "react",
+        ".py": "python",
+        ".pyw": "python",
+        ".java": "java",
+        ".kt": "kotlin",
+        ".kts": "kotlin",
+        ".groovy": "groovy",
+        ".gradle": "gradle",
+        ".scala": "scala",
+        ".c": "c",
+        ".h": "c",
+        ".cc": "cpp",
+        ".cpp": "cpp",
+        ".cxx": "cpp",
+        ".hh": "cpp",
+        ".hpp": "cpp",
+        ".hxx": "cpp",
+        ".cs": "csharp",
+        ".vb": "dotnet",
+        ".fs": "fsharp",
+        ".fsx": "fsharp",
+        ".go": "go",
+        ".rs": "rust",
+        ".zig": "zig",
+        ".swift": "swift",
+        ".m": "objectivec",
+        ".mm": "objectivec",
+        ".php": "php",
+        ".phtml": "php",
+        ".rb": "ruby",
+        ".pl": "perl",
+        ".pm": "perl",
+        ".lua": "lua",
+        ".r": "r",
+        ".jl": "julia",
+        ".dart": "dart",
+        ".ex": "elixir",
+        ".exs": "elixir",
+        ".erl": "erlang",
+        ".hrl": "erlang",
+        ".html": "html",
+        ".htm": "html",
+        ".xhtml": "html",
+        ".css": "css",
+        ".scss": "sass",
+        ".sass": "sass",
+        ".less": "less",
+        ".vue": "vue",
+        ".svelte": "svelte",
+        ".astro": "astro",
+        ".ejs": "template",
+        ".hbs": "handlebars",
+        ".handlebars": "handlebars",
+        ".mustache": "template",
+        ".njk": "template",
+        ".twig": "template",
+        ".jinja": "template",
+        ".jinja2": "template",
+        ".tpl": "template",
+        ".sql": "sql",
+        ".graphql": "graphql",
+        ".gql": "graphql",
+        ".proto": "protobuf",
+        ".json": "json",
+        ".jsonc": "json",
+        ".xml": "xml",
+        ".xsd": "xml",
+        ".xsl": "xml",
+        ".wsdl": "xml",
+        ".yml": "yaml",
+        ".yaml": "yaml",
+        ".toml": "toml",
+        ".ini": "config",
+        ".cfg": "config",
+        ".conf": "config",
+        ".properties": "config",
+        ".sh": "shell",
+        ".bash": "shell",
+        ".zsh": "shell",
+        ".fish": "shell",
+        ".bat": "batch",
+        ".cmd": "batch",
+        ".ps1": "powershell",
+        ".psm1": "powershell",
+        ".psd1": "powershell",
+        ".dockerignore": "docker",
+        ".editorconfig": "editorconfig",
+        ".md": "markdown",
+    }
+    FILE_ICON_FILENAME_MAP = {
+        "Dockerfile": "docker",
+        "Containerfile": "docker",
+        "Makefile": "makefile",
+        "CMakeLists.txt": "cmake",
+        "Jenkinsfile": "jenkins",
+        "Procfile": "config",
+        "Rakefile": "ruby",
+        "Gemfile": "ruby",
+        "Podfile": "swift",
+        "Brewfile": "homebrew",
+        "Vagrantfile": "vagrant",
+    }
 
     def __init__(self, parent):
         super().__init__(parent, style="Main.TFrame")
@@ -60,8 +170,35 @@ class CodeView(ttk.Frame):
         self._responsive_after_id = None
         self._checkbox_visual_size = Styles.scale_size(30)
         self.sections_dir_var = tk.StringVar(value="")
+        self.file_type_icons = {}
 
+        self._load_file_type_icons()
         self._create_layout()
+
+    def _load_file_type_icons(self):
+        """Loads file type icons used by the code table."""
+        self.file_type_icons = {}
+        try:
+            base_path = os.path.join(os.getcwd(), "assets", "icons", "filetypes")
+            legacy_js_icon_path = os.path.join(os.getcwd(), "assets", "icons", "javascript_icon.png")
+            icon_size = Styles.scale_size(18)
+
+            if os.path.isdir(base_path):
+                for filename in sorted(os.listdir(base_path)):
+                    if not filename.lower().endswith(".png"):
+                        continue
+                    icon_key = os.path.splitext(filename)[0]
+                    icon_path = os.path.join(base_path, filename)
+                    image = Image.open(icon_path).convert("RGBA")
+                    image = image.resize((icon_size, icon_size), Image.Resampling.LANCZOS)
+                    self.file_type_icons[icon_key] = ImageTk.PhotoImage(image)
+
+            if "javascript" not in self.file_type_icons and os.path.exists(legacy_js_icon_path):
+                image = Image.open(legacy_js_icon_path).convert("RGBA")
+                image = image.resize((icon_size, icon_size), Image.Resampling.LANCZOS)
+                self.file_type_icons["javascript"] = ImageTk.PhotoImage(image)
+        except Exception as exc:
+            print(f"CodeView: Error cargando iconos de ficheros: {exc}")
 
     @classmethod
     def _get_ai_config_path(cls):
@@ -276,23 +413,44 @@ class CodeView(ttk.Frame):
         """Creates the file listing treeview and its context menu."""
         self.tree_frame = ttk.Frame(parent, style="Main.TFrame")
 
-        self.columns = ("path", "size")
-        self.tree = ttk.Treeview(self.tree_frame, columns=self.columns, show="", selectmode="extended", style="Treeview")
-        self.tree.column("path", width=400)
-        self.tree.column("size", width=80)
+        self.file_list_shell = tk.Frame(
+            self.tree_frame,
+            bg=Styles.COLOR_INPUT_BG,
+            highlightthickness=1,
+            highlightbackground=Styles.COLOR_BORDER,
+            highlightcolor=Styles.COLOR_ACCENT,
+            bd=0
+        )
+        self.file_list_shell.pack(fill="both", expand=True)
 
-        # [MODIFICACIÓN] Configurar estilo de fuente más legible para la lista de ficheros
-        # Aumentar tamaño de fuente y usar tipografía más clara
-        self.tree.tag_configure("file_item", font=("Segoe UI", 13))
-        self.tree.tag_configure("file_item_large", font=("Segoe UI", 14))
-        self.tree.tag_configure("size_item", font=("Segoe UI", 12))
+        self.columns = ("folder", "size", "type", "full_path")
+        self.tree = ttk.Treeview(
+            self.file_list_shell,
+            columns=self.columns,
+            displaycolumns=("folder", "size", "type"),
+            show="tree headings",
+            selectmode="extended",
+            style="Files.Treeview"
+        )
+        self.tree.heading("#0", text="Nombre")
+        self.tree.heading("folder", text="Ruta")
+        self.tree.heading("size", text="Tamaño")
+        self.tree.heading("type", text="Tipo")
+
+        self.tree.column("#0", anchor="w", stretch=True, width=360, minwidth=240)
+        self.tree.column("folder", anchor="w", stretch=True, width=180, minwidth=120)
+        self.tree.column("size", anchor="center", stretch=False, width=110, minwidth=90)
+        self.tree.column("type", anchor="center", stretch=False, width=140, minwidth=110)
+        self.tree.column("full_path", width=0, stretch=False, minwidth=0)
+        self._configure_file_tree_style()
 
         # Scrollbar
-        scrollbar = ttk.Scrollbar(self.tree_frame, orient="vertical", command=self.tree.yview, style="Vertical.TScrollbar")
+        scrollbar = ttk.Scrollbar(self.file_list_shell, orient="vertical", command=self.tree.yview, style="Vertical.TScrollbar")
         self.tree.configure(yscrollcommand=scrollbar.set)
 
         self.tree.pack(side="left", fill="both", expand=True)
         scrollbar.pack(side="right", fill="y")
+        self.tree.bind("<Configure>", self._on_file_tree_resize)
 
         # Binding para doble click
         self.tree.bind("<Double-1>", self._on_file_double_click)
@@ -312,6 +470,199 @@ class CodeView(ttk.Frame):
 
         # NOW pack the tree frame to fill the REMAINING space
         self.tree_frame.pack(side="top", fill="both", expand=True, padx=10)
+
+    def _configure_file_tree_style(self, row_font_size=None, heading_font_size=None, row_height=None):
+        """Creates a richer table style for the file list."""
+        style = ttk.Style()
+        row_font_size = row_font_size or Styles.scale_size(13)
+        heading_font_size = heading_font_size or Styles.scale_size(13)
+        row_height = row_height or Styles.scale_size(44)
+
+        style.configure(
+            "Files.Treeview",
+            background=Styles.COLOR_INPUT_BG,
+            foreground=Styles.COLOR_FG_TEXT,
+            fieldbackground=Styles.COLOR_INPUT_BG,
+            borderwidth=0,
+            relief="flat",
+            font=("Segoe UI", row_font_size),
+            rowheight=row_height
+        )
+        style.configure(
+            "Files.Treeview.Heading",
+            background=Styles.COLOR_BG_SIDEBAR,
+            foreground="#d7e4fb",
+            font=("Segoe UI", heading_font_size, "bold"),
+            borderwidth=0,
+            relief="flat",
+            padding=Styles.scale_padding((14, 12))
+        )
+        style.map(
+            "Files.Treeview",
+            background=[("selected", Styles.COLOR_SELECTION_BG)],
+            foreground=[("selected", "#ffffff")]
+        )
+        style.map(
+            "Files.Treeview.Heading",
+            background=[("active", Styles.COLOR_BG_SIDEBAR)]
+        )
+
+        if hasattr(self, "tree"):
+            self.tree.tag_configure("row_even", background=Styles.COLOR_INPUT_BG, foreground=Styles.COLOR_FG_TEXT)
+            self.tree.tag_configure("row_odd", background="#16243a", foreground=Styles.COLOR_FG_TEXT)
+
+    def _on_file_tree_resize(self, event=None):
+        """Keeps the file list proportions balanced."""
+        self._update_file_tree_columns()
+
+    def _update_file_tree_columns(self):
+        """Recomputes column widths to keep a dashboard-like layout."""
+        if not hasattr(self, "tree"):
+            return
+
+        total_width = max(self.tree.winfo_width(), 780)
+        size_width = max(Styles.scale_size(110), int(total_width * 0.11))
+        type_width = max(Styles.scale_size(130), int(total_width * 0.14))
+        folder_width = max(Styles.scale_size(170), int(total_width * 0.22))
+        used_width = size_width + type_width + folder_width
+        name_width = max(Styles.scale_size(240), total_width - used_width)
+
+        self.tree.column("#0", width=name_width)
+        self.tree.column("folder", width=folder_width)
+        self.tree.column("size", width=size_width)
+        self.tree.column("type", width=type_width)
+
+    def _format_file_size(self, num_bytes):
+        """Formats file sizes in a compact explorer-friendly way."""
+        try:
+            size = float(max(num_bytes, 0))
+        except Exception:
+            return "0 B"
+
+        units = ("B", "KB", "MB", "GB")
+        unit_index = 0
+        while size >= 1024 and unit_index < len(units) - 1:
+            size /= 1024.0
+            unit_index += 1
+
+        if unit_index == 0:
+            return f"{int(size)} {units[unit_index]}"
+        return f"{size:.1f} {units[unit_index]}"
+
+    def _format_modified_time(self, file_path):
+        """Returns a compact relative label for the file modification time."""
+        try:
+            modified_at = os.path.getmtime(file_path)
+        except Exception:
+            return "desconocido"
+
+        delta_seconds = max(int(time.time() - modified_at), 0)
+        if delta_seconds < 60:
+            return "ahora"
+        if delta_seconds < 3600:
+            minutes = max(delta_seconds // 60, 1)
+            return f"hace {minutes} min"
+        if delta_seconds < 86400:
+            hours = max(delta_seconds // 3600, 1)
+            return f"hace {hours} h"
+        if delta_seconds < 172800:
+            return "ayer"
+        if delta_seconds < 604800:
+            days = max(delta_seconds // 86400, 1)
+            return f"hace {days} d"
+        if delta_seconds < 2592000:
+            weeks = max(delta_seconds // 604800, 1)
+            return f"hace {weeks} sem"
+        months = max(delta_seconds // 2592000, 1)
+        return f"hace {months} mes{'es' if months != 1 else ''}"
+
+    def _get_file_type_label(self, rel_path):
+        """Maps file extensions to cleaner type names for the list."""
+        ext = os.path.splitext(rel_path)[1].lower()
+        type_map = {
+            ".py": "Python",
+            ".js": "JavaScript",
+            ".jsx": "React",
+            ".ts": "TypeScript",
+            ".tsx": "React TS",
+            ".html": "HTML",
+            ".css": "CSS",
+            ".scss": "SCSS",
+            ".sass": "Sass",
+            ".less": "Less",
+            ".json": "JSON",
+            ".jsonc": "JSONC",
+            ".yml": "YAML",
+            ".yaml": "YAML",
+            ".md": "Markdown",
+            ".sql": "SQL",
+            ".sh": "Shell",
+            ".zsh": "Shell",
+            ".bat": "Batch",
+            ".ps1": "PowerShell",
+            ".php": "PHP",
+            ".java": "Java",
+            ".kt": "Kotlin",
+            ".go": "Go",
+            ".rs": "Rust",
+            ".cpp": "C++",
+            ".c": "C",
+            ".h": "Header",
+            ".hpp": "C++ Header",
+            ".xml": "XML",
+            ".vue": "Vue",
+            ".svelte": "Svelte",
+        }
+
+        if ext in type_map:
+            return type_map[ext]
+
+        basename = os.path.basename(rel_path)
+        if basename in {"Dockerfile", "Containerfile"}:
+            return "Docker"
+        if basename in {"Makefile", "CMakeLists.txt"}:
+            return "Build"
+        return ext[1:].upper() if ext else "Archivo"
+
+    def _get_file_icon(self, rel_path):
+        """Returns the icon image for the file name column when available."""
+        basename = os.path.basename(rel_path)
+        ext = os.path.splitext(rel_path)[1].lower()
+        icon_key = self.FILE_ICON_FILENAME_MAP.get(basename) or self.FILE_ICON_EXTENSION_MAP.get(ext)
+        if not icon_key:
+            return None
+        return self.file_type_icons.get(icon_key)
+
+    def _build_file_name_display(self, rel_path):
+        """Builds an icon-like label for the file name column."""
+        normalized_path = rel_path.replace(os.sep, "/")
+        parts = [part for part in normalized_path.split("/") if part]
+        if len(parts) >= 2:
+            display_name = "/".join(parts[-2:])
+        elif parts:
+            display_name = parts[-1]
+        else:
+            display_name = rel_path
+        return f"   {display_name}"
+
+    def _build_file_folder_display(self, rel_path):
+        """Builds the ancestor path shown in the Ruta column."""
+        normalized_path = rel_path.replace(os.sep, "/")
+        parts = [part for part in normalized_path.split("/") if part]
+        if len(parts) <= 2:
+            return "| raiz |"
+        ancestor_parts = parts[:-2]
+        return f"| {'/'.join(ancestor_parts[-2:])} |"
+
+    def _get_tree_item_path(self, item_id):
+        """Returns the hidden absolute path stored for a file row."""
+        if not item_id:
+            return None
+        try:
+            file_path = self.tree.set(item_id, "full_path")
+            return file_path or None
+        except Exception:
+            return None
 
     def _create_prompt_area(self, parent):
         """Creates the AI prompt text area and copy button."""
@@ -365,6 +716,7 @@ class CodeView(ttk.Frame):
 
         self._create_sections_header(self.right_top_frame)
         self._create_section_search(self.right_top_frame)
+        self._create_section_actions(self.right_top_frame)
         self._create_section_tree(self.right_top_frame)
         self._create_return_files_checkbox(self.right_bottom_frame)
         self._create_return_chunks_checkbox(self.right_bottom_frame)
@@ -433,6 +785,24 @@ class CodeView(ttk.Frame):
         )
         self.section_search_entry.pack(fill="x", padx=10, pady=(4, 6), ipady=4)
         self.section_search_entry.bind("<KeyRelease>", self._on_section_search_change)
+
+    def _create_section_actions(self, parent):
+        """Creates action buttons for the selected section/subsection."""
+        self.section_actions_frame = ttk.Frame(parent, style="Sidebar.TFrame")
+        self.section_actions_frame.pack(fill="x", padx=8, pady=(0, 6))
+
+        self.btn_add_files_to_section = ttk.Button(
+            self.section_actions_frame,
+            text="Agregar ficheros",
+            style="Action.TButton",
+            command=self._on_add_files_to_selected_section,
+            state="disabled"
+        )
+        self.btn_add_files_to_section.pack(fill="x")
+        attach_tooltip(
+            self.btn_add_files_to_section,
+            "Añadir varios ficheros a la sección o subsección seleccionada"
+        )
 
     def _create_section_tree(self, parent):
         """Creates the sections and subsections treeview."""
@@ -643,9 +1013,9 @@ class CodeView(ttk.Frame):
         top_prompt_pady = Styles.scale_size(6 if compact_height else 10)
         chk_bottom_pady = Styles.scale_padding((0, 5))
 
-        # [MODIFICACIÓN] Ajustar tamaño de fuente de la lista de ficheros según resolución
-        file_font_size = Styles.scale_size(11 if compact_width else 12 if narrow_width else 13)
-        file_font_size_large = Styles.scale_size(12 if compact_width else 13 if narrow_width else 14)
+        file_font_size = Styles.scale_size(13 if compact_width else 14 if narrow_width else 15)
+        file_heading_size = Styles.scale_size(13 if compact_width else 14 if narrow_width else 15)
+        file_row_height = Styles.scale_size(42 if ultra_compact_height else 46 if compact_height else 52)
 
         self.lbl_project_name.configure(font=("Segoe UI", project_font_size))
         self.section_search_label.configure(font=("Segoe UI", section_label_size, "bold"))
@@ -658,10 +1028,12 @@ class CodeView(ttk.Frame):
         self.section_tree.tag_configure("subsection", font=("Segoe UI", tree_subsection_size))
         self.section_tree_bottom_spacer.configure(height=spacer_height)
 
-        # [MODIFICACIÓN] Aplicar tamaños de fuente responsivos a la lista de ficheros
-        self.tree.tag_configure("file_item", font=("Segoe UI", file_font_size))
-        self.tree.tag_configure("file_item_large", font=("Segoe UI", file_font_size_large))
-        self.tree.tag_configure("size_item", font=("Segoe UI", file_font_size - 1))
+        self._configure_file_tree_style(
+            row_font_size=file_font_size,
+            heading_font_size=file_heading_size,
+            row_height=file_row_height
+        )
+        self._update_file_tree_columns()
 
         self.slider.configure(length=slider_length)
         self.cmb_ai.configure(width=ai_width)
@@ -1187,17 +1559,27 @@ class CodeView(ttk.Frame):
 
         # We no longer apply a hard limit here; we show all files returned
         # (the padding for minimum files is already handled in find_relevant_files)
-        for f in files:
-            size_kb = f"{len(f['content']) / 1024:.1f} KB"
-            # Format path to show only parent/filename
+        for index, f in enumerate(files):
             rel_path = f['rel_path']
-            parts = rel_path.split(os.sep)
-            if len(parts) > 1:
-                display_path = os.path.join(parts[-2], parts[-1])
-            else:
-                display_path = rel_path
-                
-            self.tree.insert("", "end", values=(display_path, size_kb), tags=(f['path'],))
+            size_label = self._format_file_size(len(f.get('content', '') or ""))
+            type_label = self._get_file_type_label(rel_path)
+            row_tag = "row_even" if index % 2 == 0 else "row_odd"
+
+            self.tree.insert(
+                "",
+                "end",
+                text=self._build_file_name_display(rel_path),
+                image=self._get_file_icon(rel_path),
+                values=(
+                    self._build_file_folder_display(rel_path),
+                    size_label,
+                    type_label,
+                    f['path']
+                ),
+                tags=(row_tag,)
+            )
+
+        self._update_file_tree_columns()
 
 
     def _on_prompt_change(self, event=None):
@@ -1287,6 +1669,7 @@ class CodeView(ttk.Frame):
     def _on_section_select(self, event=None, force_reload=False):
         """Trigger update when section selection changes."""
         section_name, subsection_name = self._get_selected_section_info()
+        self._update_section_action_buttons(section_name, subsection_name)
         
         # Only reload if the selection has actually changed
         if not force_reload and section_name == self._last_selected_section and subsection_name == self._last_selected_subsection:
@@ -1301,6 +1684,124 @@ class CodeView(ttk.Frame):
                 self.controller.config_manager.set_last_code_section(section_name)
         
         self._on_prompt_change()
+
+    def _update_section_action_buttons(self, section_name=None, subsection_name=None):
+        """Enables action buttons only when a valid section scope is selected."""
+        if not hasattr(self, "btn_add_files_to_section"):
+            return
+
+        if section_name is None and subsection_name is None:
+            section_name, subsection_name = self._get_selected_section_info()
+
+        is_enabled = bool(section_name)
+        self.btn_add_files_to_section.configure(
+            state=("normal" if is_enabled else "disabled")
+        )
+
+    def _is_path_inside_project(self, file_path, project_path):
+        """Returns True when the selected file belongs to the loaded project."""
+        try:
+            normalized_file = os.path.normcase(os.path.abspath(file_path))
+            normalized_project = os.path.normcase(os.path.abspath(project_path))
+            return os.path.commonpath([normalized_file, normalized_project]) == normalized_project
+        except ValueError:
+            return False
+
+    def _on_add_files_to_selected_section(self):
+        """Opens a native multi-file picker and adds the chosen files to the current scope."""
+        section_name, subsection_name = self._get_selected_section_info()
+        if not section_name:
+            messagebox.showwarning("Aviso", "Selecciona una sección o subsección primero.")
+            return
+
+        project_path = getattr(self.controller.project_manager, "current_project_path", None)
+        if not project_path or not os.path.isdir(project_path):
+            messagebox.showwarning("Aviso", "Carga un proyecto antes de agregar ficheros.")
+            return
+
+        selected_paths = filedialog.askopenfilenames(
+            parent=self.winfo_toplevel(),
+            title="Selecciona los ficheros que quieres agregar",
+            initialdir=project_path
+        )
+        if not selected_paths:
+            return
+
+        normalized_paths = []
+        skipped_outside_project = []
+        skipped_unavailable = []
+        available_project_files = {
+            os.path.normpath(os.path.abspath(file_info["path"]))
+            for file_info in self.controller.project_manager.get_files()
+        }
+
+        for raw_path in selected_paths:
+            abs_path = os.path.normpath(os.path.abspath(raw_path))
+            if not self._is_path_inside_project(abs_path, project_path):
+                skipped_outside_project.append(abs_path)
+                continue
+            if abs_path not in available_project_files:
+                skipped_unavailable.append(abs_path)
+                continue
+            if abs_path not in normalized_paths:
+                normalized_paths.append(abs_path)
+
+        if not normalized_paths:
+            details = []
+            if skipped_outside_project:
+                details.append("Los ficheros deben pertenecer al proyecto cargado.")
+            if skipped_unavailable:
+                details.append("Solo se admiten ficheros que el proyecto tenga cargados en la vista de código.")
+            extra = f"\n\n{'\n'.join(details)}" if details else ""
+            messagebox.showwarning("Aviso", f"No se añadió ningún fichero.{extra}")
+            return
+
+        existing_section_files = set(
+            self.controller.section_manager.get_files_in_section(section_name)
+        )
+        files_to_add = [path for path in normalized_paths if path not in existing_section_files]
+
+        if not files_to_add:
+            messagebox.showinfo(
+                "Sin cambios",
+                "Todos los ficheros seleccionados ya estaban incluidos."
+            )
+            return
+
+        self.controller.section_manager.add_files_to_section(section_name, files_to_add)
+
+        if subsection_name:
+            current_subsection_files = self.controller.section_manager.get_files_in_subsection(
+                section_name,
+                subsection_name
+            )
+            merged_subsection_files = list(current_subsection_files)
+            for path in files_to_add:
+                if path not in merged_subsection_files:
+                    merged_subsection_files.append(path)
+            self.controller.section_manager.update_subsection(
+                section_name,
+                subsection_name,
+                subsection_name,
+                merged_subsection_files
+            )
+
+        preferred_iid = self._build_section_iid(section_name, subsection_name)
+        self._refresh_sections(preferred_iid=preferred_iid, force_reload=True)
+
+        summary_lines = [f"Se añadieron {len(files_to_add)} fichero(s)."]
+        if subsection_name:
+            summary_lines.append(f"También se incorporaron a la subsección '{subsection_name}'.")
+        if skipped_outside_project:
+            summary_lines.append(
+                f"Se omitieron {len(skipped_outside_project)} fichero(s) por estar fuera del proyecto."
+            )
+        if skipped_unavailable:
+            summary_lines.append(
+                f"Se omitieron {len(skipped_unavailable)} fichero(s) por no estar cargados en la vista de código."
+            )
+
+        messagebox.showinfo("Ficheros agregados", "\n".join(summary_lines))
 
     def _on_section_click(self, event):
         """Handle clicks on the section tree. Deselect if clicked on empty space."""
@@ -1432,11 +1933,7 @@ class CodeView(ttk.Frame):
         selected_files_data = []
 
         for item in items_to_process:
-            tags = self.tree.item(item, 'tags')
-            if not tags:
-                continue
-
-            file_path = tags[0] if isinstance(tags, (list, tuple)) else tags
+            file_path = self._get_tree_item_path(item)
             if file_path in files_map:
                 selected_files_data.append(files_map[file_path])
 
@@ -1533,6 +2030,7 @@ class CodeView(ttk.Frame):
                     # Parent section context menu
                     menu.add_command(label="Nueva Sección", command=self._on_add_section)
                     menu.add_command(label="Nueva Subsección", command=self._on_add_subsection)
+                    menu.add_command(label="Agregar ficheros", command=self._on_add_files_to_selected_section)
                     menu.add_separator()
                     menu.add_command(label="Tamaño estructuras", command=self._on_show_structure_sizes)
                     menu.add_separator()
@@ -1542,6 +2040,8 @@ class CodeView(ttk.Frame):
                     menu.add_command(label="Eliminar Sección", command=self._on_delete_section)
                 elif iid.startswith("SS:"):
                     # Subsection context menu
+                    menu.add_command(label="Agregar ficheros", command=self._on_add_files_to_selected_section)
+                    menu.add_separator()
                     menu.add_command(label="Tamaño estructuras", command=self._on_show_structure_sizes)
                     menu.add_separator()
                     menu.add_command(label="Editar Subsección", command=self._on_edit_subsection)
@@ -1651,11 +2151,9 @@ class CodeView(ttk.Frame):
         files_map = {f['path']: f for f in all_files}
         
         for item in items_to_process:
-            tags = self.tree.item(item, 'tags')
-            if tags:
-                file_path = tags[0] if isinstance(tags, (list, tuple)) else tags
-                if file_path in files_map:
-                    selected_files_data.append(files_map[file_path])
+            file_path = self._get_tree_item_path(item)
+            if file_path in files_map:
+                selected_files_data.append(files_map[file_path])
         
         if not selected_files_data:
             messagebox.showwarning("Aviso", "No se han encontrado datos para los ficheros procesados.")
@@ -1791,12 +2289,8 @@ class CodeView(ttk.Frame):
         # Obtener el item seleccionado bajo el cursor
         iid = self.tree.identify_row(event.y)
         if iid:
-            # Obtener la información del fichero antes de eliminarlo
-            tags = self.tree.item(iid, 'tags')
-            if tags:
-                file_path = tags[0] if isinstance(tags, (list, tuple)) else tags
-                
-                # Obtener el nombre del fichero para mostrarlo en el log
+            file_path = self._get_tree_item_path(iid)
+            if file_path:
                 filename = os.path.basename(file_path)
                 
                 # Eliminar el item del treeview
@@ -1822,11 +2316,10 @@ class CodeView(ttk.Frame):
             messagebox.showwarning("Aviso", "Selecciona un fichero primero.")
             return None
         
-        tags = self.tree.item(selected[0], "tags")
-        if not tags:
+        full_path = self._get_tree_item_path(selected[0])
+        if not full_path:
             return None
-            
-        full_path = tags[0]
+
         file_data = self.controller.get_file_content_by_path(full_path)
         if file_data:
             return file_data
