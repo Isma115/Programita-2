@@ -431,7 +431,6 @@ class Controller:
         """
         print("Logic: Switching to Database View")
         self.app.layout.show_database_tab()
-
     def replace_region_from_clipboard(self, region_name, content):
         """
         Bridges the hotkey trigger to the project manager.

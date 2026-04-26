@@ -1,0 +1,16 @@
+{
+    "source_section": "Catastro",
+    "source_subsection": "Mapa OpenLayers",
+    "items": [
+        {
+            "key": "javascript-ast:frontend/src/components/catastro/hooks/useParcelOperations.js::function:useParcelOperations[0]/function:wait[1]",
+            "file_path": "/Users/ismaelmoraledalopez/Documents/Azure-Irrigation-Web/HidraSmart-Irrigation-System/frontend/src/components/catastro/hooks/useParcelOperations.js",
+            "file_rel_path": "frontend/src/components/catastro/hooks/useParcelOperations.js",
+            "header": "const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));",
+            "type": "function",
+            "name": "wait",
+            "start_line": 436,
+            "end_line": 436
+        }
+    ]
+}

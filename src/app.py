@@ -109,12 +109,12 @@ class Application:
         )
         self.configure_params_menu = tk.Menu(self.menu_bar, tearoff=0)
         self.configure_params_menu.add_command(
-            label="Configurar máximo de Mín. Ficheros...",
-            command=self._on_configure_code_file_limit_max
+            label="Configurar Mín. Ficheros...",
+            command=self._on_configure_code_file_limit
         )
         self.configure_params_menu.add_command(
-            label="Configurar máximo de Máx. Ficheros...",
-            command=self._on_configure_code_max_file_limit_max
+            label="Configurar Máx. Ficheros...",
+            command=self._on_configure_code_max_file_limit
         )
         self.configure_params_menu.add_command(
             label="Configurar mínimo de búsqueda Arbitrary...",
@@ -195,59 +195,105 @@ class Application:
             self.export_prompts_as_folder_var.get()
         )
 
-    def _on_configure_code_file_limit_max(self):
-        """Lets the user configure the max value for the Code View file-limit slider."""
+    def _set_code_file_limits(self, min_limit=None, max_limit=None, preferred="min", refresh=True):
+        """Updates Code View min/max file limits, even if the view is not available yet."""
         config = self.controller.config_manager
-        current_max = config.get_file_limit_slider_max()
+
+        if min_limit is None:
+            min_limit = config.get_file_limit()
+        if max_limit is None:
+            max_limit = config.get_max_file_limit()
+
+        try:
+            min_limit = max(1, int(min_limit))
+        except (TypeError, ValueError):
+            min_limit = config.get_file_limit()
+
+        try:
+            max_limit = max(1, int(max_limit))
+        except (TypeError, ValueError):
+            max_limit = config.get_max_file_limit()
+
+        min_slider_max = config.get_file_limit_slider_max()
+        max_slider_max = config.get_max_file_limit_slider_max()
+        min_limit = min(min_limit, min_slider_max)
+        max_limit = min(max_limit, max_slider_max)
+
+        if min_limit > max_limit:
+            if preferred == "min":
+                max_limit = min(min_limit, max_slider_max)
+                min_limit = min(min_limit, max_limit)
+            else:
+                min_limit = min(max_limit, min_slider_max)
+                max_limit = max(max_limit, min_limit)
+
+        config.set_file_limit(min_limit)
+        config.set_max_file_limit(max_limit)
+
+        code_view = getattr(getattr(self, "layout", None), "code_view", None)
+        if code_view is not None and hasattr(code_view, "set_file_limits"):
+            code_view.set_file_limits(
+                min_limit=min_limit,
+                max_limit=max_limit,
+                preferred=preferred,
+                refresh=refresh
+            )
+
+        return min_limit, max_limit
+
+    def _on_configure_code_file_limit(self):
+        """Lets the user configure the minimum number of files for Code View."""
+        config = self.controller.config_manager
         current_value = config.get_file_limit()
-        new_max = simpledialog.askinteger(
+        current_max = config.get_max_file_limit()
+        new_limit = simpledialog.askinteger(
             "Opciones",
-            "Introduce el nuevo máximo para el slider 'Mín. Ficheros':",
-            initialvalue=current_max,
-            minvalue=20,
+            "Introduce el valor para 'Mín. Ficheros':",
+            initialvalue=current_value,
+            minvalue=1,
             parent=self.root
         )
-        if new_max is None:
+        if new_limit is None:
             return
 
-        if new_max < current_value:
-            messagebox.showwarning(
+        min_limit, max_limit = self._set_code_file_limits(
+            min_limit=new_limit,
+            preferred="min",
+            refresh=True
+        )
+
+        if min_limit != new_limit or max_limit != current_max:
+            messagebox.showinfo(
                 "Opciones",
-                f"El máximo del slider no puede ser menor que el valor actual de Mín. Ficheros ({current_value})."
+                f"Se ajustaron los límites a Mín. Ficheros = {min_limit} y Máx. Ficheros = {max_limit}."
             )
-            return
 
-        config.set_file_limit_slider_max(new_max)
-
-        if hasattr(self.layout, "code_view"):
-            self.layout.code_view.apply_file_limit_slider_settings(refresh=True)
-
-    def _on_configure_code_max_file_limit_max(self):
-        """Lets the user configure the max value for the Code View max-file slider."""
+    def _on_configure_code_max_file_limit(self):
+        """Lets the user configure the maximum number of files for Code View."""
         config = self.controller.config_manager
-        current_max = config.get_max_file_limit_slider_max()
+        current_min = config.get_file_limit()
         current_value = config.get_max_file_limit()
-        new_max = simpledialog.askinteger(
+        new_limit = simpledialog.askinteger(
             "Opciones",
-            "Introduce el nuevo máximo para el slider 'Máx. Ficheros':",
-            initialvalue=current_max,
-            minvalue=20,
+            "Introduce el valor para 'Máx. Ficheros':",
+            initialvalue=current_value,
+            minvalue=1,
             parent=self.root
         )
-        if new_max is None:
+        if new_limit is None:
             return
 
-        if new_max < current_value:
-            messagebox.showwarning(
+        min_limit, max_limit = self._set_code_file_limits(
+            max_limit=new_limit,
+            preferred="max",
+            refresh=True
+        )
+
+        if max_limit != new_limit or min_limit != current_min:
+            messagebox.showinfo(
                 "Opciones",
-                f"El máximo del slider no puede ser menor que el valor actual de Máx. Ficheros ({current_value})."
+                f"Se ajustaron los límites a Mín. Ficheros = {min_limit} y Máx. Ficheros = {max_limit}."
             )
-            return
-
-        config.set_max_file_limit_slider_max(new_max)
-
-        if hasattr(self.layout, "code_view"):
-            self.layout.code_view.apply_file_limit_slider_settings(refresh=True)
 
     def _on_configure_arbitrary_search_min_chars(self):
         """Lets the user configure the minimum substring length for Arbitrary search."""

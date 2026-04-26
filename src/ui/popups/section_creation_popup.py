@@ -7,6 +7,8 @@ from src.ui.styles import Styles
 from src.ui.tooltip import attach_tooltip
 
 class SectionCreationPopup(tk.Toplevel):
+    BASE_SECTION_SIZE_BYTES = 4 * 1024
+
     def __init__(self, parent, controller, section_name=None, initial_files=None, initial_tables=None):
         super().__init__(parent)
         self.controller = controller
@@ -29,6 +31,7 @@ class SectionCreationPopup(tk.Toplevel):
         
         self.valid_files = []
         self.valid_tables = []
+        self.code_file_paths = {f["path"] for f in self.controller.project_manager.get_files()}
         
         self._create_widgets()
         
@@ -86,6 +89,18 @@ class SectionCreationPopup(tk.Toplevel):
         # Footer
         footer = ttk.Frame(self, style="Main.TFrame")
         footer.pack(fill="x", padx=10, pady=10)
+
+        self.lbl_size_indicator = tk.Label(
+            footer,
+            text="Tamaño código: 0.0 KB",
+            bg=Styles.COLOR_INPUT_BG,
+            fg=Styles.COLOR_ACCENT,
+            font=("Segoe UI", 11, "bold"),
+            padx=12,
+            pady=6
+        )
+        self.lbl_size_indicator.pack(side="left")
+        attach_tooltip(self.lbl_size_indicator, "Suma del tamaño de los archivos de código incluidos en la sección")
         
         btn_cancel = ttk.Button(footer, text="Cancelar", style="Secondary.TButton", command=self.destroy)
         btn_cancel.pack(side="right", padx=5)
@@ -98,6 +113,37 @@ class SectionCreationPopup(tk.Toplevel):
         # If editing, populate files and tables
         if self.original_section_name:
             self._populate_initial_data()
+        else:
+            self._update_size_indicator()
+
+    def _get_size_indicator_color(self, total_bytes):
+        size_kb = total_bytes / 1024.0
+        if size_kb < 15:
+            return Styles.COLOR_ACCENT
+        if size_kb < 30:
+            return "#2ecc71"
+        if size_kb <= 50:
+            return "#f1c40f"
+        return "#ff5c5c"
+
+    def _calculate_selected_code_size(self):
+        total_bytes = self.BASE_SECTION_SIZE_BYTES
+        for path in dict.fromkeys(self.valid_files):
+            if path not in self.code_file_paths:
+                continue
+            try:
+                total_bytes += os.path.getsize(path)
+            except OSError:
+                continue
+        return total_bytes
+
+    def _update_size_indicator(self):
+        total_bytes = self._calculate_selected_code_size()
+        total_kb = total_bytes / 1024.0
+        self.lbl_size_indicator.config(
+            text=f"Tamaño código: {total_kb:.1f} KB",
+            fg=self._get_size_indicator_color(total_bytes)
+        )
 
     def _get_available_tables(self):
         """Gets list of table names from the database view if connected."""
@@ -266,6 +312,7 @@ class SectionCreationPopup(tk.Toplevel):
         self.txt_absolute.delete("1.0", "end")
         self.txt_absolute.insert("1.0", "\n".join(resolved_lines))
         self.txt_absolute.config(state="disabled")
+        self._update_size_indicator()
 
     def _on_save(self):
         name = self.entry_name.get().strip()

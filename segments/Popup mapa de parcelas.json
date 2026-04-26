@@ -1,0 +1,256 @@
+{
+    "source_section": "Catastro",
+    "source_subsection": "Mapa OpenLayers",
+    "items": [
+        {
+            "key": "/Users/ismaelmoraledalopez/Documents/Azure-Irrigation-Web/HidraSmart-Irrigation-System/frontend/src/components/catastro/components/SidebarManager.jsx::22:25:tag:i",
+            "file_path": "/Users/ismaelmoraledalopez/Documents/Azure-Irrigation-Web/HidraSmart-Irrigation-System/frontend/src/components/catastro/components/SidebarManager.jsx",
+            "file_rel_path": "frontend/src/components/catastro/components/SidebarManager.jsx",
+            "header": "<i className={`fas ${isMobileLayout\n                        ? isCollapsed ? 'fa-chevron-down' : 'fa-chevron-up'\n                        : isCollapsed ? 'fa-chevron-right' : 'fa-chevron-left'\n                        }`}>",
+            "type": "tag",
+            "name": "i",
+            "start_line": 22,
+            "end_line": 25
+        },
+        {
+            "key": "/Users/ismaelmoraledalopez/Documents/Azure-Irrigation-Web/HidraSmart-Irrigation-System/frontend/src/components/catastro/components/Map/MapContainer.jsx::8:8:tag:div",
+            "file_path": "/Users/ismaelmoraledalopez/Documents/Azure-Irrigation-Web/HidraSmart-Irrigation-System/frontend/src/components/catastro/components/Map/MapContainer.jsx",
+            "file_rel_path": "frontend/src/components/catastro/components/Map/MapContainer.jsx",
+            "header": "<div id=\"mapa\" className={styles.mapa_catastro}>",
+            "type": "tag",
+            "name": "div",
+            "start_line": 8,
+            "end_line": 8
+        },
+        {
+            "key": "/Users/ismaelmoraledalopez/Documents/Azure-Irrigation-Web/HidraSmart-Irrigation-System/frontend/src/components/catastro/components/Map/MapContainer.jsx::43:43:tag:div",
+            "file_path": "/Users/ismaelmoraledalopez/Documents/Azure-Irrigation-Web/HidraSmart-Irrigation-System/frontend/src/components/catastro/components/Map/MapContainer.jsx",
+            "file_rel_path": "frontend/src/components/catastro/components/Map/MapContainer.jsx",
+            "header": "<div id=\"mapaHistorial\" className={styles.historial_map}>",
+            "type": "tag",
+            "name": "div",
+            "start_line": 43,
+            "end_line": 43
+        },
+        {
+            "key": "javascript-ast:frontend/src/components/catastro/components/Map/MapPopups.jsx::function:clearPopupElement[0]",
+            "file_path": "/Users/ismaelmoraledalopez/Documents/Azure-Irrigation-Web/HidraSmart-Irrigation-System/frontend/src/components/catastro/components/Map/MapPopups.jsx",
+            "file_rel_path": "frontend/src/components/catastro/components/Map/MapPopups.jsx",
+            "header": "const clearPopupElement = (element) => {",
+            "type": "function",
+            "name": "clearPopupElement",
+            "start_line": 3,
+            "end_line": 7
+        },
+        {
+            "key": "javascript-ast:frontend/src/components/catastro/components/Map/MapPopups.jsx::function:createCloseButton[0]",
+            "file_path": "/Users/ismaelmoraledalopez/Documents/Azure-Irrigation-Web/HidraSmart-Irrigation-System/frontend/src/components/catastro/components/Map/MapPopups.jsx",
+            "file_rel_path": "frontend/src/components/catastro/components/Map/MapPopups.jsx",
+            "header": "const createCloseButton = ({ popup, styles }) => {",
+            "type": "function",
+            "name": "createCloseButton",
+            "start_line": 9,
+            "end_line": 18
+        },
+        {
+            "key": "javascript-ast:frontend/src/components/catastro/components/Map/MapPopups.jsx::function:renderHistorialPopup[0]",
+            "file_path": "/Users/ismaelmoraledalopez/Documents/Azure-Irrigation-Web/HidraSmart-Irrigation-System/frontend/src/components/catastro/components/Map/MapPopups.jsx",
+            "file_rel_path": "frontend/src/components/catastro/components/Map/MapPopups.jsx",
+            "header": "export const renderHistorialPopup = ({\n    popup,\n    styles,\n    type,\n    data,\n    coordinate,\n    historialIndex,\n    onOpenHistory,\n    onUpdateParcel,\n    onVersionSelected\n}) => {",
+            "type": "function",
+            "name": "renderHistorialPopup",
+            "start_line": 20,
+            "end_line": 122
+        },
+        {
+            "key": "/Users/ismaelmoraledalopez/Documents/Azure-Irrigation-Web/HidraSmart-Irrigation-System/frontend/src/components/catastro/components/Map/MapPopups.jsx::44:44:tag:h4",
+            "file_path": "/Users/ismaelmoraledalopez/Documents/Azure-Irrigation-Web/HidraSmart-Irrigation-System/frontend/src/components/catastro/components/Map/MapPopups.jsx",
+            "file_rel_path": "frontend/src/components/catastro/components/Map/MapPopups.jsx",
+            "header": "<h4 class=\"${styles.popup_h4}\">",
+            "type": "tag",
+            "name": "h4",
+            "start_line": 44,
+            "end_line": 44
+        },
+        {
+            "key": "/Users/ismaelmoraledalopez/Documents/Azure-Irrigation-Web/HidraSmart-Irrigation-System/frontend/src/components/catastro/components/Map/MapPopups.jsx::45:45:tag:strong",
+            "file_path": "/Users/ismaelmoraledalopez/Documents/Azure-Irrigation-Web/HidraSmart-Irrigation-System/frontend/src/components/catastro/components/Map/MapPopups.jsx",
+            "file_rel_path": "frontend/src/components/catastro/components/Map/MapPopups.jsx",
+            "header": "<p class=\"${styles.popup_p}\">",
+            "type": "tag",
+            "name": "strong",
+            "start_line": 45,
+            "end_line": 45
+        },
+        {
+            "key": "/Users/ismaelmoraledalopez/Documents/Azure-Irrigation-Web/HidraSmart-Irrigation-System/frontend/src/components/catastro/components/Map/MapPopups.jsx::46:46:tag:strong",
+            "file_path": "/Users/ismaelmoraledalopez/Documents/Azure-Irrigation-Web/HidraSmart-Irrigation-System/frontend/src/components/catastro/components/Map/MapPopups.jsx",
+            "file_rel_path": "frontend/src/components/catastro/components/Map/MapPopups.jsx",
+            "header": "<p class=\"${styles.popup_p}\">",
+            "type": "tag",
+            "name": "strong",
+            "start_line": 46,
+            "end_line": 46
+        },
+        {
+            "key": "/Users/ismaelmoraledalopez/Documents/Azure-Irrigation-Web/HidraSmart-Irrigation-System/frontend/src/components/catastro/components/Map/MapPopups.jsx::47:47:tag:strong",
+            "file_path": "/Users/ismaelmoraledalopez/Documents/Azure-Irrigation-Web/HidraSmart-Irrigation-System/frontend/src/components/catastro/components/Map/MapPopups.jsx",
+            "file_rel_path": "frontend/src/components/catastro/components/Map/MapPopups.jsx",
+            "header": "<p class=\"${styles.popup_p}\">",
+            "type": "tag",
+            "name": "strong",
+            "start_line": 47,
+            "end_line": 47
+        },
+        {
+            "key": "/Users/ismaelmoraledalopez/Documents/Azure-Irrigation-Web/HidraSmart-Irrigation-System/frontend/src/components/catastro/components/Map/MapPopups.jsx::48:48:tag:strong",
+            "file_path": "/Users/ismaelmoraledalopez/Documents/Azure-Irrigation-Web/HidraSmart-Irrigation-System/frontend/src/components/catastro/components/Map/MapPopups.jsx",
+            "file_rel_path": "frontend/src/components/catastro/components/Map/MapPopups.jsx",
+            "header": "<p class=\"${styles.popup_p}\">",
+            "type": "tag",
+            "name": "strong",
+            "start_line": 48,
+            "end_line": 48
+        },
+        {
+            "key": "/Users/ismaelmoraledalopez/Documents/Azure-Irrigation-Web/HidraSmart-Irrigation-System/frontend/src/components/catastro/components/Map/MapPopups.jsx::72:72:tag:span",
+            "file_path": "/Users/ismaelmoraledalopez/Documents/Azure-Irrigation-Web/HidraSmart-Irrigation-System/frontend/src/components/catastro/components/Map/MapPopups.jsx",
+            "file_rel_path": "frontend/src/components/catastro/components/Map/MapPopups.jsx",
+            "header": "<span class=\"${styles.popup_subparcela_label}\">",
+            "type": "tag",
+            "name": "span",
+            "start_line": 72,
+            "end_line": 72
+        },
+        {
+            "key": "/Users/ismaelmoraledalopez/Documents/Azure-Irrigation-Web/HidraSmart-Irrigation-System/frontend/src/components/catastro/components/Map/MapPopups.jsx::76:79:tag:div",
+            "file_path": "/Users/ismaelmoraledalopez/Documents/Azure-Irrigation-Web/HidraSmart-Irrigation-System/frontend/src/components/catastro/components/Map/MapPopups.jsx",
+            "file_rel_path": "frontend/src/components/catastro/components/Map/MapPopups.jsx",
+            "header": "<div class=\"${styles.popup_subparcelas_box}\">",
+            "type": "tag",
+            "name": "div",
+            "start_line": 76,
+            "end_line": 79
+        },
+        {
+            "key": "/Users/ismaelmoraledalopez/Documents/Azure-Irrigation-Web/HidraSmart-Irrigation-System/frontend/src/components/catastro/components/Map/MapPopups.jsx::77:77:tag:p",
+            "file_path": "/Users/ismaelmoraledalopez/Documents/Azure-Irrigation-Web/HidraSmart-Irrigation-System/frontend/src/components/catastro/components/Map/MapPopups.jsx",
+            "file_rel_path": "frontend/src/components/catastro/components/Map/MapPopups.jsx",
+            "header": "<p class=\"${styles.popup_subparcelas_title}\">",
+            "type": "tag",
+            "name": "p",
+            "start_line": 77,
+            "end_line": 77
+        },
+        {
+            "key": "/Users/ismaelmoraledalopez/Documents/Azure-Irrigation-Web/HidraSmart-Irrigation-System/frontend/src/components/catastro/components/Map/MapPopups.jsx::78:78:tag:p",
+            "file_path": "/Users/ismaelmoraledalopez/Documents/Azure-Irrigation-Web/HidraSmart-Irrigation-System/frontend/src/components/catastro/components/Map/MapPopups.jsx",
+            "file_rel_path": "frontend/src/components/catastro/components/Map/MapPopups.jsx",
+            "header": "<p class=\"${styles.popup_subparcelas_text}\">",
+            "type": "tag",
+            "name": "p",
+            "start_line": 78,
+            "end_line": 78
+        },
+        {
+            "key": "/Users/ismaelmoraledalopez/Documents/Azure-Irrigation-Web/HidraSmart-Irrigation-System/frontend/src/components/catastro/components/Map/MapPopups.jsx::85:85:tag:strong",
+            "file_path": "/Users/ismaelmoraledalopez/Documents/Azure-Irrigation-Web/HidraSmart-Irrigation-System/frontend/src/components/catastro/components/Map/MapPopups.jsx",
+            "file_rel_path": "frontend/src/components/catastro/components/Map/MapPopups.jsx",
+            "header": "<p class=\"${styles.popup_p}\">",
+            "type": "tag",
+            "name": "strong",
+            "start_line": 85,
+            "end_line": 85
+        },
+        {
+            "key": "/Users/ismaelmoraledalopez/Documents/Azure-Irrigation-Web/HidraSmart-Irrigation-System/frontend/src/components/catastro/components/Map/MapPopups.jsx::89:89:tag:h4",
+            "file_path": "/Users/ismaelmoraledalopez/Documents/Azure-Irrigation-Web/HidraSmart-Irrigation-System/frontend/src/components/catastro/components/Map/MapPopups.jsx",
+            "file_rel_path": "frontend/src/components/catastro/components/Map/MapPopups.jsx",
+            "header": "<h4 class=\"${styles.popup_h4}\">",
+            "type": "tag",
+            "name": "h4",
+            "start_line": 89,
+            "end_line": 89
+        },
+        {
+            "key": "/Users/ismaelmoraledalopez/Documents/Azure-Irrigation-Web/HidraSmart-Irrigation-System/frontend/src/components/catastro/components/Map/MapPopups.jsx::90:90:tag:strong",
+            "file_path": "/Users/ismaelmoraledalopez/Documents/Azure-Irrigation-Web/HidraSmart-Irrigation-System/frontend/src/components/catastro/components/Map/MapPopups.jsx",
+            "file_rel_path": "frontend/src/components/catastro/components/Map/MapPopups.jsx",
+            "header": "<p class=\"${styles.popup_p}\">",
+            "type": "tag",
+            "name": "strong",
+            "start_line": 90,
+            "end_line": 90
+        },
+        {
+            "key": "/Users/ismaelmoraledalopez/Documents/Azure-Irrigation-Web/HidraSmart-Irrigation-System/frontend/src/components/catastro/components/Map/MapPopups.jsx::91:91:tag:strong",
+            "file_path": "/Users/ismaelmoraledalopez/Documents/Azure-Irrigation-Web/HidraSmart-Irrigation-System/frontend/src/components/catastro/components/Map/MapPopups.jsx",
+            "file_rel_path": "frontend/src/components/catastro/components/Map/MapPopups.jsx",
+            "header": "<p class=\"${styles.popup_p}\">",
+            "type": "tag",
+            "name": "strong",
+            "start_line": 91,
+            "end_line": 91
+        },
+        {
+            "key": "/Users/ismaelmoraledalopez/Documents/Azure-Irrigation-Web/HidraSmart-Irrigation-System/frontend/src/components/catastro/components/Map/MapPopups.jsx::93:93:tag:strong",
+            "file_path": "/Users/ismaelmoraledalopez/Documents/Azure-Irrigation-Web/HidraSmart-Irrigation-System/frontend/src/components/catastro/components/Map/MapPopups.jsx",
+            "file_rel_path": "frontend/src/components/catastro/components/Map/MapPopups.jsx",
+            "header": "<p class=\"${styles.popup_p}\">",
+            "type": "tag",
+            "name": "strong",
+            "start_line": 93,
+            "end_line": 93
+        },
+        {
+            "key": "/Users/ismaelmoraledalopez/Documents/Azure-Irrigation-Web/HidraSmart-Irrigation-System/frontend/src/components/catastro/components/Map/MapPopups.jsx::101:101:tag:i",
+            "file_path": "/Users/ismaelmoraledalopez/Documents/Azure-Irrigation-Web/HidraSmart-Irrigation-System/frontend/src/components/catastro/components/Map/MapPopups.jsx",
+            "file_rel_path": "frontend/src/components/catastro/components/Map/MapPopups.jsx",
+            "header": "<i class=\"fa fa-history\">",
+            "type": "tag",
+            "name": "i",
+            "start_line": 101,
+            "end_line": 101
+        },
+        {
+            "key": "/Users/ismaelmoraledalopez/Documents/Azure-Irrigation-Web/HidraSmart-Irrigation-System/frontend/src/components/catastro/components/Map/MapPopups.jsx::109:109:tag:i",
+            "file_path": "/Users/ismaelmoraledalopez/Documents/Azure-Irrigation-Web/HidraSmart-Irrigation-System/frontend/src/components/catastro/components/Map/MapPopups.jsx",
+            "file_rel_path": "frontend/src/components/catastro/components/Map/MapPopups.jsx",
+            "header": "<i class=\"fa fa-sync\">",
+            "type": "tag",
+            "name": "i",
+            "start_line": 109,
+            "end_line": 109
+        },
+        {
+            "key": "/Users/ismaelmoraledalopez/Documents/Azure-Irrigation-Web/HidraSmart-Irrigation-System/frontend/src/components/catastro/components/Panels/HistoryTimeline.jsx::124:132:tag:div",
+            "file_path": "/Users/ismaelmoraledalopez/Documents/Azure-Irrigation-Web/HidraSmart-Irrigation-System/frontend/src/components/catastro/components/Panels/HistoryTimeline.jsx",
+            "file_rel_path": "frontend/src/components/catastro/components/Panels/HistoryTimeline.jsx",
+            "header": "<div\n                        key={index}\n                        className={`${styles.version_dot} ${index === currentVersionIndex ? styles.active : ''}`}\n                        title={`Versión ${index + 1} (${version.yearAlta})`}\n                        onClick={() =>",
+            "type": "tag",
+            "name": "div",
+            "start_line": 124,
+            "end_line": 132
+        },
+        {
+            "key": "/Users/ismaelmoraledalopez/Documents/Azure-Irrigation-Web/HidraSmart-Irrigation-System/frontend/src/components/catastro/components/Panels/HistoryTimeline.jsx::151:151:tag:i",
+            "file_path": "/Users/ismaelmoraledalopez/Documents/Azure-Irrigation-Web/HidraSmart-Irrigation-System/frontend/src/components/catastro/components/Panels/HistoryTimeline.jsx",
+            "file_rel_path": "frontend/src/components/catastro/components/Panels/HistoryTimeline.jsx",
+            "header": "<i className=\"fas fa-chevron-left\">",
+            "type": "tag",
+            "name": "i",
+            "start_line": 151,
+            "end_line": 151
+        },
+        {
+            "key": "/Users/ismaelmoraledalopez/Documents/Azure-Irrigation-Web/HidraSmart-Irrigation-System/frontend/src/components/catastro/components/Panels/HistoryTimeline.jsx::169:169:tag:i",
+            "file_path": "/Users/ismaelmoraledalopez/Documents/Azure-Irrigation-Web/HidraSmart-Irrigation-System/frontend/src/components/catastro/components/Panels/HistoryTimeline.jsx",
+            "file_rel_path": "frontend/src/components/catastro/components/Panels/HistoryTimeline.jsx",
+            "header": "<i className=\"fas fa-chevron-right\">",
+            "type": "tag",
+            "name": "i",
+            "start_line": 169,
+            "end_line": 169
+        }
+    ]
+}

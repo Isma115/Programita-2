@@ -1,5 +1,10 @@
+import ast
+import json
 import os
 import re
+import subprocess
+
+from lxml import etree, html
 
 class ProjectManager:
     """
@@ -41,6 +46,9 @@ class ProjectManager:
         '.jsx', '.tsx', '.vue', '.svelte', '.astro',
         '.ejs', '.hbs', '.handlebars', '.mustache', '.njk', '.twig', '.jinja', '.jinja2', '.tpl'
     }
+    HTML_AST_EXTENSIONS = {'.html', '.htm', '.xhtml'}
+    XML_AST_EXTENSIONS = {'.xml', '.xsd', '.xsl', '.wsdl'}
+    JS_AST_EXTENSIONS = {'.js', '.mjs', '.cjs', '.jsx', '.ts', '.tsx'}
     BRACE_STYLE_EXTENSIONS = {
         '.c', '.cc', '.cpp', '.cxx', '.h', '.hh', '.hpp', '.hxx',
         '.cs', '.go', '.rs', '.zig',
@@ -56,6 +64,7 @@ class ProjectManager:
     END_STYLE_EXTENSIONS = {
         '.rb', '.lua', '.ex', '.exs', '.erl', '.hrl'
     }
+    JS_AST_HELPER_PATH = os.path.join(os.path.dirname(__file__), "js_ast_structures.js")
 
     def __init__(self, config_manager=None):
         self.config_manager = config_manager
@@ -301,11 +310,14 @@ class ProjectManager:
 
     def extract_functions(self, file_paths=None):
         """
-        Extracts code structures from loaded files using broad heuristics.
-        The result includes functions, methods, classes, modules and markup tags.
+        Extracts code structures using AST parsers when available.
+        Python uses the stdlib AST, JS/TS/JSX/TSX use a Node-based AST helper,
+        and HTML/XML use lxml trees. Unsupported or invalid files fall back to
+        the legacy structural heuristics.
         """
         structures = []
         target_paths = set(file_paths) if file_paths else None
+        js_ast_candidates = []
 
         for file_info in self.files:
             if target_paths is not None and file_info['path'] not in target_paths:
@@ -320,22 +332,56 @@ class ProjectManager:
             file_structures = []
 
             if ext == '.py':
-                file_structures.extend(self._extract_python_structures(file_info, lines))
+                file_structures.extend(self._extract_python_ast_structures(file_info, content))
 
-            if ext in self.BRACE_STYLE_EXTENSIONS:
-                file_structures.extend(self._extract_brace_structures(file_info, lines))
+            elif ext in self.JS_AST_EXTENSIONS:
+                js_ast_candidates.append(file_info)
+                if ext in {'.jsx', '.tsx'}:
+                    file_structures.extend(self._extract_markup_structures(file_info, content))
 
-            if ext in self.END_STYLE_EXTENSIONS:
-                file_structures.extend(self._extract_end_delimited_structures(file_info, lines))
+            elif ext in self.HTML_AST_EXTENSIONS:
+                file_structures.extend(self._extract_markup_ast_structures(file_info, content, parser_kind='html'))
 
-            if ext in self.MARKUP_EXTENSIONS:
-                file_structures.extend(self._extract_markup_structures(file_info, content))
+            elif ext in self.XML_AST_EXTENSIONS:
+                file_structures.extend(self._extract_markup_ast_structures(file_info, content, parser_kind='xml'))
+
+            else:
+                if ext in self.BRACE_STYLE_EXTENSIONS:
+                    file_structures.extend(self._extract_brace_structures(file_info, lines))
+
+                if ext in self.END_STYLE_EXTENSIONS:
+                    file_structures.extend(self._extract_end_delimited_structures(file_info, lines))
+
+                if ext in self.MARKUP_EXTENSIONS:
+                    file_structures.extend(self._extract_markup_structures(file_info, content))
 
             structures.extend(self._dedupe_structures(file_structures))
 
-        return structures
+        if js_ast_candidates:
+            js_structures = self._extract_js_ast_structures(js_ast_candidates)
+            structures.extend(self._dedupe_structures(js_structures))
 
-    def _build_structure(self, file_info, name, structure_type, start_line, end_line, lines, display_name=None):
+        return self._dedupe_structures(structures)
+
+    def _build_structure_id(self, file_info, parser_name, path_segments):
+        """Builds a stable identifier for a detected structure."""
+        normalized_rel_path = (file_info.get('rel_path') or file_info.get('path') or '').replace(os.sep, '/')
+        joined_segments = "/".join(path_segments)
+        return f"{parser_name}:{normalized_rel_path}::{joined_segments}"
+
+    def _build_structure(
+        self,
+        file_info,
+        name,
+        structure_type,
+        start_line,
+        end_line,
+        lines,
+        display_name=None,
+        structure_id=None,
+        parser_name=None,
+        header_text=None
+    ):
         """Builds the normalized structure payload for the UI."""
         start_line = max(int(start_line), 1)
         end_line = max(int(end_line), start_line)
@@ -346,31 +392,403 @@ class ProjectManager:
             'display_name': display_name or name,
             'type': structure_type,
             'content': snippet,
+            'header': header_text or '',
             'file_rel_path': file_info['rel_path'],
             'path': f"{file_info['path']}:{start_line}",
             'start_line': start_line,
-            'line_count': line_count
+            'line_count': line_count,
+            'structure_id': structure_id,
+            'parser': parser_name or 'heuristic',
         }
 
     def _dedupe_structures(self, items):
-        """Removes duplicated structures produced by overlapping heuristics."""
+        """Removes duplicated structures produced by overlapping parsers/heuristics."""
         ordered = []
         seen = set()
 
         for item in items:
-            key = (
-                item.get('file_rel_path'),
-                item.get('type'),
-                item.get('name'),
-                item.get('start_line'),
-                item.get('line_count')
-            )
+            structure_id = item.get('structure_id')
+            if structure_id:
+                key = structure_id
+            else:
+                key = (
+                    item.get('file_rel_path'),
+                    item.get('type'),
+                    item.get('name'),
+                    item.get('start_line'),
+                    item.get('line_count')
+                )
             if key in seen:
                 continue
             seen.add(key)
             ordered.append(item)
 
         return ordered
+
+    def _next_structure_segment(self, counters, structure_type, name):
+        """Allocates a stable sibling segment for a structure path."""
+        base = f"{structure_type}:{name or 'anonymous'}"
+        index = counters.get(base, 0)
+        counters[base] = index + 1
+        return f"{base}[{index}]"
+
+    def _extract_python_ast_structures(self, file_info, content):
+        """Extracts Python structures from the built-in AST."""
+        try:
+            tree = ast.parse(content)
+        except SyntaxError:
+            return self._extract_python_structures(file_info, content.split('\n'))
+
+        lines = content.split('\n')
+        results = []
+
+        def visit_statement_list(statements, parent_path, inside_class=False):
+            sibling_counters = {}
+
+            for statement in statements:
+                if isinstance(statement, ast.ClassDef):
+                    segment = self._next_structure_segment(sibling_counters, 'class', statement.name)
+                    current_path = parent_path + [segment]
+                    structure_id = self._build_structure_id(file_info, 'python-ast', current_path)
+                    end_line = getattr(statement, 'end_lineno', statement.lineno)
+                    results.append(
+                        self._build_structure(
+                            file_info,
+                            name=statement.name,
+                            structure_type='class',
+                            start_line=statement.lineno,
+                            end_line=end_line,
+                            lines=lines,
+                            display_name=statement.name,
+                            structure_id=structure_id,
+                            parser_name='python-ast'
+                        )
+                    )
+                    visit_statement_list(statement.body, current_path, inside_class=True)
+                    continue
+
+                if isinstance(statement, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                    structure_type = 'method' if inside_class else 'function'
+                    segment = self._next_structure_segment(sibling_counters, structure_type, statement.name)
+                    current_path = parent_path + [segment]
+                    structure_id = self._build_structure_id(file_info, 'python-ast', current_path)
+                    end_line = getattr(statement, 'end_lineno', statement.lineno)
+                    results.append(
+                        self._build_structure(
+                            file_info,
+                            name=statement.name,
+                            structure_type=structure_type,
+                            start_line=statement.lineno,
+                            end_line=end_line,
+                            lines=lines,
+                            display_name=f"{statement.name}()",
+                            structure_id=structure_id,
+                            parser_name='python-ast'
+                        )
+                    )
+                    visit_statement_list(statement.body, current_path, inside_class=False)
+                    continue
+
+                for nested_body in self._iter_python_nested_bodies(statement):
+                    visit_statement_list(nested_body, parent_path, inside_class=inside_class)
+
+        visit_statement_list(getattr(tree, 'body', []), [], inside_class=False)
+        return results
+
+    def _iter_python_nested_bodies(self, statement):
+        """Returns child statement lists that may contain nested Python declarations."""
+        body_attributes = ['body', 'orelse', 'finalbody']
+
+        if isinstance(statement, ast.Try):
+            for attr in body_attributes:
+                nested = getattr(statement, attr, None)
+                if nested:
+                    yield nested
+            for handler in getattr(statement, 'handlers', []):
+                if getattr(handler, 'body', None):
+                    yield handler.body
+            return
+
+        for attr in body_attributes:
+            nested = getattr(statement, attr, None)
+            if nested:
+                yield nested
+
+    def _extract_js_ast_structures(self, file_infos):
+        """Extracts JS/TS/JSX/TSX structures through the bundled Node AST helper."""
+        if not file_infos:
+            return []
+        if not os.path.isfile(self.JS_AST_HELPER_PATH):
+            return []
+
+        payload = [
+            {
+                'path': file_info['path'],
+                'rel_path': file_info['rel_path'],
+                'ext': os.path.splitext(file_info['path'])[1].lower(),
+                'content': file_info.get('content', ''),
+            }
+            for file_info in file_infos
+        ]
+
+        try:
+            completed = subprocess.run(
+                ['node', self.JS_AST_HELPER_PATH],
+                input=json.dumps(payload),
+                text=True,
+                capture_output=True,
+                check=False
+            )
+        except Exception as exc:
+            print(f"ProjectManager: Error running JS AST helper: {exc}")
+            return self._extract_js_ast_structures_fallback(file_infos)
+
+        if completed.returncode != 0:
+            print(f"ProjectManager: JS AST helper failed: {completed.stderr.strip()}")
+            return self._extract_js_ast_structures_fallback(file_infos)
+
+        try:
+            parsed = json.loads(completed.stdout or '{}')
+        except json.JSONDecodeError as exc:
+            print(f"ProjectManager: Invalid JS AST helper output: {exc}")
+            return self._extract_js_ast_structures_fallback(file_infos)
+
+        structures_by_path = parsed.get('structures', {})
+        results = []
+
+        for file_info in file_infos:
+            content = file_info.get('content', '')
+            lines = content.split('\n')
+            extracted = structures_by_path.get(file_info['path'], [])
+
+            if not extracted:
+                results.extend(self._extract_js_ast_structures_fallback([file_info]))
+                continue
+
+            for item in extracted:
+                start_line = item.get('start_line', 1)
+                end_line = item.get('end_line', start_line)
+                results.append(
+                    self._build_structure(
+                        file_info,
+                        name=item.get('name', 'anonymous'),
+                        structure_type=item.get('type', 'function'),
+                        start_line=start_line,
+                        end_line=end_line,
+                        lines=lines,
+                        display_name=item.get('display_name') or item.get('name', 'anonymous'),
+                        structure_id=item.get('structure_id'),
+                        parser_name=item.get('parser', 'javascript-ast'),
+                        header_text=item.get('header', '')
+                    )
+                )
+
+        return results
+
+    def _extract_js_ast_structures_fallback(self, file_infos):
+        """Falls back to the legacy JS-style heuristics when AST parsing is unavailable."""
+        results = []
+        for file_info in file_infos:
+            content = file_info.get('content', '')
+            ext = os.path.splitext(file_info['path'])[1].lower()
+            file_structures = []
+            lines = file_info.get('content', '').split('\n')
+            file_structures.extend(self._extract_brace_structures(file_info, lines))
+            if ext in {'.jsx', '.tsx'} and content:
+                file_structures.extend(self._extract_react_visual_return_structures(file_info, content))
+            results.extend(file_structures)
+        return results
+
+    def _extract_react_visual_return_structures(self, file_info, content):
+        """Heuristically extracts React render returns when the JS AST helper cannot parse the file."""
+        normalized = (content or '').replace('\r\n', '\n').replace('\r', '\n')
+        if not normalized.strip():
+            return []
+
+        results = []
+        lines = normalized.split('\n')
+
+        for match in re.finditer(r'\breturn\b', normalized):
+            statement_end = self._find_js_return_statement_end(normalized, match.start())
+            snippet = normalized[match.start():statement_end].strip()
+            if not snippet or not self._looks_like_react_visual_return(snippet):
+                continue
+
+            jsx_label = self._extract_react_return_label(snippet)
+            normalized_name = re.sub(r'[^\w$.:-]+', '_', jsx_label.strip('<>')) or 'jsx'
+            start_line = normalized.count('\n', 0, match.start()) + 1
+            end_line = max(normalized.count('\n', 0, statement_end) + 1, start_line)
+
+            results.append(
+                self._build_structure(
+                    file_info,
+                    name=f"return_{normalized_name}",
+                    structure_type='react_return',
+                    start_line=start_line,
+                    end_line=end_line,
+                    lines=lines,
+                    display_name=f"return ({jsx_label})",
+                    header_text=f"return ({jsx_label})"
+                )
+            )
+
+        return results
+
+    def _find_js_return_statement_end(self, content, return_index):
+        """Best-effort statement end finder for JS/TS return expressions."""
+        idx = return_index
+        text_length = len(content)
+        paren_depth = 0
+        bracket_depth = 0
+        brace_depth = 0
+        in_single = False
+        in_double = False
+        in_backtick = False
+        escape = False
+
+        while idx < text_length:
+            char = content[idx]
+            next_char = content[idx + 1] if idx + 1 < text_length else ''
+
+            if escape:
+                escape = False
+                idx += 1
+                continue
+
+            if char == '\\' and (in_single or in_double or in_backtick):
+                escape = True
+                idx += 1
+                continue
+
+            if not in_single and not in_double and not in_backtick:
+                if char == '/' and next_char == '/':
+                    idx += 2
+                    while idx < text_length and content[idx] != '\n':
+                        idx += 1
+                    continue
+                if char == '/' and next_char == '*':
+                    idx += 2
+                    while idx + 1 < text_length and not (content[idx] == '*' and content[idx + 1] == '/'):
+                        idx += 1
+                    idx = min(idx + 2, text_length)
+                    continue
+
+            if char == "'" and not in_double and not in_backtick:
+                in_single = not in_single
+                idx += 1
+                continue
+            if char == '"' and not in_single and not in_backtick:
+                in_double = not in_double
+                idx += 1
+                continue
+            if char == '`' and not in_single and not in_double:
+                in_backtick = not in_backtick
+                idx += 1
+                continue
+
+            if in_single or in_double or in_backtick:
+                idx += 1
+                continue
+
+            if char == '(':
+                paren_depth += 1
+            elif char == ')':
+                paren_depth = max(paren_depth - 1, 0)
+            elif char == '[':
+                bracket_depth += 1
+            elif char == ']':
+                bracket_depth = max(bracket_depth - 1, 0)
+            elif char == '{':
+                brace_depth += 1
+            elif char == '}':
+                if paren_depth == 0 and bracket_depth == 0 and brace_depth == 0:
+                    return idx
+                brace_depth = max(brace_depth - 1, 0)
+            elif char == ';' and paren_depth == 0 and bracket_depth == 0 and brace_depth == 0:
+                return idx + 1
+
+            idx += 1
+
+        return text_length
+
+    def _looks_like_react_visual_return(self, snippet):
+        """Returns True when a return statement appears to yield JSX visual output."""
+        if not snippet:
+            return False
+        body = re.sub(r'^\s*return\b', '', snippet, flags=re.IGNORECASE).strip()
+        if not body:
+            return False
+        return bool(re.search(r'(^|[?:(=,\[]\s*)<(?:[A-Za-z_][\w:.$-]*|>)', body, re.DOTALL))
+
+    def _extract_react_return_label(self, snippet):
+        """Extracts a compact JSX label for a visual return."""
+        if not snippet:
+            return '<jsx>'
+        body = re.sub(r'^\s*return\b', '', snippet, flags=re.IGNORECASE).strip()
+        match = re.search(r'<\s*(>|[A-Za-z_][\w:.$-]*)', body)
+        if not match:
+            return '<jsx>'
+        tag_name = match.group(1)
+        if tag_name == '>':
+            return '<>'
+        return f'<{tag_name}>'
+
+    def _extract_markup_ast_structures(self, file_info, content, parser_kind='html'):
+        """Extracts markup nodes from an lxml element tree."""
+        lines = content.split('\n')
+
+        try:
+            if parser_kind == 'xml':
+                parser = etree.XMLParser(recover=True, remove_comments=False)
+                try:
+                    root = etree.fromstring(content.encode('utf-8'), parser=parser)
+                    wrapper_children = [root]
+                except etree.XMLSyntaxError:
+                    wrapped = f"<ast_root>\n{content}\n</ast_root>"
+                    root = etree.fromstring(wrapped.encode('utf-8'), parser=parser)
+                    wrapper_children = list(root)
+            else:
+                parser = html.HTMLParser(remove_comments=False, recover=True)
+                root = html.fragment_fromstring(content, create_parent='ast_root', parser=parser)
+                wrapper_children = list(root)
+        except Exception:
+            return self._extract_markup_structures(file_info, content)
+
+        results = []
+
+        def walk_elements(elements, parent_path):
+            sibling_counters = {}
+
+            for element in elements:
+                if not isinstance(getattr(element, 'tag', None), str):
+                    walk_elements(list(element), parent_path)
+                    continue
+
+                tag_name = element.tag
+                start_line = int(getattr(element, 'sourceline', 1) or 1)
+                serialized = etree.tostring(element, encoding='unicode', with_tail=False) or ''
+                estimated_lines = max(serialized.count('\n') + 1, 1)
+                end_line = max(start_line + estimated_lines - 1, start_line)
+                segment = self._next_structure_segment(sibling_counters, 'tag', tag_name)
+                current_path = parent_path + [segment]
+                structure_id = self._build_structure_id(file_info, f'{parser_kind}-ast', current_path)
+                results.append(
+                    self._build_structure(
+                        file_info,
+                        name=tag_name,
+                        structure_type='tag',
+                        start_line=start_line,
+                        end_line=end_line,
+                        lines=lines,
+                        display_name=f"<{tag_name}>",
+                        structure_id=structure_id,
+                        parser_name=f'{parser_kind}-ast'
+                    )
+                )
+                walk_elements(list(element), current_path)
+
+        walk_elements(wrapper_children, [])
+        return results
 
     def _extract_python_structures(self, file_info, lines):
         results = []

@@ -14,6 +14,8 @@ class SubsectionCreationPopup(tk.Toplevel):
     which files belong to the subsection.
     """
 
+    BASE_SECTION_SIZE_BYTES = 4 * 1024
+
     def __init__(self, parent, controller, section_name, sub_name=None, initial_files=None):
         """
         Args:
@@ -49,6 +51,7 @@ class SubsectionCreationPopup(tk.Toplevel):
         self.file_checkbuttons = {}
         self.parent_file_paths = self.controller.section_manager.get_files_in_section(self.section_name)
         self.file_display_levels = tk.IntVar(value=2)
+        self.code_file_paths = {f["path"] for f in self.controller.project_manager.get_files()}
 
         all_project_files = self.controller.project_manager.get_files()
         self.abs_to_rel = {f['path']: f['rel_path'] for f in all_project_files}
@@ -198,6 +201,7 @@ class SubsectionCreationPopup(tk.Toplevel):
                 self.checks_frame,
                 text=self._format_display_path(abs_path),
                 variable=var,
+                command=self._update_size_indicator,
                 bg=Styles.COLOR_INPUT_BG,
                 fg=Styles.COLOR_FG_TEXT,
                 selectcolor=Styles.COLOR_INPUT_BG,
@@ -227,6 +231,18 @@ class SubsectionCreationPopup(tk.Toplevel):
         footer = ttk.Frame(self, style="Main.TFrame")
         footer.pack(fill="x", padx=15, pady=15)
 
+        self.lbl_size_indicator = tk.Label(
+            footer,
+            text="Tamaño código: 0.0 KB",
+            bg=Styles.COLOR_INPUT_BG,
+            fg=Styles.COLOR_ACCENT,
+            font=("Segoe UI", 11, "bold"),
+            padx=12,
+            pady=6
+        )
+        self.lbl_size_indicator.pack(side="left")
+        attach_tooltip(self.lbl_size_indicator, "Suma del tamaño de los archivos de código seleccionados en la subsección")
+
         btn_cancel = ttk.Button(footer, text="Cancelar", style="Secondary.TButton", command=self.destroy)
         btn_cancel.pack(side="right", padx=5)
         attach_tooltip(btn_cancel, "Cerrar ventana")
@@ -235,6 +251,36 @@ class SubsectionCreationPopup(tk.Toplevel):
         btn_save = ttk.Button(footer, text=btn_text, style="Action.TButton", command=self._on_save)
         btn_save.pack(side="right", padx=5)
         attach_tooltip(btn_save, "Guardar subsección")
+        self._update_size_indicator()
+
+    def _get_size_indicator_color(self, total_bytes):
+        size_kb = total_bytes / 1024.0
+        if size_kb < 15:
+            return Styles.COLOR_ACCENT
+        if size_kb < 30:
+            return "#2ecc71"
+        if size_kb <= 50:
+            return "#f1c40f"
+        return "#ff5c5c"
+
+    def _calculate_selected_code_size(self):
+        total_bytes = self.BASE_SECTION_SIZE_BYTES
+        for path, var in self.file_vars.items():
+            if not var.get() or path not in self.code_file_paths:
+                continue
+            try:
+                total_bytes += os.path.getsize(path)
+            except OSError:
+                continue
+        return total_bytes
+
+    def _update_size_indicator(self):
+        total_bytes = self._calculate_selected_code_size()
+        total_kb = total_bytes / 1024.0
+        self.lbl_size_indicator.config(
+            text=f"Tamaño código: {total_kb:.1f} KB",
+            fg=self._get_size_indicator_color(total_bytes)
+        )
 
     def _normalize_rel_path_parts(self, rel_path):
         normalized_path = os.path.normpath(rel_path)
@@ -274,10 +320,12 @@ class SubsectionCreationPopup(tk.Toplevel):
     def _select_all(self):
         for var in self.file_vars.values():
             var.set(True)
+        self._update_size_indicator()
 
     def _deselect_all(self):
         for var in self.file_vars.values():
             var.set(False)
+        self._update_size_indicator()
 
     def _on_save(self):
         name = self.entry_name.get().strip()

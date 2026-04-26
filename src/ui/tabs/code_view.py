@@ -1,12 +1,18 @@
 import tkinter as tk
 import tkinter.font as tkfont
-from tkinter import ttk, filedialog
+from tkinter import ttk, filedialog, simpledialog
 import tkinter.messagebox as messagebox
 import threading
 import os
+import re
+import textwrap
 import time
 import webbrowser
 from PIL import Image, ImageTk
+from src.addons.structure_header_replace import detect_code_structure
+from src.addons.Arbitrary_sus import create_styled_text_widget as arb_create_styled_text_widget
+from src.addons.Arbitrary_sus import highlight_syntax as arb_highlight_syntax
+from src.logic.structure_outline import build_segment_full_text, build_segment_full_text_from_items
 from src.ui.styles import Styles
 from src.ui.tooltip import attach_tooltip
 
@@ -40,6 +46,15 @@ class CodeView(ttk.Frame):
     MIN_LEFT_PANEL_WIDTH = Styles.scale_size(320)
     MIN_SECTIONS_PANEL_WIDTH = Styles.scale_size(260)
     DEFAULT_MAX_FILE_LIMIT = 20
+    GENERIC_MARKUP_TAGS = {
+        "article", "aside", "body", "col", "colgroup", "dd", "div", "dl", "dt",
+        "footer", "header", "html", "li", "main", "nav", "ol", "p", "section",
+        "span", "table", "tbody", "td", "tfoot", "th", "thead", "tr", "ul"
+    }
+    DESCRIPTIVE_MARKUP_ATTRIBUTES = {
+        "id", "class", "name", "role", "href", "src", "alt", "title",
+        "type", "for", "key", "slot", "label"
+    }
     FILE_ICON_EXTENSION_MAP = {
         ".js": "javascript",
         ".mjs": "javascript",
@@ -167,16 +182,25 @@ class CodeView(ttk.Frame):
         
         self._last_selected_section = None
         self._last_selected_subsection = None
+        self._last_selected_segment = None
+        self._last_selected_scope_iid = None
         self._visible_section_ids = []
         self._responsive_after_id = None
         self._checkbox_visual_size = Styles.scale_size(30)
         self.sections_dir_var = tk.StringVar(value="")
+        self._search_timer = None
+        self._last_relevant_files = None
+        self._discarded_file_paths = set()
         self.file_type_icons = {}
+        self.toolbar_icons = {}
         self.folder_chip_widgets = []
         self._folder_chip_refresh_after = None
+        self._segment_code_preview_text = ""
+        self._segment_code_preview_file_hint = None
 
         self._initialize_output_state()
         self._load_file_type_icons()
+        self._load_toolbar_icons()
         self._create_layout()
         self._set_return_mode(self.var_return_files.get(), self.var_return_chunks.get(), refresh_sections=False)
 
@@ -224,6 +248,30 @@ class CodeView(ttk.Frame):
                 self.file_type_icons["javascript"] = ImageTk.PhotoImage(image)
         except Exception as exc:
             print(f"CodeView: Error cargando iconos de ficheros: {exc}")
+
+    def _load_toolbar_icons(self):
+        """Loads static toolbar icons used by Code View controls."""
+        self.toolbar_icons = {}
+        try:
+            base_path = os.path.join(os.getcwd(), "assets", "icons")
+            icon_size = Styles.scale_size(18)
+            icon_map = {
+                "reload": "reload.png",
+            }
+
+            for icon_key, filename in icon_map.items():
+                icon_path = os.path.join(base_path, filename)
+                if not os.path.exists(icon_path):
+                    continue
+                image = Image.open(icon_path).convert("RGBA")
+                if icon_key == "reload":
+                    alpha = image.getchannel("A")
+                    image = Image.new("RGBA", image.size, (255, 255, 255, 0))
+                    image.putalpha(alpha)
+                image = image.resize((icon_size, icon_size), Image.Resampling.LANCZOS)
+                self.toolbar_icons[icon_key] = ImageTk.PhotoImage(image)
+        except Exception as exc:
+            print(f"CodeView: Error cargando iconos de toolbar: {exc}")
 
     @classmethod
     def _get_ai_config_path(cls):
@@ -346,11 +394,10 @@ class CodeView(ttk.Frame):
         self._update_project_label()
 
     def _create_top_bar(self, parent):
-        """Creates the toolbar with file limit, AI selector and extensions."""
+        """Creates the toolbar with path filter, AI selector and extensions."""
         self.top_bar = ttk.Frame(parent, style="Main.TFrame")
         self.top_bar.pack(side="top", fill="x", padx=10, pady=(2, 8))
 
-        # Sliders for file limits
         self.limit_var = tk.DoubleVar(value=self.DEFAULT_MAX_FILE_LIMIT)
         self.max_limit_var = tk.DoubleVar(value=self.DEFAULT_MAX_FILE_LIMIT)
 
@@ -358,8 +405,9 @@ class CodeView(ttk.Frame):
         self.slider_frame = ttk.Frame(self.top_bar, style="Main.TFrame")
         self.slider_frame.pack(padx=20)
 
-        # Shell for minimum file limit
-        self.limit_shell = tk.Frame(
+        self.path_filter_var = tk.StringVar(value="")
+
+        self.path_filter_shell = tk.Frame(
             self.slider_frame,
             bg=Styles.COLOR_INPUT_BG,
             highlightthickness=1,
@@ -367,84 +415,42 @@ class CodeView(ttk.Frame):
             highlightcolor=Styles.COLOR_ACCENT,
             bd=0
         )
-        self.limit_shell.pack(side="left", padx=(0, 0))
+        self.path_filter_shell.pack(side="left", padx=(0, 0))
 
-        self.lbl_limit = tk.Label(
-            self.limit_shell,
-            text=f"Mín. Ficheros: {self.DEFAULT_MAX_FILE_LIMIT}",
+        self.path_filter_title = tk.Label(
+            self.path_filter_shell,
+            text="Buscar...",
             bg=Styles.COLOR_INPUT_BG,
             fg=Styles.COLOR_DIM,
             font=("Segoe UI", 11, "bold"),
             anchor="w"
         )
-        self.lbl_limit.pack(fill="x", padx=10, pady=(3, 0))
+        self.path_filter_title.pack(fill="x", padx=10, pady=(3, 0))
 
-        self.limit_input_frame = tk.Frame(
-            self.limit_shell,
+        self.path_filter_input_shell = tk.Frame(
+            self.path_filter_shell,
             bg=Styles.COLOR_INPUT_BG,
             bd=0,
-            highlightthickness=0,
-            width=Styles.scale_size(210),
-            height=Styles.scale_size(28)
+            highlightthickness=0
         )
-        self.limit_input_frame.pack(fill="x", padx=8, pady=(0, 3))
-        self.limit_input_frame.pack_propagate(False)
+        self.path_filter_input_shell.pack(fill="x", padx=8, pady=(0, 3))
 
-        self.slider = ttk.Scale(
-            self.limit_input_frame,
-            from_=1, 
-            to=self.DEFAULT_MAX_FILE_LIMIT, 
-            orient="horizontal", 
-            variable=self.limit_var,
-            command=self._on_limit_change,
-            length=Styles.scale_size(200),
-            style="Horizontal.TScale"
-        )
-        self.slider.pack(fill="x", expand=True, pady=(0, 0))
-
-        # Shell for maximum file limit
-        self.max_limit_shell = tk.Frame(
-            self.slider_frame,
-            bg=Styles.COLOR_INPUT_BG,
-            highlightthickness=1,
-            highlightbackground=Styles.COLOR_BORDER,
-            highlightcolor=Styles.COLOR_ACCENT,
-            bd=0
-        )
-        self.max_limit_shell.pack(side="left", padx=(20, 0))
-
-        self.lbl_max_limit = tk.Label(
-            self.max_limit_shell,
-            text=f"Máx. Ficheros: {self.DEFAULT_MAX_FILE_LIMIT}",
-            bg=Styles.COLOR_INPUT_BG,
-            fg=Styles.COLOR_DIM,
-            font=("Segoe UI", 11, "bold"),
-            anchor="w"
-        )
-        self.lbl_max_limit.pack(fill="x", padx=10, pady=(3, 0))
-
-        self.max_limit_input_frame = tk.Frame(
-            self.max_limit_shell,
-            bg=Styles.COLOR_INPUT_BG,
+        self.txt_path_filter = tk.Entry(
+            self.path_filter_input_shell,
+            textvariable=self.path_filter_var,
+            bg="#1a2a3a",
+            fg=Styles.COLOR_INPUT_FG,
+            insertbackground="white",
             bd=0,
             highlightthickness=0,
-            width=Styles.scale_size(210),
-            height=Styles.scale_size(28)
+            relief="flat",
+            width=28,
+            font=("Segoe UI", 12)
         )
-        self.max_limit_input_frame.pack(fill="x", padx=8, pady=(0, 3))
-        self.max_limit_input_frame.pack_propagate(False)
-
-        self.max_slider = ttk.Scale(
-            self.max_limit_input_frame,
-            from_=1,
-            to=self.DEFAULT_MAX_FILE_LIMIT,
-            orient="horizontal",
-            variable=self.max_limit_var,
-            command=self._on_max_limit_change,
-            length=Styles.scale_size(200),
-            style="Horizontal.TScale"
-        )
-        self.max_slider.pack(fill="x", expand=True, pady=(0, 0))
+        self.txt_path_filter._skip_soften = True
+        Styles.strip_classic_widget_chrome(self.txt_path_filter)
+        self.txt_path_filter.pack(fill="both", expand=True, padx=(2, 2), pady=(1, 1), ipady=4)
+        self.path_filter_var.trace_add("write", self._on_path_filter_change)
 
         # AI Selector
         self.ai_selector_shell = tk.Frame(
@@ -519,7 +525,7 @@ class CodeView(ttk.Frame):
             bd=0,
             highlightthickness=0
         )
-        self.ext_input_shell.pack(fill="x")
+        self.ext_input_shell.pack(side="left", fill="x", expand=True)
 
         self.txt_ext = tk.Entry(
             self.ext_input_shell,
@@ -538,22 +544,65 @@ class CodeView(ttk.Frame):
         self.txt_ext.pack(fill="both", expand=True, padx=(2, 2), pady=(1, 1), ipady=4)  # [
         self.ext_var.trace_add("write", self._on_extension_change)
 
-        self._apply_limit_slider_ranges()
+        self.reload_shell = tk.Frame(
+            self.slider_frame,
+            bg=Styles.COLOR_INPUT_BG,
+            highlightthickness=1,
+            highlightbackground=Styles.COLOR_BORDER,
+            highlightcolor=Styles.COLOR_ACCENT,
+            bd=0
+        )
+        self.reload_shell.pack(side="left", padx=(20, 0))
 
-        # Initialize slider from config if controller available
+        self.reload_title = tk.Label(
+            self.reload_shell,
+            text="Recargar",
+            bg=Styles.COLOR_INPUT_BG,
+            fg=Styles.COLOR_DIM,
+            font=("Segoe UI", 11, "bold"),
+            anchor="w"
+        )
+        self.reload_title.pack(fill="x", padx=10, pady=(3, 0))
+
+        self.reload_button_shell = tk.Frame(
+            self.reload_shell,
+            bg=Styles.COLOR_INPUT_BG,
+            bd=0,
+            highlightthickness=0
+        )
+        self.reload_button_shell.pack(fill="x", padx=8, pady=(0, 3))
+
+        reload_button_kwargs = {
+            "style": "ToolbarIcon.TButton",
+            "command": self._on_reload_project_files
+        }
+        reload_icon = self.toolbar_icons.get("reload")
+        if reload_icon is not None:
+            reload_button_kwargs["image"] = reload_icon
+        else:
+            reload_button_kwargs["text"] = "↻"
+
+        self.btn_reload_project = ttk.Button(
+            self.reload_button_shell,
+            **reload_button_kwargs
+        )
+        self.btn_reload_project.pack(fill="x")
+        attach_tooltip(self.btn_reload_project, "Recargar todos los ficheros y restaurar descartados")
+
         if hasattr(self, 'controller') and hasattr(self.controller, 'config_manager'):
             min_limit = self.controller.config_manager.get_file_limit()
             max_limit = self.controller.config_manager.get_max_file_limit()
             self.limit_var.set(min_limit)
             self.max_limit_var.set(max_limit)
-            min_limit, max_limit = self._apply_limit_slider_ranges()
+            min_limit, max_limit = self._normalize_file_limits()
             self._persist_file_limits(min_limit, max_limit)
 
         self.after_idle(self._update_top_bar_alignment)
 
     def _create_file_tree(self, parent):
-        """Creates the file listing treeview and its context menu."""
+        """Creates the file listing treeview and the segment code preview area."""
         self.tree_frame = ttk.Frame(parent, style="Main.TFrame")
+        self.tree_frame.pack(side="top", fill="both", expand=True, padx=10)
 
         self.file_list_shell = tk.Frame(
             self.tree_frame,
@@ -586,40 +635,6 @@ class CodeView(ttk.Frame):
         self.tree.column("full_path", width=0, stretch=False, minwidth=0)
         self.tree.column("folder_chip", width=0, stretch=False, minwidth=0)
         self._configure_file_tree_style()
-
-
-        self.file_list_shell = tk.Frame(
-            self.tree_frame,
-            bg=Styles.COLOR_INPUT_BG,
-            highlightthickness=1,
-            highlightbackground=Styles.COLOR_BORDER,
-            highlightcolor=Styles.COLOR_ACCENT,
-            bd=0
-        )
-        self.file_list_shell.pack(fill="both", expand=True)
-
-        self.columns = ("folder", "size", "type", "full_path", "folder_chip")
-        self.tree = ttk.Treeview(
-            self.file_list_shell,
-            columns=self.columns,
-            displaycolumns=("folder", "size", "type"),
-            show="tree headings",
-            selectmode="extended",
-            style="Files.Treeview"
-        )
-        self.tree.heading("#0", text="Nombre")
-        self.tree.heading("folder", text="Ruta")
-        self.tree.heading("size", text="Tamaño")
-        self.tree.heading("type", text="Tipo")
-
-        self.tree.column("#0", anchor="w", stretch=True, width=360, minwidth=240)
-        self.tree.column("folder", anchor="w", stretch=True, width=180, minwidth=120)
-        self.tree.column("size", anchor="center", stretch=False, width=110, minwidth=90)
-        self.tree.column("type", anchor="center", stretch=False, width=140, minwidth=110)
-        self.tree.column("full_path", width=0, stretch=False, minwidth=0)
-        self.tree.column("folder_chip", width=0, stretch=False, minwidth=0)
-        self._configure_file_tree_style()
-
 
         self.file_tree_scrollbar = ttk.Scrollbar(
             self.file_list_shell,
@@ -655,8 +670,74 @@ class CodeView(ttk.Frame):
         self.tree.bind("<Button-3>", self._show_file_context_menu)
         self.tree.bind("<Control-Button-1>", self._show_file_context_menu)
 
-        # NOW pack the tree frame to fill the REMAINING space
-        self.tree_frame.pack(side="top", fill="both", expand=True, padx=10)
+        self.segment_code_shell = tk.Frame(
+            self.tree_frame,
+            bg=Styles.COLOR_INPUT_BG,
+            highlightthickness=1,
+            highlightbackground=Styles.COLOR_BORDER,
+            highlightcolor=Styles.COLOR_ACCENT,
+            bd=0
+        )
+
+        self.segment_code_header = tk.Label(
+            self.segment_code_shell,
+            text="Código del segmento",
+            bg=Styles.COLOR_INPUT_BG,
+            fg=Styles.COLOR_DIM,
+            font=("Segoe UI", 11, "bold"),
+            anchor="w"
+        )
+        self.segment_code_header.pack(fill="x", padx=12, pady=(10, 4))
+
+        self.segment_code_body = tk.Frame(
+            self.segment_code_shell,
+            bg=Styles.COLOR_INPUT_BG,
+            bd=0,
+            highlightthickness=0
+        )
+        self.segment_code_body.pack(fill="both", expand=True, padx=8, pady=(0, 8))
+
+        self.segment_code_text = arb_create_styled_text_widget(self.segment_code_body, editable=False)
+        self.segment_code_text.configure(wrap="none")
+        self.segment_code_text.pack(side="left", fill="both", expand=True)
+
+        self.segment_code_scrollbar = ttk.Scrollbar(
+            self.segment_code_body,
+            orient="vertical",
+            command=self.segment_code_text.yview,
+            style="Vertical.TScrollbar"
+        )
+        self.segment_code_scrollbar.pack(side="right", fill="y")
+        self.segment_code_text.configure(yscrollcommand=self.segment_code_scrollbar.set)
+        self.segment_code_text.configure(state="disabled")
+
+    def _show_file_list_view(self):
+        if hasattr(self, "segment_code_shell") and self.segment_code_shell.winfo_manager():
+            self.segment_code_shell.pack_forget()
+        if hasattr(self, "file_list_shell") and not self.file_list_shell.winfo_manager():
+            self.file_list_shell.pack(fill="both", expand=True)
+
+    def _show_segment_code_view(self, code_text, title_text=None, file_hint=None):
+        self._segment_code_preview_text = code_text or ""
+        self._segment_code_preview_file_hint = file_hint
+
+        if hasattr(self, "file_list_shell") and self.file_list_shell.winfo_manager():
+            self.file_list_shell.pack_forget()
+        if hasattr(self, "segment_code_shell") and not self.segment_code_shell.winfo_manager():
+            self.segment_code_shell.pack(fill="both", expand=True)
+
+        if hasattr(self, "segment_code_header"):
+            self.segment_code_header.configure(text=title_text or "Código del segmento")
+
+        if hasattr(self, "segment_code_text"):
+            self.segment_code_text.configure(state="normal")
+            self.segment_code_text.delete("1.0", tk.END)
+            self.segment_code_text.insert("1.0", self._segment_code_preview_text)
+            try:
+                arb_highlight_syntax(self.segment_code_text, file_hint)
+            except Exception as exc:
+                print(f"CodeView: Error applying segment preview syntax highlight: {exc}")
+            self.segment_code_text.configure(state="disabled")
 
     def _configure_file_tree_style(self, row_font_size=None, heading_font_size=None, row_height=None):
         """Creates a richer table style for the file list."""
@@ -1036,7 +1117,7 @@ class CodeView(ttk.Frame):
             highlightthickness=0,
             padx=10, pady=10
         )
-        self.txt_prompt.bind("<KeyRelease>", self._on_prompt_change)
+        self.txt_prompt.bind("<KeyRelease>", self._on_prompt_text_change)
         # Bind Ctrl+Enter (and Command+Enter on Mac) to copy prompt
         self.txt_prompt.bind("<Control-Return>", self._on_copy_prompt)
         self.txt_prompt.bind("<Command-Return>", self._on_copy_prompt)
@@ -1073,7 +1154,6 @@ class CodeView(ttk.Frame):
 
         self._create_sections_header(self.right_top_frame)
         self._create_section_search(self.right_top_frame)
-        self._create_section_actions(self.right_top_frame)
         self._create_section_tree(self.right_top_frame)
 
     def _create_sections_header(self, parent):
@@ -1092,6 +1172,19 @@ class CodeView(ttk.Frame):
         )
         self.btn_change_sections_dir.pack(side="right", padx=(0, 8), pady=(4, 0))
         attach_tooltip(self.btn_change_sections_dir, "Cambiar carpeta de secciones")
+
+        self.btn_copy_structure_headers = ttk.Button(
+            self.sections_header,
+            text="Copiar estructuras",
+            style="ToolbarIcon.TButton",
+            command=self._on_copy_structure_headers
+        )
+        self.btn_copy_structure_headers.pack(side="right", padx=(0, 8), pady=(4, 0))
+        self.btn_copy_structure_headers.state(["disabled"])
+        attach_tooltip(
+            self.btn_copy_structure_headers,
+            "Copiar al portapapeles las cabeceras de estructuras agrupadas por fichero"
+        )
 
         self.lbl_sections_dir = tk.Label(
             parent,
@@ -1119,7 +1212,7 @@ class CodeView(ttk.Frame):
 
         self.section_search_label = tk.Label(
             self.section_search_shell,
-            text="Buscar sección o subsección",
+            text="Buscar sección, subsección o segmento",
             bg=Styles.COLOR_BG_SIDEBAR,
             fg=Styles.COLOR_DIM,
             font=("Segoe UI", 13, "bold"),
@@ -1140,24 +1233,6 @@ class CodeView(ttk.Frame):
         self.section_search_entry.pack(fill="x", padx=10, pady=(4, 6), ipady=4)
         self.section_search_entry.bind("<KeyRelease>", self._on_section_search_change)
 
-    def _create_section_actions(self, parent):
-        """Creates action buttons for the selected section/subsection."""
-        self.section_actions_frame = ttk.Frame(parent, style="Sidebar.TFrame")
-        self.section_actions_frame.pack(fill="x", padx=8, pady=(0, 6))
-
-        self.btn_add_files_to_section = ttk.Button(
-            self.section_actions_frame,
-            text="Agregar ficheros",
-            style="Action.TButton",
-            command=self._on_add_files_to_selected_section,
-            state="disabled"
-        )
-        self.btn_add_files_to_section.pack(fill="x")
-        attach_tooltip(
-            self.btn_add_files_to_section,
-            "Añadir varios ficheros a la sección o subsección seleccionada"
-        )
-
     def _create_section_tree(self, parent):
         """Creates the sections and subsections treeview."""
         self.section_tree = ttk.Treeview(
@@ -1171,8 +1246,13 @@ class CodeView(ttk.Frame):
         self.section_tree.bind("<<TreeviewSelect>>", self._on_section_select)
         self.section_tree.bind("<Button-1>", self._on_section_click)
         
-        self.section_tree.tag_configure("section", font=("Segoe UI", 15, "bold"))
-        self.section_tree.tag_configure("subsection", font=("Segoe UI", 13))
+        self.section_tree.tag_configure("section", font=("Segoe UI", 15, "bold"), foreground=Styles.COLOR_FG_TEXT)
+        self.section_tree.tag_configure("subsection", font=("Segoe UI", 13), foreground=Styles.COLOR_FG_TEXT)
+        self.section_tree.tag_configure("segment", font=("Segoe UI", 12))
+        self.section_tree.tag_configure("size_blue", foreground=Styles.COLOR_ACCENT)
+        self.section_tree.tag_configure("size_green", foreground="#2ecc71")
+        self.section_tree.tag_configure("size_yellow", foreground="#f1c40f")
+        self.section_tree.tag_configure("size_red", foreground="#ff5c5c")
         
         self.section_tree.pack(fill="x", expand=False, padx=5, pady=(2, 5))
 
@@ -1368,8 +1448,7 @@ class CodeView(ttk.Frame):
         file_heading_size = Styles.scale_size(13 if compact_width else 14 if narrow_width else 15)
         file_row_height = Styles.scale_size(42 if ultra_compact_height else 46 if compact_height else 52)
         ai_title_size = Styles.scale_size(9 if ultra_compact_height else 10 if compact_height else 11)
-        slider_input_height = Styles.scale_size(22 if ultra_compact_height else 24 if compact_height else 26)
-        slider_input_width = slider_length + Styles.scale_size(8)
+        path_filter_width = max(18 if compact_width else 22 if narrow_width else 28, 16)
 
         self.lbl_project_name.configure(font=("Segoe UI", project_font_size))
         self.section_search_label.configure(font=("Segoe UI", section_label_size, "bold"))
@@ -1389,17 +1468,15 @@ class CodeView(ttk.Frame):
         )
         self._update_file_tree_columns()
 
-        self.slider.configure(length=slider_length)
-        self.max_slider.configure(length=slider_length)
-        self.limit_input_frame.configure(width=slider_input_width)
-        self.max_limit_input_frame.configure(width=slider_input_width)
-        self.limit_input_frame.configure(height=slider_input_height)
-        self.max_limit_input_frame.configure(height=slider_input_height)
         self.cmb_ai.configure(width=ai_width)
+        self.path_filter_title.configure(font=("Segoe UI", ai_title_size, "bold"))
+        self.txt_path_filter.configure(font=("Segoe UI", max(ai_title_size + 2, 11)))
+        self.txt_path_filter.configure(width=path_filter_width)
         self.ai_selector_title.configure(font=("Segoe UI", ai_title_size, "bold"))
         self.ext_title.configure(font=("Segoe UI", ai_title_size, "bold"))
+        self.reload_title.configure(font=("Segoe UI", ai_title_size, "bold"))
         self.txt_ext.configure(font=("Segoe UI", max(ai_title_size + 2, 11)))
-        self.txt_ext.configure(width=20)
+        self.txt_ext.configure(width=max(path_filter_width - 8, 12))
         self.txt_prompt.configure(height=prompt_height)
         self.prompt_frame.pack_configure(pady=top_prompt_pady)
         self._update_top_bar_alignment()
@@ -1635,7 +1712,7 @@ class CodeView(ttk.Frame):
         """Shows a popup with the detected functions and their line counts."""
         section_name, subsection_name = self._get_selected_section_info()
         if not section_name:
-            messagebox.showwarning("Aviso", "Selecciona una sección o subsección primero.")
+            messagebox.showwarning("Aviso", "Selecciona una sección, subsección o segmento primero.")
             return
 
         try:
@@ -1799,8 +1876,10 @@ class CodeView(ttk.Frame):
             min_limit = int(float(self.limit_var.get()))
         if max_limit is None:
             max_limit = int(float(self.max_limit_var.get()))
-        self.lbl_limit.config(text=f"Mín. Ficheros: {min_limit}")
-        self.lbl_max_limit.config(text=f"Máx. Ficheros: {max_limit}")
+        if hasattr(self, "lbl_limit"):
+            self.lbl_limit.config(text=f"Mín. Ficheros: {min_limit}")
+        if hasattr(self, "lbl_max_limit"):
+            self.lbl_max_limit.config(text=f"Máx. Ficheros: {max_limit}")
 
     def _persist_file_limits(self, min_limit, max_limit):
         """Stores the current min/max file limits in config."""
@@ -1837,13 +1916,28 @@ class CodeView(ttk.Frame):
         """Handles minimum-file slider movement."""
         min_limit, max_limit = self._normalize_file_limits(preferred="min")
         self._persist_file_limits(min_limit, max_limit)
-        self._on_prompt_change()
+        self._schedule_file_list_refresh()
 
     def _on_max_limit_change(self, val):
         """Handles maximum-file slider movement."""
         min_limit, max_limit = self._normalize_file_limits(preferred="max")
         self._persist_file_limits(min_limit, max_limit)
-        self._on_prompt_change()
+        self._schedule_file_list_refresh()
+
+    def set_file_limits(self, min_limit=None, max_limit=None, preferred="min", refresh=True):
+        """Updates file limits from external controls such as the app menu."""
+        if min_limit is not None:
+            self.limit_var.set(min_limit)
+        if max_limit is not None:
+            self.max_limit_var.set(max_limit)
+
+        min_limit, max_limit = self._normalize_file_limits(preferred=preferred)
+        self._persist_file_limits(min_limit, max_limit)
+
+        if refresh:
+            self._schedule_file_list_refresh()
+
+        return min_limit, max_limit
 
     def _get_limit_slider_max(self):
         """Returns the configured max value for the file-limit slider."""
@@ -1859,8 +1953,10 @@ class CodeView(ttk.Frame):
 
     def _apply_limit_slider_ranges(self):
         """Applies the current slider ranges and clamps their values if needed."""
-        self.slider.configure(to=self._get_limit_slider_max())
-        self.max_slider.configure(to=self._get_max_file_limit_slider_max())
+        if hasattr(self, "slider"):
+            self.slider.configure(to=self._get_limit_slider_max())
+        if hasattr(self, "max_slider"):
+            self.max_slider.configure(to=self._get_max_file_limit_slider_max())
         return self._normalize_file_limits()
 
     def apply_file_limit_slider_settings(self, refresh=True):
@@ -1869,7 +1965,7 @@ class CodeView(ttk.Frame):
         self._persist_file_limits(min_limit, max_limit)
 
         if refresh:
-            self._on_prompt_change()
+            self._schedule_file_list_refresh()
 
     def _on_load_project(self):
         path = filedialog.askdirectory()
@@ -1943,13 +2039,15 @@ class CodeView(ttk.Frame):
             
         if files is None:
             if hasattr(self, 'controller') and hasattr(self.controller, 'get_relevant_files_for_ui'):
-                text = self.txt_prompt.get("1.0", "end-1c").strip() if hasattr(self, 'txt_prompt') else ""
                 section, subsection = self._get_selected_section_info()
                 extension = self.ext_var.get() if hasattr(self, 'ext_var') else ""
-                min_files = int(self.limit_var.get()) if hasattr(self, 'limit_var') else 0
-                max_files = int(self.max_limit_var.get()) if hasattr(self, 'max_limit_var') else None
+                min_files = 0
+                max_files = None
+                if hasattr(self.controller, 'config_manager'):
+                    min_files = self.controller.config_manager.get_file_limit()
+                    max_files = self.controller.config_manager.get_max_file_limit()
                 files = self.controller.get_relevant_files_for_ui(
-                    text,
+                    "",
                     selected_section=section,
                     selected_subsection=subsection,
                     extension=extension,
@@ -1960,6 +2058,10 @@ class CodeView(ttk.Frame):
                 files = self.controller.project_manager.get_files()
             else:
                 files = []
+
+        self._last_relevant_files = list(files or [])
+        files = self._filter_discarded_files(self._last_relevant_files)
+        files = self._filter_files_by_path(files)
 
         for index, f in enumerate(files):
             rel_path = f['rel_path']
@@ -1986,24 +2088,30 @@ class CodeView(ttk.Frame):
         self._schedule_folder_chip_refresh()
 
 
-    def _on_prompt_change(self, event=None):
-        """Handles real-time search filtering with debouncing."""
+    def _schedule_file_list_refresh(self, event=None):
+        """Schedules a debounced refresh of the file list using scope filters only."""
         if hasattr(self, '_search_timer') and self._search_timer:
             self.after_cancel(self._search_timer)
             
         # Debounce: Wait 300ms after last keypress
         self._search_timer = self.after(300, self._start_background_search)
 
+    def _on_prompt_text_change(self, event=None):
+        """Keeps the AI prompt input decoupled from the visible code file list."""
+        return None
+
     def _on_extension_change(self, *args):
         """Persists the extensions filter and refreshes the file search."""
         if hasattr(self.controller, 'config_manager'):
             self.controller.config_manager.set_code_extensions_filter(self.ext_var.get())
-        self._on_prompt_change()
+        self._schedule_file_list_refresh()
+
+    def _on_path_filter_change(self, *args):
+        """Applies the local route filter over the current search results."""
+        self.refresh_file_list(self._last_relevant_files)
 
     def _start_background_search(self):
-        """Starts the search in a separate thread."""
-        text = self.txt_prompt.get("1.0", "end-1c").strip()
-        
+        """Starts the scoped file refresh in a separate thread."""
         section, subsection = self._get_selected_section_info()
         
         extension = self.ext_var.get()
@@ -2017,15 +2125,15 @@ class CodeView(ttk.Frame):
         # Run search in thread
         threading.Thread(
             target=self._perform_search,
-            args=(text, section, subsection, extension, min_files, max_files),
+            args=(section, subsection, extension, min_files, max_files),
             daemon=True
         ).start()
 
-    def _perform_search(self, text, section, subsection=None, extension="Todos", min_files=0, max_files=None):
-        """Executes search logic (Thread Safe)."""
+    def _perform_search(self, section, subsection=None, extension="Todos", min_files=0, max_files=None):
+        """Executes scoped file retrieval logic (Thread Safe)."""
         try:
             relevant_files = self.controller.get_relevant_files_for_ui(
-                text,
+                "",
                 selected_section=section,
                 selected_subsection=subsection,
                 extension=extension,
@@ -2042,29 +2150,80 @@ class CodeView(ttk.Frame):
         self.refresh_file_list(files)
         self.update_idletasks()
 
-    def _get_selected_section_info(self):
-        """Returns (section_name, subsection_name_or_None) from current Treeview selection."""
+    def _filter_files_by_path(self, files):
+        """Applies the local path filter to the file list."""
+        filter_text = ""
+        if hasattr(self, "path_filter_var"):
+            filter_text = self.path_filter_var.get().strip().lower()
+
+        if not filter_text:
+            return list(files or [])
+
+        normalized_filter = filter_text.replace("\\", "/")
+        filtered_files = []
+
+        for file_data in files or []:
+            rel_path = str(file_data.get("rel_path", "") or "")
+            abs_path = str(file_data.get("path", "") or "")
+            candidate_paths = {
+                rel_path.lower(),
+                abs_path.lower(),
+                rel_path.replace("\\", "/").lower(),
+                abs_path.replace("\\", "/").lower(),
+            }
+            if any(normalized_filter in candidate for candidate in candidate_paths):
+                filtered_files.append(file_data)
+
+        return filtered_files
+
+    def _filter_discarded_files(self, files):
+        """Removes files discarded by the user until an explicit reload is requested."""
+        if not self._discarded_file_paths:
+            return list(files or [])
+        return [
+            file_data for file_data in (files or [])
+            if str(file_data.get("path", "") or "") not in self._discarded_file_paths
+        ]
+
+    def _get_selected_scope_info(self):
+        """Returns (section_name, subsection_name_or_None, segment_name_or_None) from current Treeview selection."""
         if not hasattr(self, 'section_tree'):
-            return None, None
+            return None, None, None
         selected = self.section_tree.selection()
         if not selected:
-            return None, None
+            return None, None, None
         iid = selected[0]
+        if iid.startswith("SEG:"):
+            rest = iid[4:]
+            parts = rest.split("::", 2)
+            if len(parts) == 3:
+                return parts[0], parts[1], parts[2]
         if iid.startswith("SS:"):
             # Subsection: "SS:ParentName::SubName"
             rest = iid[3:]
             parts = rest.split("::", 1)
             if len(parts) == 2:
-                return parts[0], parts[1]
+                return parts[0], parts[1], None
         elif iid.startswith("S:"):
             # Parent section: "S:SectionName"
-            return iid[2:], None
-        return None, None
+            return iid[2:], None, None
+        return None, None, None
 
-    def _build_section_iid(self, section_name, subsection_name=None):
-        """Builds stable tree item ids for sections and subsections."""
+    def _get_selected_section_info(self):
+        """Returns (section_name, subsection_name_or_None) using the parent subsection when a segment is selected."""
+        section_name, subsection_name, _segment_name = self._get_selected_scope_info()
+        return section_name, subsection_name
+
+    def _get_selected_segment_info(self):
+        """Returns (section_name, subsection_name, segment_name) when a segment is selected."""
+        return self._get_selected_scope_info()
+
+    def _build_section_iid(self, section_name, subsection_name=None, segment_name=None):
+        """Builds stable tree item ids for sections, subsections and segments."""
         if not section_name:
             return None
+        if subsection_name and segment_name:
+            return f"SEG:{section_name}::{subsection_name}::{segment_name}"
         if subsection_name:
             return f"SS:{section_name}::{subsection_name}"
         return f"S:{section_name}"
@@ -2074,43 +2233,709 @@ class CodeView(ttk.Frame):
         selected = self.section_tree.selection() if hasattr(self, "section_tree") else ()
         if selected:
             preferred_iid = selected[0]
+        elif self._last_selected_scope_iid:
+            preferred_iid = self._last_selected_scope_iid
         elif self._last_selected_section:
             preferred_iid = self._build_section_iid(
                 self._last_selected_section,
-                self._last_selected_subsection
+                self._last_selected_subsection,
+                self._last_selected_segment
             )
         self._refresh_sections(preferred_iid=preferred_iid)
 
     def _on_section_select(self, event=None, force_reload=False):
         """Trigger update when section selection changes."""
-        section_name, subsection_name = self._get_selected_section_info()
-        self._update_section_action_buttons(section_name, subsection_name)
+        scope_iid = None
+        selected = self.section_tree.selection() if hasattr(self, "section_tree") else ()
+        if selected:
+            scope_iid = selected[0]
+
+        section_name, subsection_name, segment_name = self._get_selected_scope_info()
+        self._update_section_action_buttons(section_name, subsection_name, segment_name)
         
         # Only reload if the selection has actually changed
-        if not force_reload and section_name == self._last_selected_section and subsection_name == self._last_selected_subsection:
+        if not force_reload and scope_iid == self._last_selected_scope_iid:
             return
             
+        self._last_selected_scope_iid = scope_iid
         self._last_selected_section = section_name
         self._last_selected_subsection = subsection_name
+        self._last_selected_segment = segment_name
         
         # Save selection
         if section_name:
             if hasattr(self.controller, 'config_manager'):
                 self.controller.config_manager.set_last_code_section(section_name)
-        
-        self._on_prompt_change()
 
-    def _update_section_action_buttons(self, section_name=None, subsection_name=None):
-        """Enables action buttons only when a valid section scope is selected."""
-        if not hasattr(self, "btn_add_files_to_section"):
+        if segment_name:
+            self._load_selected_segment_preview(section_name, subsection_name, segment_name)
+        else:
+            self._show_file_list_view()
+            self._schedule_file_list_refresh()
+
+    def _update_section_action_buttons(self, section_name=None, subsection_name=None, segment_name=None):
+        """Reserved for section actions that depend on current selection."""
+        state = ["!disabled"] if section_name else ["disabled"]
+        if hasattr(self, "btn_copy_structure_headers"):
+            self.btn_copy_structure_headers.state(state)
+
+    def _load_selected_segment_preview(self, section_name, subsection_name, segment_name):
+        """Loads the selected segment code into the left preview panel."""
+        segment = self.controller.section_manager.get_segment(section_name, subsection_name, segment_name)
+        segment_items = list((segment or {}).get("items", []))
+        if not segment_items:
+            self._show_segment_code_view(
+                "",
+                title_text=f"Segmento: {segment_name}",
+                file_hint=None
+            )
             return
 
-        if section_name is None and subsection_name is None:
-            section_name, subsection_name = self._get_selected_section_info()
+        file_infos = self._get_selected_section_file_infos(section_name, subsection_name)
+        code_text, _copied_count = build_segment_full_text_from_items(file_infos, segment_items)
 
-        is_enabled = bool(section_name)
-        self.btn_add_files_to_section.configure(
-            state=("normal" if is_enabled else "disabled")
+        unique_paths = []
+        seen_paths = set()
+        for item in segment_items:
+            file_path = item.get("file_path")
+            if not file_path or file_path in seen_paths:
+                continue
+            seen_paths.add(file_path)
+            unique_paths.append(file_path)
+
+        file_hint = unique_paths[0] if len(unique_paths) == 1 else None
+        title_text = f"Segmento: {section_name} > {subsection_name} > {segment_name}"
+        self._show_segment_code_view(code_text, title_text=title_text, file_hint=file_hint)
+
+    def _extract_structure_header_text(self, structure_item):
+        """Returns the normalized header/signature text for a detected structure."""
+        structure_text = (structure_item or {}).get("content", "")
+        if not structure_text.strip():
+            return ""
+        structure_type = structure_item.get("type", "")
+        explicit_header = (structure_item.get("header") or "").strip()
+
+        if explicit_header:
+            return self._sanitize_structure_header_text(explicit_header, structure_type)
+
+        if self._is_hook_call_structure(structure_text):
+            hook_header = self._extract_hook_call_header(structure_text)
+            if hook_header:
+                return self._sanitize_structure_header_text(hook_header, structure_type)
+
+        detected = detect_code_structure(structure_text)
+        if detected and detected.get("header"):
+            return self._sanitize_structure_header_text(detected["header"].strip(), structure_type)
+
+        fallback_header = self._extract_structure_header_fallback(
+            structure_text,
+            structure_type
+        )
+        if fallback_header:
+            return self._sanitize_structure_header_text(fallback_header, structure_type)
+
+        fallback_text = (structure_item.get("display_name") or structure_item.get("name") or "").strip()
+        return self._sanitize_structure_header_text(fallback_text, structure_type)
+
+    def _is_hook_call_structure(self, structure_text):
+        """Returns True when the structure starts with a React-style hook call."""
+        first_line = next(
+            (line.strip() for line in (structure_text or "").split("\n") if line.strip()),
+            ""
+        )
+        return bool(re.match(r"^(?:React\.)?(?:useEffect|useLayoutEffect|useMemo|useCallback)\s*\(", first_line))
+
+    def _extract_hook_call_header(self, structure_text):
+        """Extracts the opening hook header up to the callback body start."""
+        text = (structure_text or "").replace("\r\n", "\n").replace("\r", "\n").strip("\n")
+        if not text:
+            return ""
+
+        header_chars = []
+        in_single = False
+        in_double = False
+        in_backtick = False
+        escape = False
+
+        for char in text:
+            header_chars.append(char)
+
+            if escape:
+                escape = False
+                continue
+
+            if char == "\\" and (in_single or in_double or in_backtick):
+                escape = True
+                continue
+
+            if char == "'" and not in_double and not in_backtick:
+                in_single = not in_single
+                continue
+            if char == '"' and not in_single and not in_backtick:
+                in_double = not in_double
+                continue
+            if char == "`" and not in_single and not in_double:
+                in_backtick = not in_backtick
+                continue
+
+            if in_single or in_double or in_backtick:
+                continue
+
+            if char == "{":
+                return "".join(header_chars).strip()
+
+        return text.split("\n", 1)[0].strip()
+
+    def _sanitize_structure_header_text(self, header_text, structure_type):
+        """Removes noisy markup attributes from copied structure headers."""
+        cleaned = (header_text or "").strip()
+        if not cleaned:
+            return ""
+
+        if (structure_type or "").strip().lower() == "tag" or cleaned.startswith("<"):
+            cleaned = self._remove_markup_attribute(cleaned, "style")
+            if self._is_generic_markup_header(cleaned):
+                return ""
+
+        return cleaned.strip()
+
+    def _is_generic_markup_header(self, header_text):
+        """Returns True when a markup header is too generic to be useful in the clipboard."""
+        match = re.match(r"^<\s*([A-Za-z][\w:.-]*)\b(.*?)/?\s*>$", (header_text or "").strip(), re.DOTALL)
+        if not match:
+            return False
+
+        tag_name = match.group(1)
+        attributes_chunk = match.group(2) or ""
+        lower_name = tag_name.lower()
+
+        if tag_name[:1].isupper() or "-" in tag_name:
+            return False
+
+        if lower_name not in self.GENERIC_MARKUP_TAGS:
+            return False
+
+        if "{..." in attributes_chunk:
+            return False
+
+        attribute_names = re.findall(r"([:@A-Za-z_][\w:.-]*)\s*(?:=|\b)", attributes_chunk)
+        for attr_name in attribute_names:
+            normalized = attr_name.lower()
+            if normalized in self.DESCRIPTIVE_MARKUP_ATTRIBUTES:
+                return False
+            if normalized.startswith("data-") or normalized.startswith("aria-"):
+                return False
+
+        return True
+
+    def _remove_markup_attribute(self, header_text, attribute_name):
+        """Removes one attribute from an opening markup tag, including JSX expression values."""
+        text = header_text or ""
+        attr_name = (attribute_name or "").strip().lower()
+        if not text.startswith("<") or not attr_name:
+            return text
+
+        result = []
+        idx = 0
+        text_length = len(text)
+
+        while idx < text_length:
+            char = text[idx]
+
+            if not char.isspace():
+                result.append(char)
+                idx += 1
+                continue
+
+            whitespace_start = idx
+            while idx < text_length and text[idx].isspace():
+                idx += 1
+            whitespace = text[whitespace_start:idx]
+
+            name_start = idx
+            while idx < text_length and (text[idx].isalnum() or text[idx] in {"_", ":", "-", "."}):
+                idx += 1
+            attribute = text[name_start:idx]
+
+            if not attribute:
+                result.append(whitespace)
+                continue
+
+            if attribute.lower() != attr_name:
+                result.append(whitespace)
+                result.append(attribute)
+                continue
+
+            while idx < text_length and text[idx].isspace():
+                idx += 1
+
+            if idx >= text_length or text[idx] != "=":
+                continue
+
+            idx += 1
+            while idx < text_length and text[idx].isspace():
+                idx += 1
+
+            idx = self._consume_markup_attribute_value(text, idx)
+
+        return "".join(result)
+
+    def _consume_markup_attribute_value(self, text, start_idx):
+        """Skips a markup attribute value, handling quotes and JSX expressions."""
+        idx = start_idx
+        text_length = len(text)
+        if idx >= text_length:
+            return idx
+
+        opener = text[idx]
+        if opener in {'"', "'"}:
+            quote = opener
+            idx += 1
+            while idx < text_length:
+                if text[idx] == "\\" and idx + 1 < text_length:
+                    idx += 2
+                    continue
+                if text[idx] == quote:
+                    return idx + 1
+                idx += 1
+            return text_length
+
+        if opener == "{":
+            return self._consume_jsx_expression(text, idx)
+
+        while idx < text_length and not text[idx].isspace() and text[idx] != ">":
+            idx += 1
+        return idx
+
+    def _consume_jsx_expression(self, text, start_idx):
+        """Skips a JSX expression value such as {expr} or {{ color: 'red' }}."""
+        idx = start_idx
+        text_length = len(text)
+        brace_depth = 0
+        in_single = False
+        in_double = False
+        in_backtick = False
+        escape = False
+
+        while idx < text_length:
+            char = text[idx]
+
+            if escape:
+                escape = False
+                idx += 1
+                continue
+
+            if char == "\\" and (in_single or in_double or in_backtick):
+                escape = True
+                idx += 1
+                continue
+
+            if char == "'" and not in_double and not in_backtick:
+                in_single = not in_single
+                idx += 1
+                continue
+
+            if char == '"' and not in_single and not in_backtick:
+                in_double = not in_double
+                idx += 1
+                continue
+
+            if char == "`" and not in_single and not in_double:
+                in_backtick = not in_backtick
+                idx += 1
+                continue
+
+            if in_single or in_double or in_backtick:
+                idx += 1
+                continue
+
+            if char == "{":
+                brace_depth += 1
+            elif char == "}":
+                brace_depth -= 1
+                if brace_depth <= 0:
+                    return idx + 1
+
+            idx += 1
+
+        return text_length
+
+    def _extract_structure_header_fallback(self, structure_text, structure_type):
+        """Extracts a best-effort structure header when the shared detector cannot."""
+        normalized = (structure_text or "").replace("\r\n", "\n").replace("\r", "\n")
+        if not normalized.strip():
+            return ""
+
+        if (structure_type or "").strip().lower() == "tag":
+            return self._extract_markup_header_fallback(normalized)
+
+        return self._extract_code_header_fallback(normalized)
+
+    def _extract_markup_header_fallback(self, structure_text):
+        """Returns the opening tag for markup blocks, including multiline tags."""
+        start_index = structure_text.find("<")
+        if start_index == -1:
+            return ""
+
+        in_single = False
+        in_double = False
+
+        for idx in range(start_index, len(structure_text)):
+            char = structure_text[idx]
+            if char == '"' and not in_single:
+                in_double = not in_double
+            elif char == "'" and not in_double:
+                in_single = not in_single
+            elif char == ">" and not in_single and not in_double:
+                return structure_text[start_index:idx + 1].strip()
+
+        return ""
+
+    def _extract_code_header_fallback(self, structure_text):
+        """Returns a best-effort signature/header for code blocks."""
+        lines = structure_text.split("\n")
+        first_content_idx = next((idx for idx, line in enumerate(lines) if line.strip()), None)
+        if first_content_idx is None:
+            return ""
+
+        header_lines = []
+        paren_depth = 0
+        bracket_depth = 0
+        in_single = False
+        in_double = False
+        in_backtick = False
+        escape = False
+
+        for idx in range(first_content_idx, len(lines)):
+            line = lines[idx].rstrip()
+            stripped = line.strip()
+
+            if not stripped:
+                if header_lines:
+                    header_lines.append("")
+                continue
+
+            current_line = []
+            for char in line:
+                current_line.append(char)
+
+                if escape:
+                    escape = False
+                    continue
+
+                if char == "\\" and (in_single or in_double or in_backtick):
+                    escape = True
+                    continue
+
+                if char == "'" and not in_double and not in_backtick:
+                    in_single = not in_single
+                    continue
+                if char == '"' and not in_single and not in_backtick:
+                    in_double = not in_double
+                    continue
+                if char == "`" and not in_single and not in_double:
+                    in_backtick = not in_backtick
+                    continue
+
+                if in_single or in_double or in_backtick:
+                    continue
+
+                if char == "(":
+                    paren_depth += 1
+                elif char == ")":
+                    paren_depth = max(paren_depth - 1, 0)
+                elif char == "[":
+                    bracket_depth += 1
+                elif char == "]":
+                    bracket_depth = max(bracket_depth - 1, 0)
+                elif char == "{" and paren_depth == 0 and bracket_depth == 0:
+                    current_line_text = "".join(current_line).rstrip()
+                    header_lines.append(current_line_text)
+                    return "\n".join(line for line in header_lines if line.strip()).strip()
+
+            header_lines.append("".join(current_line).rstrip())
+
+            if paren_depth == 0 and bracket_depth == 0:
+                lowered = stripped.lower()
+                if stripped.endswith(":"):
+                    return "\n".join(line for line in header_lines if line.strip()).strip()
+                if lowered in {"do", "then", "in"}:
+                    return "\n".join(line for line in header_lines if line.strip()).strip()
+                if lowered.endswith(" do") or lowered.endswith(" then") or lowered.endswith(" in"):
+                    return "\n".join(line for line in header_lines if line.strip()).strip()
+
+        return "\n".join(line for line in header_lines if line.strip()).strip()
+
+    def _get_selected_section_file_infos(self, section_name, subsection_name=None):
+        """Returns cached file payloads for the currently selected section scope."""
+        if subsection_name:
+            file_paths = self.controller.section_manager.get_files_in_subsection(section_name, subsection_name)
+        else:
+            file_paths = self.controller.section_manager.get_files_in_section(section_name)
+
+        project_manager = getattr(self.controller, "project_manager", None)
+        cached_files = {}
+        if project_manager:
+            cached_files = {item.get("path"): item for item in project_manager.get_files()}
+
+        file_infos = []
+        for file_path in file_paths:
+            if file_path in cached_files:
+                file_infos.append(cached_files[file_path])
+                continue
+
+            if not os.path.isfile(file_path):
+                continue
+
+            try:
+                with open(file_path, "r", encoding="utf-8", errors="ignore") as fh:
+                    content = fh.read()
+            except Exception:
+                continue
+
+            project_root = getattr(project_manager, "current_project_path", None) if project_manager else None
+            if project_root:
+                try:
+                    rel_path = os.path.relpath(file_path, project_root)
+                except ValueError:
+                    rel_path = os.path.basename(file_path)
+            else:
+                rel_path = os.path.basename(file_path)
+
+            file_infos.append({
+                "path": file_path,
+                "rel_path": rel_path,
+                "content": content,
+            })
+
+        return file_infos
+
+    def _build_structure_headers_clipboard_text(self, file_infos, structures):
+        """Builds the simplified section text grouped by file and nested by structure."""
+        ordered_files = [item for item in file_infos if item.get("path")]
+        if not ordered_files:
+            return "", 0
+
+        structures_by_path = {}
+        for item in structures or []:
+            file_with_line = item.get("path", "")
+            file_path = file_with_line.split(":", 1)[0] if ":" in file_with_line else file_with_line
+            structures_by_path.setdefault(file_path, []).append(item)
+
+        file_blocks = []
+        copied_count = 0
+
+        for file_info in ordered_files:
+            file_path = file_info.get("path")
+            file_rel_path = file_info.get("rel_path") or os.path.basename(file_path or "") or "sin_archivo"
+            simplified_body, body_count = self._build_simplified_file_structure_text(
+                file_info,
+                structures_by_path.get(file_path, [])
+            )
+            if not simplified_body.strip():
+                continue
+
+            file_blocks.append(f"--- Archivo: {file_rel_path} ---\n{simplified_body}")
+            copied_count += body_count
+
+        if not file_blocks:
+            return "", 0
+
+        return "\n\n\n".join(file_blocks), copied_count
+
+    def _build_structure_selection_prompt(self, functionality_text, structure_headers_text):
+        """Builds a prompt asking the AI to return only the relevant structure headers."""
+        clean_functionality = (functionality_text or "").strip()
+        clean_headers = (structure_headers_text or "").strip()
+        if not clean_functionality or not clean_headers:
+            return ""
+
+        return (
+            "Petición del Usuario:\n"
+            "Devuelve una lista simple y sin información extra de las estructuras de código del contexto que estén relacionadas con esta funcionalidad: "
+            f"{clean_functionality}\n\n"
+            "Formato obligatorio de salida:\n"
+            "- Devuelve únicamente las cabeceras exactas de las estructuras relevantes.\n"
+            "- Una estructura por línea.\n"
+            "- Sin explicaciones.\n"
+            "- Sin numeración.\n"
+            "- Sin Markdown.\n"
+            "- Sin rutas de archivo.\n"
+            "- Si no aplica ninguna, devuelve una respuesta vacía.\n\n"
+            "Estructuras de código disponibles:\n"
+            f"{clean_headers}"
+        )
+
+    def _build_simplified_file_structure_text(self, file_info, structures):
+        """Builds a simplified parent/child header view for one file."""
+        normalized_items = []
+        seen_keys = set()
+
+        for item in structures:
+            header_text = self._extract_structure_header_text(item)
+            if not header_text:
+                continue
+
+            start_line = max(int(item.get("start_line", 1) or 1), 1)
+            end_line = max(start_line, start_line + max(int(item.get("line_count", 1) or 1) - 1, 0))
+            key = (start_line, end_line, item.get("type", ""), header_text)
+            if key in seen_keys:
+                continue
+            seen_keys.add(key)
+            normalized_items.append({
+                "start_line": start_line,
+                "end_line": end_line,
+                "type": item.get("type", ""),
+                "name": item.get("name", ""),
+                "header": header_text,
+                "children": [],
+            })
+
+        if not normalized_items:
+            return "", 0
+
+        normalized_items.sort(key=lambda item: (item["start_line"], -item["end_line"], item["name"]))
+
+        roots = []
+        stack = []
+        for node in normalized_items:
+            while stack and not self._structure_contains(stack[-1], node):
+                stack.pop()
+
+            if stack:
+                stack[-1]["children"].append(node)
+            else:
+                roots.append(node)
+
+            stack.append(node)
+
+        rendered_blocks = []
+        for node in roots:
+            rendered_blocks.append("\n".join(self._render_structure_tree_lines(node, depth=0)))
+
+        return "\n\n".join(rendered_blocks), len(normalized_items)
+
+    def _structure_contains(self, parent_node, child_node):
+        """Returns True when one structure fully contains another within the same file."""
+        if not parent_node or not child_node:
+            return False
+        if parent_node["start_line"] > child_node["start_line"]:
+            return False
+        if parent_node["end_line"] < child_node["end_line"]:
+            return False
+        if parent_node["start_line"] == child_node["start_line"] and parent_node["end_line"] == child_node["end_line"]:
+            return False
+        return True
+
+    def _render_structure_tree_lines(self, node, depth=0):
+        """Renders one simplified structure tree as text lines."""
+        rendered = [self._indent_structure_header(node.get("header", ""), depth)]
+        for child in node.get("children", []):
+            rendered.extend(self._render_structure_tree_lines(child, depth + 1))
+        return rendered
+
+    def _indent_structure_header(self, header_text, depth):
+        """Normalizes and indents multiline headers for the simplified output."""
+        normalized = textwrap.dedent((header_text or "").strip("\n"))
+        lines = normalized.split("\n")
+        base_indent = "  " * max(depth, 0)
+        indented_lines = []
+
+        for idx, line in enumerate(lines):
+            if not line.strip():
+                indented_lines.append("")
+                continue
+            if idx == 0:
+                indented_lines.append(f"{base_indent}{line.lstrip()}")
+            else:
+                indented_lines.append(f"{base_indent}{line}")
+
+        return "\n".join(indented_lines).rstrip()
+
+    def _on_copy_structure_headers(self):
+        """Copies an AI-ready prompt plus the current structure headers grouped by file."""
+        section_name, subsection_name = self._get_selected_section_info()
+        if not section_name:
+            messagebox.showwarning("Aviso", "Selecciona una sección, subsección o segmento primero.")
+            return
+
+        functionality_text = simpledialog.askstring(
+            "Copiar estructuras",
+            "¿Qué funcionalidad quieres listar por estructuras de código?",
+            parent=self.winfo_toplevel()
+        )
+        if not functionality_text:
+            return
+        functionality_text = functionality_text.strip()
+        if not functionality_text:
+            messagebox.showwarning(
+                "Aviso",
+                "Debes indicar una funcionalidad para construir el prompt."
+            )
+            return
+
+        file_infos = self._get_selected_section_file_infos(section_name, subsection_name)
+        if not file_infos:
+            messagebox.showinfo(
+                "Copiar estructuras",
+                "No hay ficheros disponibles en la selección actual."
+            )
+            return
+
+        try:
+            file_paths = [item["path"] for item in file_infos if item.get("path")]
+            structures = self.controller.project_manager.extract_functions(file_paths=file_paths)
+        except Exception as e:
+            print(f"Error building structure headers: {e}")
+            messagebox.showerror("Error", f"No se pudieron recopilar las estructuras:\n{e}")
+            return
+
+        if not structures:
+            messagebox.showinfo(
+                "Copiar estructuras",
+                "No se encontraron estructuras compatibles en la selección actual."
+            )
+            return
+
+        structure_headers_text, copied_count = self._build_structure_headers_clipboard_text(file_infos, structures)
+        if not structure_headers_text.strip():
+            messagebox.showinfo(
+                "Copiar estructuras",
+                "No se pudieron extraer cabeceras válidas en la selección actual."
+            )
+            return
+
+        clipboard_text = self._build_structure_selection_prompt(functionality_text, structure_headers_text)
+        if not clipboard_text.strip():
+            messagebox.showinfo(
+                "Copiar estructuras",
+                "No se pudo construir el prompt de estructuras."
+            )
+            return
+
+        copied = False
+        if hasattr(self.controller, "copy_to_clipboard"):
+            copied = self.controller.copy_to_clipboard(clipboard_text)
+
+        if not copied:
+            try:
+                self.clipboard_clear()
+                self.clipboard_append(clipboard_text)
+                copied = True
+            except Exception as e:
+                print(f"Error copying structure headers to clipboard: {e}")
+
+        if not copied:
+            messagebox.showerror("Error", "No se pudo copiar el contenido al portapapeles.")
+            return
+
+        scope_label = section_name
+        if subsection_name:
+            scope_label = f"{section_name} > {subsection_name}"
+
+        messagebox.showinfo(
+            "Copiar estructuras",
+            f"Se copió un prompt con {copied_count} cabeceras agrupadas por fichero de {scope_label}."
         )
 
     def _is_path_inside_project(self, file_path, project_path):
@@ -2126,7 +2951,7 @@ class CodeView(ttk.Frame):
         """Opens a native multi-file picker and adds the chosen files to the current scope."""
         section_name, subsection_name = self._get_selected_section_info()
         if not section_name:
-            messagebox.showwarning("Aviso", "Selecciona una sección o subsección primero.")
+            messagebox.showwarning("Aviso", "Selecciona una sección, subsección o segmento primero.")
             return
 
         project_path = getattr(self.controller.project_manager, "current_project_path", None)
@@ -2249,8 +3074,8 @@ class CodeView(ttk.Frame):
             messagebox.showwarning("Aviso", "Escribe un mensaje primero.")
             return
 
-        # Check selected section/subsection
-        section, subsection = self._get_selected_section_info()
+        # Check selected section/subsection/segment
+        section, subsection, segment_name = self._get_selected_scope_info()
         
         return_files = self.var_return_files.get()
         return_chunks = self.var_return_chunks.get()
@@ -2259,11 +3084,64 @@ class CodeView(ttk.Frame):
         if hasattr(self.controller, 'config_manager'):
             include_project_tree = self.controller.config_manager.get_include_project_tree()
 
-        # Get file limit from slider
-        try:
-            min_files = int(self.limit_var.get())
-        except:
-            min_files = 10
+        min_files = 10
+        if hasattr(self.controller, 'config_manager'):
+            min_files = self.controller.config_manager.get_file_limit()
+
+        if segment_name:
+            segment_code = (self._segment_code_preview_text or "").strip()
+            if not segment_code:
+                messagebox.showwarning("Aviso", "El segmento seleccionado no tiene código visible para copiar.")
+                return
+
+            segment = self.controller.section_manager.get_segment(section, subsection, segment_name)
+            segment_items = list((segment or {}).get("items", []))
+            segment_file_paths = []
+            seen_segment_paths = set()
+            for item in segment_items:
+                file_path = item.get("file_rel_path") or item.get("file_path")
+                if not file_path or file_path in seen_segment_paths:
+                    continue
+                seen_segment_paths.add(file_path)
+                segment_file_paths.append(file_path)
+
+            files_instruction = ""
+            if segment_file_paths:
+                files_instruction = (
+                    "Ficheros presentes en este segmento:\n"
+                    + "\n".join(f"- {path}" for path in segment_file_paths)
+                    + "\n\n"
+                )
+
+            clipboard_content = (
+                f"Petición del Usuario:\n{text}\n\n"
+                "Formato: responde en Markdown. Cada bloque de código debe empezar con un comentario dentro del propio bloque con este texto exacto: Archivo: (ruta de archivo), usando el tipo de comentario correcto según el lenguaje.\n\n"
+                f"{files_instruction}"
+                f"Código de Contexto:\n{segment_code}"
+            )
+
+            try:
+                self.clipboard_clear()
+                self.clipboard_append(clipboard_content)
+
+                documents_path = os.path.join(os.path.expanduser("~"), "Documents")
+                export_path = os.path.join(documents_path, "codigo.txt")
+                os.makedirs(documents_path, exist_ok=True)
+                with open(export_path, "w", encoding="utf-8") as f:
+                    f.write(clipboard_content)
+
+                selected_ai = self.cmb_ai.get()
+                if selected_ai == self.AUTO_AI_OPTION:
+                    selected_ai = self._get_auto_ai()
+
+                if selected_ai != self.AGENT_AI_OPTION:
+                    self._ai_usage_history.append(selected_ai)
+                    if selected_ai in self.AI_URLS:
+                        webbrowser.open_new_tab(self.AI_URLS[selected_ai])
+
+            except Exception as e:
+                messagebox.showerror("Error", f"No se pudo guardar el fichero:\n{e}")
+            return
 
         selected_files_data = self._get_files_for_prompt()
         selected_file_paths = [f['path'] for f in selected_files_data]
@@ -2447,6 +3325,7 @@ class CodeView(ttk.Frame):
                     menu.add_command(label="Nueva Subsección", command=self._on_add_subsection)
                     menu.add_command(label="Agregar ficheros", command=self._on_add_files_to_selected_section)
                     menu.add_separator()
+                    menu.add_command(label="Copiar estructuras", command=self._on_copy_structure_headers)
                     menu.add_command(label="Tamaño estructuras", command=self._on_show_structure_sizes)
                     menu.add_separator()
                     menu.add_command(label="Generar Prompt Docs", command=self._on_generate_docs)
@@ -2455,14 +3334,22 @@ class CodeView(ttk.Frame):
                     menu.add_command(label="Eliminar Sección", command=self._on_delete_section)
                 elif iid.startswith("SS:"):
                     # Subsection context menu
+                    menu.add_command(label="Nuevo Segmento", command=self._on_add_segment)
+                    menu.add_separator()
                     menu.add_command(label="Agregar ficheros", command=self._on_add_files_to_selected_section)
                     menu.add_separator()
+                    menu.add_command(label="Copiar estructuras", command=self._on_copy_structure_headers)
                     menu.add_command(label="Tamaño estructuras", command=self._on_show_structure_sizes)
                     menu.add_separator()
                     menu.add_command(label="Editar Subsección", command=self._on_edit_subsection)
                     menu.add_command(label="Eliminar Subsección", command=self._on_delete_subsection)
                     menu.add_separator()
                     menu.add_command(label="Generar Prompt Docs", command=self._on_generate_docs)
+                elif iid.startswith("SEG:"):
+                    menu.add_command(label="Copiar Segmento", command=self._on_copy_segment)
+                    menu.add_separator()
+                    menu.add_command(label="Editar Segmento", command=self._on_edit_segment)
+                    menu.add_command(label="Eliminar Segmento", command=self._on_delete_segment)
             
             try:
                 menu.tk_popup(event.x_root, event.y_root)
@@ -2549,6 +3436,122 @@ class CodeView(ttk.Frame):
         self.controller.section_manager.delete_subsection(section_name, sub_name)
         self._refresh_sections()
 
+    def _on_add_segment(self):
+        """Opens popup to create a segment inside the selected subsection."""
+        section_name, sub_name, segment_name = self._get_selected_scope_info()
+        if not section_name or not sub_name:
+            messagebox.showwarning("Aviso", "Selecciona una subsección padre primero.")
+            return
+
+        from src.ui.popups.segment_creation_popup import SegmentCreationPopup
+        try:
+            popup = SegmentCreationPopup(self, self.controller, section_name, sub_name)
+            self.wait_window(popup)
+            if popup.saved_segment_name:
+                preferred_iid = self._build_section_iid(section_name, sub_name, popup.saved_segment_name)
+                self._refresh_sections(preferred_iid=preferred_iid, force_reload=True)
+        except Exception as e:
+            print(f"Error opening segment popup: {e}")
+            messagebox.showerror("Error", f"Error abriendo popup: {e}")
+
+    def _on_edit_segment(self):
+        """Opens popup to edit the selected segment."""
+        section_name, sub_name, segment_name = self._get_selected_scope_info()
+        if not section_name or not sub_name or not segment_name:
+            messagebox.showwarning("Aviso", "Selecciona un segmento para editar.")
+            return
+
+        segment = self.controller.section_manager.get_segment(section_name, sub_name, segment_name)
+        initial_items = segment.get("items", []) if segment else []
+
+        from src.ui.popups.segment_creation_popup import SegmentCreationPopup
+        try:
+            popup = SegmentCreationPopup(
+                self,
+                self.controller,
+                section_name,
+                sub_name,
+                segment_name=segment_name,
+                initial_items=initial_items
+            )
+            self.wait_window(popup)
+            if popup.saved_segment_name:
+                preferred_iid = self._build_section_iid(section_name, sub_name, popup.saved_segment_name)
+                self._refresh_sections(preferred_iid=preferred_iid, force_reload=True)
+        except Exception as e:
+            print(f"Error opening segment edit popup: {e}")
+            messagebox.showerror("Error", f"Error abriendo popup: {e}")
+
+    def _on_delete_segment(self):
+        """Deletes the selected segment."""
+        section_name, sub_name, segment_name = self._get_selected_scope_info()
+        if not section_name or not sub_name or not segment_name:
+            return
+
+        if not messagebox.askyesno("Eliminar Segmento", f"¿Quieres eliminar el segmento '{segment_name}'?"):
+            return
+
+        self.controller.section_manager.delete_segment(section_name, sub_name, segment_name)
+        self._refresh_sections(preferred_iid=self._build_section_iid(section_name, sub_name), force_reload=True)
+
+    def _on_copy_segment(self):
+        """Copies the code associated with the selected segment."""
+        section_name, sub_name, segment_name = self._get_selected_scope_info()
+        if not section_name or not sub_name or not segment_name:
+            messagebox.showwarning("Aviso", "Selecciona un segmento para copiar.")
+            return
+
+        segment = self.controller.section_manager.get_segment(section_name, sub_name, segment_name)
+        segment_items = list((segment or {}).get("items", []))
+        if not segment_items:
+            messagebox.showinfo("Copiar Segmento", "El segmento no tiene estructuras guardadas.")
+            return
+
+        file_infos = self._get_selected_section_file_infos(section_name, sub_name)
+        if not file_infos:
+            messagebox.showinfo("Copiar Segmento", "No hay ficheros disponibles en la subsección del segmento.")
+            return
+
+        clipboard_text = ""
+        copied_count = 0
+
+        selected_keys = [item.get("key") for item in segment_items if item.get("key")]
+        if selected_keys:
+            try:
+                file_paths = [item["path"] for item in file_infos if item.get("path")]
+                structures = self.controller.project_manager.extract_functions(file_paths=file_paths)
+                clipboard_text, copied_count = build_segment_full_text(file_infos, structures, selected_keys)
+            except Exception as e:
+                print(f"Error building segment clipboard text: {e}")
+
+        if not clipboard_text.strip():
+            clipboard_text, copied_count = build_segment_full_text_from_items(file_infos, segment_items)
+
+        if not clipboard_text.strip():
+            messagebox.showinfo("Copiar Segmento", "No se pudo construir el contenido del segmento.")
+            return
+
+        copied = False
+        if hasattr(self.controller, "copy_to_clipboard"):
+            copied = self.controller.copy_to_clipboard(clipboard_text)
+
+        if not copied:
+            try:
+                self.clipboard_clear()
+                self.clipboard_append(clipboard_text)
+                copied = True
+            except Exception as e:
+                print(f"Error copying segment to clipboard: {e}")
+
+        if not copied:
+            messagebox.showerror("Error", "No se pudo copiar el contenido del segmento al portapapeles.")
+            return
+
+        messagebox.showinfo(
+            "Copiar Segmento",
+            f"Se copiaron {copied_count} estructuras completas del segmento '{segment_name}'."
+        )
+
     def _on_generate_docs(self):
         """Generates a documentation prompt for the selected files or visible files."""
         # 1. Get selected files from Treeview
@@ -2634,26 +3637,71 @@ class CodeView(ttk.Frame):
         sections = self.controller.section_manager.get_sections()
         for s in sections:
             subsections = self.controller.section_manager.get_subsections(s)
+            section_matches = query in s.lower() if query else False
+            visible_subsections = []
 
-            if query:
-                section_matches = query in s.lower()
-                matching_subsections = [sub for sub in subsections if query in sub.lower()]
-                if not section_matches and not matching_subsections:
-                    continue
-                visible_subsections = subsections if section_matches else matching_subsections
-            else:
-                visible_subsections = subsections
+            for sub in subsections:
+                segments = self.controller.section_manager.get_segments(s, sub)
+                subsection_matches = query in sub.lower() if query else False
+                matching_segments = [segment for segment in segments if query in segment.lower()] if query else list(segments)
+
+                if query:
+                    if section_matches:
+                        visible_segments = list(segments)
+                    elif subsection_matches:
+                        visible_segments = list(segments)
+                    elif matching_segments:
+                        visible_segments = matching_segments
+                    else:
+                        continue
+                else:
+                    visible_segments = list(segments)
+
+                visible_subsections.append({
+                    "name": sub,
+                    "segments": visible_segments,
+                })
+
+            if query and not section_matches and not visible_subsections:
+                continue
 
             # Insert parent section
             parent_iid = self._build_section_iid(s)
-            self.section_tree.insert("", "end", iid=parent_iid, text=f"{s}", open=True, tags=("section",))
+            section_size = self.controller.section_manager.get_section_total_code_size(s)
+            self.section_tree.insert(
+                "",
+                "end",
+                iid=parent_iid,
+                text=self._format_section_tree_label(s, section_size),
+                open=True,
+                tags=("section",)
+            )
 
             self._visible_section_ids.append(parent_iid)
 
-            # Insert subsections as children
-            for sub in visible_subsections:
+            # Insert subsections and segments as children
+            for subsection_entry in visible_subsections:
+                sub = subsection_entry["name"]
                 sub_iid = self._build_section_iid(s, sub)
-                self.section_tree.insert(parent_iid, "end", iid=sub_iid, text=f"{sub}", tags=("subsection",))
+                subsection_size = self.controller.section_manager.get_subsection_total_code_size(s, sub)
+                self.section_tree.insert(
+                    parent_iid,
+                    "end",
+                    iid=sub_iid,
+                    text=self._format_section_tree_label(sub, subsection_size),
+                    tags=("subsection",)
+                )
+
+                for segment_name in subsection_entry["segments"]:
+                    segment_iid = self._build_section_iid(s, sub, segment_name)
+                    segment_size = self.controller.section_manager.get_segment_total_code_size(s, sub, segment_name)
+                    self.section_tree.insert(
+                        sub_iid,
+                        "end",
+                        iid=segment_iid,
+                        text=self._format_section_tree_label(segment_name, segment_size),
+                        tags=("segment", self._get_section_size_tag(segment_size))
+                    )
 
         # Insert dummy empty space at the end to allow deselection
         self.section_tree.insert("", "end", iid="EMPTY_DESELECT", text=" ", tags=("subsection",))
@@ -2661,7 +3709,16 @@ class CodeView(ttk.Frame):
         selection_candidates = []
         if preferred_iid:
             selection_candidates.append(preferred_iid)
+        if self._last_selected_scope_iid:
+            selection_candidates.append(self._last_selected_scope_iid)
         if self._last_selected_section:
+            selection_candidates.append(
+                self._build_section_iid(
+                    self._last_selected_section,
+                    self._last_selected_subsection,
+                    self._last_selected_segment
+                )
+            )
             selection_candidates.append(
                 self._build_section_iid(self._last_selected_section, self._last_selected_subsection)
             )
@@ -2696,6 +3753,25 @@ class CodeView(ttk.Frame):
         else:
             self._on_section_select(force_reload=True)
 
+    def _format_section_tree_label(self, name, total_bytes):
+        """Builds the text shown in the sections tree including the total code size."""
+        return f"{name}  [{self._format_section_size_kb(total_bytes)}]"
+
+    def _format_section_size_kb(self, total_bytes):
+        """Formats the size label for sections and subsections."""
+        return f"{(max(total_bytes, 0) / 1024.0):.1f} KB"
+
+    def _get_section_size_tag(self, total_bytes):
+        """Returns the color tag matching the section size thresholds."""
+        size_kb = max(total_bytes, 0) / 1024.0
+        if size_kb < 15:
+            return "size_blue"
+        if size_kb < 30:
+            return "size_green"
+        if size_kb <= 50:
+            return "size_yellow"
+        return "size_red"
+
     def _on_file_double_click(self, event):
         """
         Elimina el fichero seleccionado de la lista al hacer doble click.
@@ -2712,10 +3788,22 @@ class CodeView(ttk.Frame):
         if not file_path:
             return
 
+        self._discarded_file_paths.add(file_path)
         filename = os.path.basename(file_path)
         self.tree.delete(item_id)
         self._schedule_folder_chip_refresh()
         print(f"CodeView: Fichero '{filename}' eliminado de la lista.")
+
+    def _on_reload_project_files(self):
+        """Reloads project files from disk and restores previously discarded rows."""
+        project_path = getattr(getattr(self.controller, "project_manager", None), "current_project_path", None)
+        if not project_path:
+            messagebox.showwarning("Aviso", "No hay ningún proyecto cargado para recargar.")
+            return
+
+        self._discarded_file_paths.clear()
+        self._last_relevant_files = None
+        self.controller.load_project_folder(project_path)
 
     def _show_file_context_menu(self, event):
         """Shows the context menu on right click for files."""

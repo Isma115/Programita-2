@@ -10,6 +10,8 @@ import subprocess
 import shlex
 import threading
 
+from src.logic.syntax_validator import validate_code_syntax
+
 # --- PYGMENTS (Syntax Highlighting profesional) ---
 from pygments import lex
 from pygments.lexers import get_lexer_for_filename, TextLexer
@@ -571,6 +573,93 @@ def _get_lexer_for_file(file_path):
     except Exception:
         return TextLexer()
 
+
+def _apply_syntax_tokens(text_widget, content, lexer, start_line=1, start_col=0):
+    """Aplica los tokens de Pygments a una región concreta del widget."""
+    line = start_line
+    col = start_col
+
+    for token_type, token_value in lex(content, lexer):
+        if not token_value:
+            continue
+
+        start_index = f"{line}.{col}"
+        lines_in_token = token_value.split("\n")
+        if len(lines_in_token) > 1:
+            end_line = line + len(lines_in_token) - 1
+            end_col = len(lines_in_token[-1])
+        else:
+            end_line = line
+            end_col = col + len(token_value)
+
+        end_index = f"{end_line}.{end_col}"
+
+        if token_type != Token.Text and token_type != Token.Text.Whitespace:
+            style = _resolve_token_style(token_type)
+            if style.get("fg") and style["fg"] != "#d4d4d4":
+                tag_name = _get_token_tag_name(token_type)
+                if tag_name not in text_widget.tag_names():
+                    config = {}
+                    if "fg" in style:
+                        config["foreground"] = style["fg"]
+                    if style.get("bold"):
+                        config["font"] = (FONT_CODE[0], FONT_CODE[1], "bold")
+                    if style.get("italic"):
+                        config["font"] = (FONT_CODE[0], FONT_CODE[1], "italic")
+                    if style.get("bold") and style.get("italic"):
+                        config["font"] = (FONT_CODE[0], FONT_CODE[1], "bold italic")
+                    text_widget.tag_configure(tag_name, **config)
+                text_widget.tag_add(tag_name, start_index, end_index)
+
+        if len(lines_in_token) > 1:
+            line = end_line
+            col = end_col
+        else:
+            col = end_col
+
+
+def _split_multifile_highlight_sections(content, default_file_path=None):
+    """Divide previews con cabeceras de archivo para colorear cada bloque con su lexer."""
+    normalized = _normalize_text(content)
+    lines = normalized.split("\n")
+    markers = []
+
+    for index, line in enumerate(lines):
+        path_hint = _extract_explicit_file_marker(line)
+        if path_hint:
+            markers.append((index, path_hint))
+
+    if not markers:
+        return [{
+            "start_line": 1,
+            "text": normalized,
+            "file_path": default_file_path,
+        }]
+
+    sections = []
+    if markers[0][0] > 0:
+        leading_text = "\n".join(lines[:markers[0][0]])
+        if leading_text.strip():
+            sections.append({
+                "start_line": 1,
+                "text": leading_text,
+                "file_path": default_file_path,
+            })
+
+    for idx, (marker_line, path_hint) in enumerate(markers):
+        content_start = marker_line + 1
+        content_end = markers[idx + 1][0] if idx + 1 < len(markers) else len(lines)
+        block_text = "\n".join(lines[content_start:content_end])
+        if not block_text:
+            continue
+        sections.append({
+            "start_line": content_start + 1,
+            "text": block_text,
+            "file_path": path_hint or default_file_path,
+        })
+
+    return sections
+
 def configure_tags(text_widget):
     """
     Configura los tags de colores estilo VS Code en el widget de texto.
@@ -603,58 +692,20 @@ def highlight_syntax(text_widget, file_path=None):
     for tag in text_widget.tag_names():
         if tag.startswith("PYG_"):
             text_widget.tag_remove(tag, "1.0", tk.END)
-    
-    # Obtener lexer adecuado
-    lexer = _get_lexer_for_file(file_path)
-    
-    # Tokenizar y aplicar tags
-    # Rastreamos posición como (línea, columna) para eficiencia con Tkinter indices
-    line = 1
-    col = 0
-    
-    for token_type, token_value in lex(content, lexer):
-        if not token_value:
+
+    sections = _split_multifile_highlight_sections(content, default_file_path=file_path)
+    for section in sections:
+        section_text = section.get("text", "")
+        if not section_text.strip():
             continue
-        
-        # Calcular posición inicio
-        start_index = f"{line}.{col}"
-        
-        # Calcular posición final contando newlines dentro del token
-        lines_in_token = token_value.split('\n')
-        if len(lines_in_token) > 1:
-            # Token multi-línea (ej: comentario de bloque, string multilínea)
-            end_line = line + len(lines_in_token) - 1
-            end_col = len(lines_in_token[-1])
-        else:
-            end_line = line
-            end_col = col + len(token_value)
-        
-        end_index = f"{end_line}.{end_col}"
-        
-        # Solo aplicar tag si no es texto plano (Token.Text)
-        if token_type != Token.Text and token_type != Token.Text.Whitespace:
-            # Resolver estilo (subiendo jerarquía si es necesario)
-            style = _resolve_token_style(token_type)
-            if style.get("fg") and style["fg"] != "#d4d4d4":
-                tag_name = _get_token_tag_name(token_type)
-                # Asegurar que el tag existe
-                if tag_name not in text_widget.tag_names():
-                    config = {}
-                    if "fg" in style:
-                        config["foreground"] = style["fg"]
-                    if style.get("bold"):
-                        config["font"] = (FONT_CODE[0], FONT_CODE[1], "bold")
-                    if style.get("italic"):
-                        config["font"] = (FONT_CODE[0], FONT_CODE[1], "italic")
-                    text_widget.tag_configure(tag_name, **config)
-                text_widget.tag_add(tag_name, start_index, end_index)
-        
-        # Actualizar posición
-        if len(lines_in_token) > 1:
-            line = end_line
-            col = end_col
-        else:
-            col = end_col
+        lexer = _get_lexer_for_file(section.get("file_path"))
+        _apply_syntax_tokens(
+            text_widget,
+            section_text,
+            lexer,
+            start_line=section.get("start_line", 1),
+            start_col=0,
+        )
 
 
 def create_styled_text_widget(parent, editable=True):
@@ -701,10 +752,17 @@ def show_popup(clipboard_text, match_text, file_path, ratio, line_num, app_insta
         "start_idx": 0,
         "end_idx": 0,
         "editor_job": None, # Para debounce
+        "syntax_job": None,
         "search_job": None,
         "search_current_start": None,
         "search_current_end": None,
         "search_trace_suspended": False,
+        "syntax_result": None,
+        "syntax_running": False,
+        "syntax_pending_payload": None,
+        "syntax_request_seq": 0,
+        "syntax_applied_seq": 0,
+        "syntax_destroyed": False,
     }
 
     # Popup
@@ -769,7 +827,20 @@ def show_popup(clipboard_text, match_text, file_path, ratio, line_num, app_insta
     # --- BUTTONS (Header Right) ---
     def on_accept():
         # txt_edit se define más abajo, pero estará disponible cuando se pulse el botón
-        new_content = txt_edit.get("1.0", "end-1c") 
+        new_content = txt_edit.get("1.0", "end-1c")
+        syntax_result = validate_code_syntax(new_content, file_path)
+        _apply_syntax_validation_result(syntax_result)
+        if syntax_result.get("supported") and not syntax_result.get("ok"):
+            proceed = messagebox.askyesno(
+                "Sintaxis invalida",
+                (
+                    f"Se ha detectado un error de sintaxis en la linea "
+                    f"{syntax_result.get('line') or 1}, columna {syntax_result.get('column') or 1}.\n\n"
+                    "El fichero se puede guardar igualmente. ¿Quieres continuar?"
+                ),
+            )
+            if not proceed:
+                return
         # Confirmación automática
         success = apply_replacement(file_path, state["start_idx"], state["end_idx"], new_content)
         if success:
@@ -860,6 +931,18 @@ def show_popup(clipboard_text, match_text, file_path, ratio, line_num, app_insta
     )
     lbl_edit.grid(row=0, column=0, sticky="w")
 
+    syntax_status_var = tk.StringVar(value="")
+    syntax_status = tk.Label(
+        edit_header_frame,
+        textvariable=syntax_status_var,
+        bg=THEME["bg"],
+        fg="#858585",
+        font=("Segoe UI", 11),
+        anchor="w",
+        justify="left",
+    )
+    syntax_status.grid(row=1, column=0, columnspan=2, sticky="ew", pady=(4, 0))
+
     search_host = tk.Frame(edit_header_frame, bg=THEME["bg"])
     search_host.grid(row=0, column=1, sticky="e")
     
@@ -870,6 +953,8 @@ def show_popup(clipboard_text, match_text, file_path, ratio, line_num, app_insta
 
     txt_edit.tag_configure("search_match", background="#264f78")
     txt_edit.tag_configure("search_current", background="#d7ba7d", foreground="#111827")
+    txt_edit.tag_configure("syntax_error_line", background="#45212a")
+    txt_edit.tag_configure("syntax_error_token", background="#7f1d1d", foreground="#ffffff", underline=True)
 
     search_var = tk.StringVar()
     search_frame = tk.Frame(search_host, bg="#252526", bd=1, relief="solid")
@@ -935,6 +1020,14 @@ def show_popup(clipboard_text, match_text, file_path, ratio, line_num, app_insta
                 pass
             state["search_job"] = None
 
+    def _cancel_syntax_job():
+        if state["syntax_job"]:
+            try:
+                popup.after_cancel(state["syntax_job"])
+            except Exception:
+                pass
+            state["syntax_job"] = None
+
     def _set_search_text(value):
         if search_var.get() == value:
             return
@@ -949,6 +1042,117 @@ def show_popup(clipboard_text, match_text, file_path, ratio, line_num, app_insta
         txt_edit.tag_remove("search_current", "1.0", tk.END)
         state["search_current_start"] = None
         state["search_current_end"] = None
+
+    def _clear_syntax_error_tags():
+        txt_edit.tag_remove("syntax_error_line", "1.0", tk.END)
+        txt_edit.tag_remove("syntax_error_token", "1.0", tk.END)
+
+    def _highlight_syntax_error(result):
+        _clear_syntax_error_tags()
+
+        if not result or result.get("ok") or not result.get("supported"):
+            return
+
+        line = max(int(result.get("line") or 1), 1)
+        column = max(int(result.get("column") or 1), 1)
+        end_line = max(int(result.get("end_line") or line), line)
+        end_column = result.get("end_column")
+
+        line_count = max(int(txt_edit.index("end-1c").split(".")[0]), 1)
+        line = min(line, line_count)
+        end_line = min(end_line, line_count)
+
+        txt_edit.tag_add("syntax_error_line", f"{line}.0", f"{line}.end")
+
+        start_col_zero = max(column - 1, 0)
+        if end_line == line and end_column:
+            end_col_zero = max(int(end_column) - 1, start_col_zero + 1)
+        else:
+            end_col_zero = start_col_zero + 1
+
+        txt_edit.tag_add(
+            "syntax_error_token",
+            f"{line}.{start_col_zero}",
+            f"{line}.{end_col_zero}",
+        )
+        txt_edit.tag_raise("syntax_error_line")
+        txt_edit.tag_raise("syntax_error_token")
+        txt_edit.see(f"{line}.0")
+
+    def _apply_syntax_validation_result(result):
+        if not popup.winfo_exists() or not txt_edit.winfo_exists():
+            return
+
+        state["syntax_result"] = result
+        _clear_syntax_error_tags()
+
+        if not result.get("supported"):
+            syntax_status_var.set(result["message"])
+            syntax_status.configure(fg="#858585")
+            return
+
+        if result.get("ok"):
+            syntax_status_var.set(f"Sintaxis OK: {result['message']}")
+            syntax_status.configure(fg="#6a9955")
+            return
+
+        line = result.get("line") or 1
+        column = result.get("column") or 1
+        syntax_status_var.set(
+            f"Error de sintaxis en linea {line}, columna {column}: {result['message']}"
+        )
+        syntax_status.configure(fg="#f44747")
+        _highlight_syntax_error(result)
+
+    def _start_pending_syntax_validation():
+        if state["syntax_destroyed"] or state["syntax_running"] or not state["syntax_pending_payload"]:
+            return
+
+        request_seq, content_snapshot = state["syntax_pending_payload"]
+        state["syntax_pending_payload"] = None
+        state["syntax_running"] = True
+
+        def _worker(seq=request_seq, snapshot=content_snapshot):
+            result = validate_code_syntax(snapshot, file_path)
+
+            def _deliver():
+                if state["syntax_destroyed"] or not popup.winfo_exists():
+                    state["syntax_running"] = False
+                    return
+
+                state["syntax_running"] = False
+                if seq >= state["syntax_applied_seq"]:
+                    state["syntax_applied_seq"] = seq
+                    _apply_syntax_validation_result(result)
+
+                if state["syntax_pending_payload"]:
+                    _start_pending_syntax_validation()
+
+            try:
+                popup.after(0, _deliver)
+            except Exception:
+                state["syntax_running"] = False
+
+        threading.Thread(target=_worker, daemon=True).start()
+
+    def _queue_syntax_validation():
+        if state["syntax_destroyed"] or not popup.winfo_exists() or not txt_edit.winfo_exists():
+            state["syntax_job"] = None
+            return
+
+        state["syntax_job"] = None
+        state["syntax_request_seq"] += 1
+        state["syntax_pending_payload"] = (
+            state["syntax_request_seq"],
+            txt_edit.get("1.0", "end-1c"),
+        )
+        syntax_status_var.set("Validando sintaxis...")
+        syntax_status.configure(fg="#9cdcfe")
+        _start_pending_syntax_validation()
+
+    def _schedule_syntax_validation(delay_ms=500):
+        _cancel_syntax_job()
+        state["syntax_job"] = popup.after(delay_ms, _queue_syntax_validation)
 
     def _set_current_search_match(start_index, end_index):
         state["search_current_start"] = start_index
@@ -1139,6 +1343,7 @@ def show_popup(clipboard_text, match_text, file_path, ratio, line_num, app_insta
                 _schedule_search_refresh(select_first=False, delay_ms=0)
 
         state["editor_job"] = popup.after(300, _refresh_editor_visuals)
+        _schedule_syntax_validation(delay_ms=500)
 
     # --- UNDO / REDO (Ctrl+Z / Ctrl+Y) ---
     def on_undo(event=None):
@@ -1289,6 +1494,7 @@ def show_popup(clipboard_text, match_text, file_path, ratio, line_num, app_insta
         highlight_syntax(txt_edit, file_path)
         if search_var.get():
             _schedule_search_refresh(select_first=False, delay_ms=0)
+        _schedule_syntax_validation(delay_ms=0)
         
         # Highlight matched region with subtle gray background
         txt_edit.tag_remove("match_highlight", "1.0", tk.END)
@@ -1366,13 +1572,17 @@ def show_popup(clipboard_text, match_text, file_path, ratio, line_num, app_insta
 
     def _on_popup_destroy(event=None):
         global _ACTIVE_ARBITRARY_POPUP
+        state["syntax_destroyed"] = True
+        state["syntax_pending_payload"] = None
         _cancel_search_job()
+        _cancel_syntax_job()
         if state["editor_job"]:
             try:
                 popup.after_cancel(state["editor_job"])
             except Exception:
                 pass
             state["editor_job"] = None
+        state["syntax_running"] = False
         if _ACTIVE_ARBITRARY_POPUP is popup:
             _ACTIVE_ARBITRARY_POPUP = None
 
