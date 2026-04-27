@@ -20,6 +20,7 @@ class SegmentCreationPopup(tk.Toplevel):
     Popup for creating/editing segments inside a subsection.
     A segment is a structure-based subset of the parent subsection.
     """
+    DEFAULT_OPEN_STRUCTURE_DEPTH = 2
 
     def __init__(self, parent, controller, section_name, subsection_name, segment_name=None, initial_items=None):
         super().__init__(parent)
@@ -283,6 +284,7 @@ class SegmentCreationPopup(tk.Toplevel):
         self._populate_structure_tree()
 
     def _configure_structure_tree_tags(self):
+        self.structure_tree.tag_configure("outline_role_file", foreground=Styles.COLOR_CODE_FILE)
         self.structure_tree.tag_configure("outline_role_default", foreground=Styles.COLOR_FG_TEXT)
         self.structure_tree.tag_configure("outline_role_view", foreground=Styles.COLOR_CODE_VIEW)
         self.structure_tree.tag_configure("outline_role_backend", foreground=Styles.COLOR_CODE_BACKEND)
@@ -310,16 +312,21 @@ class SegmentCreationPopup(tk.Toplevel):
                 text=file_entry["file_rel_path"],
                 values=("Archivo",),
                 open=True,
-                tags=self._get_outline_tree_tags(file_entry["file_rel_path"])
+                tags=("outline_role_file",)
             )
 
             for root in roots:
-                available_count += self._insert_structure_node(file_iid, root, file_entry["file_rel_path"])
+                available_count += self._insert_structure_node(
+                    file_iid,
+                    root,
+                    file_entry["file_rel_path"],
+                    depth=1
+                )
 
         self._refresh_visible_checkboxes()
         self._refresh_segment_summary(available_count=available_count)
 
-    def _insert_structure_node(self, parent_iid, node, file_rel_path):
+    def _insert_structure_node(self, parent_iid, node, file_rel_path, depth=1):
         item_iid = f"struct:{node['key']}"
         self.structure_tree.insert(
             parent_iid,
@@ -327,7 +334,7 @@ class SegmentCreationPopup(tk.Toplevel):
             iid=item_iid,
             text=self._format_tree_header(node),
             values=(self._format_structure_type_label(node.get("type", "")),),
-            open=True,
+            open=depth < self.DEFAULT_OPEN_STRUCTURE_DEPTH,
             tags=self._get_outline_tree_tags(file_rel_path, node)
         )
         self._tree_item_to_key[item_iid] = node["key"]
@@ -335,7 +342,12 @@ class SegmentCreationPopup(tk.Toplevel):
 
         count = 1
         for child in node.get("children", []):
-            count += self._insert_structure_node(item_iid, child, file_rel_path)
+            count += self._insert_structure_node(
+                item_iid,
+                child,
+                file_rel_path,
+                depth=depth + 1
+            )
         return count
 
     def _format_tree_header(self, node):

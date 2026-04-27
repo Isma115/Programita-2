@@ -162,12 +162,16 @@ class MainLayout(ttk.Frame):
         self.doc_view.on_tab_hidden()
         self.set_navbar_visible(True)
         self.code_view.pack(fill="both", expand=True)
+        if hasattr(self.code_view, "on_tab_shown"):
+            self.code_view.on_tab_shown()
         self._set_active_nav_tab("code")
         self.update_idletasks()
 
     def show_docs_tab(self):
         """Displays the Documentation view."""
         self._clear_content()
+        if hasattr(self.code_view, "on_tab_hidden"):
+            self.code_view.on_tab_hidden()
         self.doc_view.pack(fill="both", expand=True)
         self.doc_view.on_tab_shown()
         self._set_active_nav_tab("docs")
@@ -177,6 +181,8 @@ class MainLayout(ttk.Frame):
         """Displays the Database view."""
         self._clear_content()
         self.doc_view.on_tab_hidden()
+        if hasattr(self.code_view, "on_tab_hidden"):
+            self.code_view.on_tab_hidden()
         self.set_navbar_visible(True)
         self.database_view.pack(fill="both", expand=True)
         self._set_active_nav_tab("database")

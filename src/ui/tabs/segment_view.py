@@ -503,7 +503,7 @@ class SegmentView(ttk.Frame):
                 text=file_entry["file_rel_path"],
                 values=("Archivo",),
                 open=True,
-                tags=self._get_outline_tree_tags(file_entry["file_rel_path"])
+                tags=("outline_role_file",)
             )
 
             for root in filtered_roots:
@@ -539,6 +539,7 @@ class SegmentView(ttk.Frame):
         return filtered
 
     def _configure_structure_tree_tags(self):
+        self.structure_tree.tag_configure("outline_role_file", foreground=Styles.COLOR_CODE_FILE)
         self.structure_tree.tag_configure("outline_role_default", foreground=Styles.COLOR_FG_TEXT)
         self.structure_tree.tag_configure("outline_role_view", foreground=Styles.COLOR_CODE_VIEW)
         self.structure_tree.tag_configure("outline_role_backend", foreground=Styles.COLOR_CODE_BACKEND)

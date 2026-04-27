@@ -23,6 +23,7 @@ class Styles:
     COLOR_INPUT_BG = "#131f34"       # Input field background
     COLOR_INPUT_FG = "#ffffff"       # White input text
     COLOR_SELECTION_BG = "#20365a"   # Selection highlight
+    COLOR_CODE_FILE = "#dbe5f4"      # Light gray for file names in structure trees
     COLOR_CODE_VIEW = "#63e6ff"      # Cyan for view-oriented code structures
     COLOR_CODE_BACKEND = "#ffd866"   # Yellow for backend/data structures
 

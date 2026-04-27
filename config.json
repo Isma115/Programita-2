@@ -1,6 +1,6 @@
 {
-    "last_project": "/Users/ismaelmoraledalopez/Documents/Azure-Irrigation-Web/HidraSmart-Irrigation-System",
-    "file_limit": 1,
+    "last_project": "/Users/ismaelmoraledalopez/Desktop/Programita 2",
+    "file_limit": 50,
     "return_files": false,
     "doc_path": "/Users/ismaelmoraledalopez/Documents/Documentacion Irrigation",
     "doc_path_history": [
@@ -19,7 +19,7 @@
         "/Users/ismaelmoraledalopez/Desktop/SDD-Proyecto Aurora 2",
         "/Users/ismaelmoraledalopez/Desktop/pruebas/TreeConv"
     ],
-    "current_project_index": 0,
+    "current_project_index": 1,
     "db_config": {
         "host": "hidralab-server.mysql.database.azure.com",
         "port": "3306",
@@ -37,7 +37,7 @@
     "last_doc_section": "Gestor de Equipos",
     "last_code_section": "Catastro",
     "implementation_mode": false,
-    "last_doc_file": "/Users/ismaelmoraledalopez/Documents/Documentacion Irrigation/Catastro.md",
+    "last_doc_file": "/Users/ismaelmoraledalopez/Documents/Documentacion Irrigation/Catastro_carga_inicial.md",
     "sections_path": "/Users/ismaelmoraledalopez/Documents/Documentacion Irrigation/SeccionesCodigo/Catastro",
     "code_extensions_filter": "",
     "include_project_tree": false,
@@ -47,6 +47,6 @@
     "arbitrary_search_max_chars": 30,
     "export_prompts_as_folder": false,
     "include_file_headers_in_codigo_txt": true,
-    "max_file_limit": 31,
+    "max_file_limit": 50,
     "max_file_limit_slider_max": 50
 }

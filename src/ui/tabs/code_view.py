@@ -8,7 +8,7 @@ import re
 import textwrap
 import time
 import webbrowser
-from PIL import Image, ImageTk
+from PIL import Image, ImageTk, ImageDraw
 from src.addons.structure_header_replace import detect_code_structure
 from src.addons.Arbitrary_sus import create_styled_text_widget as arb_create_styled_text_widget
 from src.addons.Arbitrary_sus import highlight_syntax as arb_highlight_syntax
@@ -194,9 +194,13 @@ class CodeView(ttk.Frame):
         self.file_type_icons = {}
         self.toolbar_icons = {}
         self.folder_chip_widgets = []
+        self.file_action_widgets = []
         self._folder_chip_refresh_after = None
         self._segment_code_preview_text = ""
         self._segment_code_preview_file_hint = None
+        self._code_preview_mode = None
+        self.is_file_preview_fullscreen = False
+        self._sidebar_visible_before_preview_fullscreen = True
 
         self._initialize_output_state()
         self._load_file_type_icons()
@@ -257,6 +261,8 @@ class CodeView(ttk.Frame):
             icon_size = Styles.scale_size(18)
             icon_map = {
                 "reload": "reload.png",
+                "view": "view_eye.png",
+                "back": "arrow_back_left.png",
             }
 
             for icon_key, filename in icon_map.items():
@@ -264,14 +270,48 @@ class CodeView(ttk.Frame):
                 if not os.path.exists(icon_path):
                     continue
                 image = Image.open(icon_path).convert("RGBA")
-                if icon_key == "reload":
-                    alpha = image.getchannel("A")
-                    image = Image.new("RGBA", image.size, (255, 255, 255, 0))
-                    image.putalpha(alpha)
+                alpha = image.getchannel("A")
+                image = Image.new("RGBA", image.size, (255, 255, 255, 0))
+                image.putalpha(alpha)
                 image = image.resize((icon_size, icon_size), Image.Resampling.LANCZOS)
                 self.toolbar_icons[icon_key] = ImageTk.PhotoImage(image)
+
+            self.toolbar_icons["fullscreen_enter"] = self._create_fullscreen_toolbar_icon("enter", size=(icon_size, icon_size))
+            self.toolbar_icons["fullscreen_exit"] = self._create_fullscreen_toolbar_icon("exit", size=(icon_size, icon_size))
         except Exception as exc:
             print(f"CodeView: Error cargando iconos de toolbar: {exc}")
+
+    def _create_fullscreen_toolbar_icon(self, mode, size=(18, 18)):
+        """Creates a crisp fullscreen enter/exit icon for the file preview header."""
+        upscale = 6
+        large_size = (size[0] * upscale, size[1] * upscale)
+        image = Image.new("RGBA", large_size, (0, 0, 0, 0))
+        draw = ImageDraw.Draw(image)
+        color = "#eef4ff"
+        stroke = max(6, round(min(large_size) / 10))
+        margin = round(min(large_size) * 0.18)
+        short = round(min(large_size) * 0.22)
+        left = margin
+        top = margin
+        right = large_size[0] - margin
+        bottom = large_size[1] - margin
+
+        def segment(points):
+            draw.line(points, fill=color, width=stroke, joint="curve")
+
+        if mode == "enter":
+            segment([(left + short, top), (left, top), (left, top + short)])
+            segment([(right - short, top), (right, top), (right, top + short)])
+            segment([(left, bottom - short), (left, bottom), (left + short, bottom)])
+            segment([(right - short, bottom), (right, bottom), (right, bottom - short)])
+        else:
+            segment([(left, top + short), (left, top), (left + short, top)])
+            segment([(right - short, top), (right, top), (right, top + short)])
+            segment([(left + short, bottom), (left, bottom), (left, bottom - short)])
+            segment([(right, bottom - short), (right, bottom), (right - short, bottom)])
+
+        image = image.resize(size, Image.Resampling.LANCZOS)
+        return ImageTk.PhotoImage(image)
 
     @classmethod
     def _get_ai_config_path(cls):
@@ -570,7 +610,9 @@ class CodeView(ttk.Frame):
             bd=0,
             highlightthickness=0
         )
-        self.reload_button_shell.pack(fill="x", padx=8, pady=(0, 3))
+         # [MODIFICACIÓN] Cambiar pady=(0, 3) a pady=(0, 0) para reducir el espacio vertical
+        # Esto hace que el borde azul del marco exterior se vea más bajo
+        self.reload_button_shell.pack(fill="x", padx=8, pady=(0, 0))
 
         reload_button_kwargs = {
             "style": "ToolbarIcon.TButton",
@@ -586,7 +628,8 @@ class CodeView(ttk.Frame):
             self.reload_button_shell,
             **reload_button_kwargs
         )
-        self.btn_reload_project.pack(fill="x")
+        self.btn_reload_project.pack(fill="x", ipady=4, pady=(0, 0))
+        self.btn_reload_project.pack_configure(ipady=0)
         attach_tooltip(self.btn_reload_project, "Recargar todos los ficheros y restaurar descartados")
 
         if hasattr(self, 'controller') and hasattr(self.controller, 'config_manager'):
@@ -614,11 +657,11 @@ class CodeView(ttk.Frame):
         )
         self.file_list_shell.pack(fill="both", expand=True)
 
-        self.columns = ("folder", "size", "type", "full_path", "folder_chip")
+        self.columns = ("folder", "size", "type", "view", "full_path", "folder_chip")
         self.tree = ttk.Treeview(
             self.file_list_shell,
             columns=self.columns,
-            displaycolumns=("folder", "size", "type"),
+            displaycolumns=("folder", "size", "type", "view"),
             show="tree headings",
             selectmode="extended",
             style="Files.Treeview"
@@ -627,11 +670,13 @@ class CodeView(ttk.Frame):
         self.tree.heading("folder", text="Ruta")
         self.tree.heading("size", text="Tamaño")
         self.tree.heading("type", text="Tipo")
+        self.tree.heading("view", text="Ver")
 
         self.tree.column("#0", anchor="w", stretch=True, width=360, minwidth=240)
         self.tree.column("folder", anchor="w", stretch=True, width=180, minwidth=120)
         self.tree.column("size", anchor="center", stretch=False, width=110, minwidth=90)
         self.tree.column("type", anchor="center", stretch=False, width=140, minwidth=110)
+        self.tree.column("view", anchor="center", stretch=False, width=100, minwidth=84)
         self.tree.column("full_path", width=0, stretch=False, minwidth=0)
         self.tree.column("folder_chip", width=0, stretch=False, minwidth=0)
         self._configure_file_tree_style()
@@ -679,15 +724,44 @@ class CodeView(ttk.Frame):
             bd=0
         )
 
-        self.segment_code_header = tk.Label(
+        self.segment_code_header_row = tk.Frame(
             self.segment_code_shell,
+            bg=Styles.COLOR_INPUT_BG,
+            bd=0,
+            highlightthickness=0
+        )
+        self.segment_code_header_row.pack(fill="x", padx=8, pady=(8, 4))
+
+        self.segment_code_back_button = self._create_rounded_icon_button(
+            self.segment_code_header_row,
+            command=self._on_preview_back,
+            icon_key="back",
+            text="←",
+            width=Styles.scale_size(34),
+            height=Styles.scale_size(30),
+            host_bg=Styles.COLOR_INPUT_BG
+        )
+        self.segment_code_back_button.pack(side="left", padx=(0, 8))
+        attach_tooltip(self.segment_code_back_button, "Volver a la lista de ficheros")
+
+        self.btn_toggle_file_preview_fullscreen = ttk.Button(
+            self.segment_code_header_row,
+            image=self.toolbar_icons.get("fullscreen_enter"),
+            text="",
+            style="FullscreenToggle.TButton",
+            command=self._toggle_file_preview_fullscreen
+        )
+        attach_tooltip(self.btn_toggle_file_preview_fullscreen, "Mostrar solo el código del fichero")
+
+        self.segment_code_header = tk.Label(
+            self.segment_code_header_row,
             text="Código del segmento",
             bg=Styles.COLOR_INPUT_BG,
             fg=Styles.COLOR_DIM,
             font=("Segoe UI", 11, "bold"),
             anchor="w"
         )
-        self.segment_code_header.pack(fill="x", padx=12, pady=(10, 4))
+        self.segment_code_header.pack(side="left", fill="x", expand=True)
 
         self.segment_code_body = tk.Frame(
             self.segment_code_shell,
@@ -697,6 +771,24 @@ class CodeView(ttk.Frame):
         )
         self.segment_code_body.pack(fill="both", expand=True, padx=8, pady=(0, 8))
 
+        self.segment_code_line_numbers = tk.Text(
+            self.segment_code_body,
+            width=4,
+            bg="#252526",
+            fg="#858585",
+            relief="flat",
+            wrap="none",
+            padx=8,
+            pady=8,
+            bd=0,
+            highlightthickness=0,
+            takefocus=0,
+            state="disabled",
+            cursor="arrow"
+        )
+        self.segment_code_line_numbers.tag_configure("line_number", justify="right")
+        self.segment_code_line_numbers.pack(side="left", fill="y")
+
         self.segment_code_text = arb_create_styled_text_widget(self.segment_code_body, editable=False)
         self.segment_code_text.configure(wrap="none")
         self.segment_code_text.pack(side="left", fill="both", expand=True)
@@ -704,22 +796,37 @@ class CodeView(ttk.Frame):
         self.segment_code_scrollbar = ttk.Scrollbar(
             self.segment_code_body,
             orient="vertical",
-            command=self.segment_code_text.yview,
+            command=self._on_segment_code_scrollbar,
             style="Vertical.TScrollbar"
         )
         self.segment_code_scrollbar.pack(side="right", fill="y")
-        self.segment_code_text.configure(yscrollcommand=self.segment_code_scrollbar.set)
+        self.segment_code_text.configure(yscrollcommand=self._on_segment_code_yscroll)
         self.segment_code_text.configure(state="disabled")
+        self.segment_code_line_numbers.configure(font=self.segment_code_text.cget("font"))
+        self.segment_code_line_numbers.bind("<MouseWheel>", self._on_segment_code_mousewheel)
+        self.segment_code_line_numbers.bind("<Button-4>", self._on_segment_code_mousewheel)
+        self.segment_code_line_numbers.bind("<Button-5>", self._on_segment_code_mousewheel)
 
     def _show_file_list_view(self):
+        if self.is_file_preview_fullscreen:
+            self.is_file_preview_fullscreen = False
+            self._apply_file_preview_fullscreen()
         if hasattr(self, "segment_code_shell") and self.segment_code_shell.winfo_manager():
             self.segment_code_shell.pack_forget()
         if hasattr(self, "file_list_shell") and not self.file_list_shell.winfo_manager():
             self.file_list_shell.pack(fill="both", expand=True)
+        self._code_preview_mode = None
+        self._update_file_preview_fullscreen_button()
+        self._schedule_folder_chip_refresh()
 
-    def _show_segment_code_view(self, code_text, title_text=None, file_hint=None):
+    def _show_segment_code_view(self, code_text, title_text=None, file_hint=None, preview_mode="segment"):
         self._segment_code_preview_text = code_text or ""
         self._segment_code_preview_file_hint = file_hint
+        self._code_preview_mode = preview_mode
+
+        if preview_mode != "file" and self.is_file_preview_fullscreen:
+            self.is_file_preview_fullscreen = False
+            self._apply_file_preview_fullscreen()
 
         if hasattr(self, "file_list_shell") and self.file_list_shell.winfo_manager():
             self.file_list_shell.pack_forget()
@@ -728,7 +835,8 @@ class CodeView(ttk.Frame):
 
         if hasattr(self, "segment_code_header"):
             self.segment_code_header.configure(text=title_text or "Código del segmento")
-
+        self._update_file_preview_fullscreen_button()
+        self._update_segment_code_line_numbers(self._segment_code_preview_text)
         if hasattr(self, "segment_code_text"):
             self.segment_code_text.configure(state="normal")
             self.segment_code_text.delete("1.0", tk.END)
@@ -738,6 +846,154 @@ class CodeView(ttk.Frame):
             except Exception as exc:
                 print(f"CodeView: Error applying segment preview syntax highlight: {exc}")
             self.segment_code_text.configure(state="disabled")
+
+    def _on_preview_back(self):
+        """Returns from the code preview to the file list."""
+        self._show_file_list_view()
+        self._schedule_file_list_refresh()
+
+    def _update_segment_code_line_numbers(self, code_text):
+        """Refreshes the gutter with one line number per visible code line."""
+        if not hasattr(self, "segment_code_line_numbers"):
+            return
+
+        normalized_text = str(code_text or "")
+        line_count = max(normalized_text.count("\n") + 1, 1)
+        gutter_width = max(4, len(str(line_count)) + 1)
+        numbers_text = "\n".join(str(index) for index in range(1, line_count + 1))
+
+        self.segment_code_line_numbers.configure(state="normal", width=gutter_width)
+        self.segment_code_line_numbers.delete("1.0", tk.END)
+        self.segment_code_line_numbers.insert("1.0", numbers_text, "line_number")
+        self.segment_code_line_numbers.configure(state="disabled")
+        self.segment_code_line_numbers.yview_moveto(0)
+
+    def _on_segment_code_scrollbar(self, *args):
+        """Scrolls both the code text and the line-number gutter."""
+        if hasattr(self, "segment_code_text"):
+            self.segment_code_text.yview(*args)
+        if hasattr(self, "segment_code_line_numbers"):
+            self.segment_code_line_numbers.yview(*args)
+
+    def _on_segment_code_yscroll(self, first, last):
+        """Keeps the scrollbar and gutter aligned with the code viewport."""
+        if hasattr(self, "segment_code_scrollbar"):
+            self.segment_code_scrollbar.set(first, last)
+        if hasattr(self, "segment_code_line_numbers"):
+            self.segment_code_line_numbers.yview_moveto(first)
+
+    def _on_segment_code_mousewheel(self, event):
+        """Delegates mouse-wheel scrolling from the line-number gutter to the code view."""
+        if getattr(event, "delta", 0):
+            step = -1 if event.delta > 0 else 1
+            self._on_segment_code_scrollbar("scroll", step, "units")
+        elif getattr(event, "num", None) == 4:
+            self._on_segment_code_scrollbar("scroll", -1, "units")
+        elif getattr(event, "num", None) == 5:
+            self._on_segment_code_scrollbar("scroll", 1, "units")
+        return "break"
+
+    def _update_file_preview_fullscreen_button(self):
+        """Shows header controls only when previewing a whole file."""
+        if not hasattr(self, "btn_toggle_file_preview_fullscreen"):
+            return
+
+        if self._code_preview_mode == "file":
+            if hasattr(self, "segment_code_back_button") and not self.segment_code_back_button.winfo_manager():
+                self.segment_code_back_button.pack(side="left", padx=(0, 8))
+            self.btn_toggle_file_preview_fullscreen.configure(
+                image=self.toolbar_icons.get("fullscreen_exit") if self.is_file_preview_fullscreen else self.toolbar_icons.get("fullscreen_enter"),
+                text="" if self.toolbar_icons.get("fullscreen_enter") else ("Salir" if self.is_file_preview_fullscreen else "Expandir")
+            )
+            if not self.btn_toggle_file_preview_fullscreen.winfo_manager():
+                self.btn_toggle_file_preview_fullscreen.pack(side="right")
+        else:
+            if hasattr(self, "segment_code_back_button") and self.segment_code_back_button.winfo_manager():
+                self.segment_code_back_button.pack_forget()
+            if self.btn_toggle_file_preview_fullscreen.winfo_manager():
+                self.btn_toggle_file_preview_fullscreen.pack_forget()
+
+    def _toggle_file_preview_fullscreen(self):
+        """Toggles a local fullscreen mode focused on the file preview."""
+        if self._code_preview_mode != "file":
+            return
+        self.is_file_preview_fullscreen = not self.is_file_preview_fullscreen
+        self._apply_file_preview_fullscreen()
+
+    def _is_right_panel_attached(self):
+        """Returns True when the sections sidebar is attached to the split view."""
+        try:
+            return str(self.right_frame) in self.paned_window.panes()
+        except Exception:
+            return False
+
+    def _apply_file_preview_fullscreen(self):
+        """Shows only the code preview area while keeping a way to restore the layout."""
+        main_layout = self._get_main_layout()
+
+        if self.is_file_preview_fullscreen:
+            self._sidebar_visible_before_preview_fullscreen = self._is_right_panel_attached()
+            if self._sidebar_visible_before_preview_fullscreen:
+                try:
+                    self.paned_window.forget(self.right_frame)
+                except Exception:
+                    pass
+
+            if hasattr(self, "project_bar") and self.project_bar.winfo_manager():
+                self.project_bar.pack_forget()
+            if hasattr(self, "top_bar") and self.top_bar.winfo_manager():
+                self.top_bar.pack_forget()
+            if hasattr(self, "prompt_frame") and self.prompt_frame.winfo_manager():
+                self.prompt_frame.pack_forget()
+            if hasattr(self, "tree_frame"):
+                self.tree_frame.pack_configure(padx=0, pady=0)
+
+            if main_layout:
+                main_layout.set_navbar_visible(False)
+        else:
+            if hasattr(self, "project_bar") and not self.project_bar.winfo_manager():
+                self.project_bar.pack(side="top", fill="x", padx=10, pady=(6, 2), before=self.tree_frame)
+            if hasattr(self, "top_bar") and not self.top_bar.winfo_manager():
+                self.top_bar.pack(side="top", fill="x", padx=10, pady=(2, 8), before=self.tree_frame)
+            if hasattr(self, "prompt_frame") and not self.prompt_frame.winfo_manager():
+                self.prompt_frame.pack(side="bottom", fill="x", padx=10, pady=10)
+            if hasattr(self, "tree_frame"):
+                self.tree_frame.pack_configure(padx=10, pady=0)
+
+            if self._sidebar_visible_before_preview_fullscreen and not self._is_right_panel_attached():
+                try:
+                    self.paned_window.add(self.right_frame, minsize=self.MIN_SECTIONS_PANEL_WIDTH, stretch="never")
+                except Exception:
+                    pass
+                self.after_idle(self._set_default_sections_panel_width)
+
+            if main_layout:
+                main_layout.set_navbar_visible(True)
+
+        self._update_file_preview_fullscreen_button()
+
+    def _get_main_layout(self):
+        parent = self.master
+        while parent is not None:
+            if hasattr(parent, "set_navbar_visible"):
+                return parent
+            parent = getattr(parent, "master", None)
+        return None
+
+    def on_tab_shown(self):
+        """Reapplies fullscreen chrome rules when the tab becomes visible."""
+        if self.is_file_preview_fullscreen:
+            self._apply_file_preview_fullscreen()
+
+    def on_tab_hidden(self):
+        """Restores shared chrome when leaving the code tab."""
+        if self.is_file_preview_fullscreen:
+            self.is_file_preview_fullscreen = False
+            self._apply_file_preview_fullscreen()
+        else:
+            main_layout = self._get_main_layout()
+            if main_layout:
+                main_layout.set_navbar_visible(True)
 
     def _configure_file_tree_style(self, row_font_size=None, heading_font_size=None, row_height=None):
         """Creates a richer table style for the file list."""
@@ -813,6 +1069,15 @@ class CodeView(ttk.Frame):
                 pass
         self.folder_chip_widgets = []
 
+    def _clear_file_action_overlays(self):
+        """Removes the 'Ver' button overlays from the file table."""
+        for widget in self.file_action_widgets:
+            try:
+                widget.destroy()
+            except Exception:
+                pass
+        self.file_action_widgets = []
+
     def _get_file_row_background(self, item_id):
         """Returns the visual row background for a given tree item."""
         try:
@@ -827,9 +1092,13 @@ class CodeView(ttk.Frame):
     def _draw_rounded_rect(self, canvas, x1, y1, x2, y2, radius, fill, outline, width):
         """Draws a rounded rectangle in a canvas."""
         radius = max(0, min(radius, int((x2 - x1) / 2), int((y2 - y1) / 2)))
+        if radius <= 0:
+            canvas.create_rectangle(x1, y1, x2, y2, fill=fill, outline=outline, width=width)
+            return
 
-        canvas.create_rectangle(x1 + radius, y1, x2 - radius, y2, fill=fill, outline=outline, width=width)
-        canvas.create_rectangle(x1, y1 + radius, x2, y2 - radius, fill=fill, outline=outline, width=width)
+        # Fill first without outlines to avoid visible circular corner artifacts.
+        canvas.create_rectangle(x1 + radius, y1, x2 - radius, y2, fill=fill, outline="")
+        canvas.create_rectangle(x1, y1 + radius, x2, y2 - radius, fill=fill, outline="")
 
         for corner in (
             (x1, y1, x1 + radius * 2, y1 + radius * 2),
@@ -837,7 +1106,123 @@ class CodeView(ttk.Frame):
             (x1, y2 - radius * 2, x1 + radius * 2, y2),
             (x2 - radius * 2, y2 - radius * 2, x2, y2),
         ):
-            canvas.create_oval(*corner, fill=fill, outline=outline, width=width)
+            canvas.create_oval(*corner, fill=fill, outline="")
+
+        if outline and width > 0:
+            canvas.create_line(x1 + radius, y1, x2 - radius, y1, fill=outline, width=width)
+            canvas.create_line(x1 + radius, y2, x2 - radius, y2, fill=outline, width=width)
+            canvas.create_line(x1, y1 + radius, x1, y2 - radius, fill=outline, width=width)
+            canvas.create_line(x2, y1 + radius, x2, y2 - radius, fill=outline, width=width)
+
+            arc_boxes = (
+                (x1, y1, x1 + radius * 2, y1 + radius * 2, 90),
+                (x2 - radius * 2, y1, x2, y1 + radius * 2, 0),
+                (x1, y2 - radius * 2, x1 + radius * 2, y2, 180),
+                (x2 - radius * 2, y2 - radius * 2, x2, y2, 270),
+            )
+            for ax1, ay1, ax2, ay2, start in arc_boxes:
+                canvas.create_arc(
+                    ax1,
+                    ay1,
+                    ax2,
+                    ay2,
+                    start=start,
+                    extent=90,
+                    style="arc",
+                    outline=outline,
+                    width=width
+                )
+
+    def _create_rounded_icon_button(
+        self,
+        parent,
+        command,
+        icon_key=None,
+        text=None,
+        width=None,
+        height=None,
+        host_bg=None
+    ):
+        """Builds a small rounded button using Canvas for lightweight custom chrome."""
+        button_width = max(int(width or Styles.scale_size(34)), 24)
+        button_height = max(int(height or Styles.scale_size(30)), 24)
+        host_bg = host_bg or Styles.COLOR_INPUT_BG
+        radius = max(6, min(button_height // 3, Styles.scale_size(8)))
+
+        canvas = tk.Canvas(
+            parent,
+            width=button_width,
+            height=button_height,
+            bg=host_bg,
+            bd=0,
+            highlightthickness=0,
+            relief="flat",
+            cursor="hand2"
+        )
+        canvas.configure(takefocus=1)
+
+        colors = {
+            "normal": Styles.COLOR_SIDEBAR_CARD_INNER,
+            "hover": Styles.COLOR_SELECTION_BG,
+            "pressed": Styles.COLOR_PANE_DIVIDER,
+            "border": Styles.COLOR_BORDER,
+            "text": "#d9e6fb",
+            "text_active": Styles.COLOR_BUTTON_FG_ACTIVE,
+        }
+
+        icon_image = self.toolbar_icons.get(icon_key) if icon_key else None
+        label_font = Styles.scale_font(("Segoe UI", 11, "bold"))
+
+        def redraw(state="normal"):
+            canvas.delete("all")
+            fill = colors.get(state, colors["normal"])
+            fg = colors["text_active"] if state in {"hover", "pressed"} else colors["text"]
+            self._draw_rounded_rect(
+                canvas,
+                1,
+                1,
+                button_width - 1,
+                button_height - 1,
+                radius=radius,
+                fill=fill,
+                outline=colors["border"],
+                width=1
+            )
+            if icon_image is not None:
+                canvas.create_image(button_width / 2, button_height / 2, image=icon_image)
+            elif text:
+                canvas.create_text(
+                    button_width / 2,
+                    button_height / 2,
+                    text=text,
+                    fill=fg,
+                    font=label_font
+                )
+
+        def on_enter(_event):
+            redraw("hover")
+
+        def on_leave(_event):
+            redraw("normal")
+
+        def on_press(_event):
+            redraw("pressed")
+
+        def on_release(event):
+            inside = 0 <= event.x <= button_width and 0 <= event.y <= button_height
+            redraw("hover" if inside else "normal")
+            if inside and callable(command):
+                command()
+
+        canvas.bind("<Enter>", on_enter)
+        canvas.bind("<Leave>", on_leave)
+        canvas.bind("<Button-1>", on_press)
+        canvas.bind("<ButtonRelease-1>", on_release)
+        canvas.bind("<space>", lambda _event: command() if callable(command) else None)
+        canvas.bind("<Return>", lambda _event: command() if callable(command) else None)
+
+        redraw("normal")
+        return canvas
 
     def _on_folder_chip_mousewheel(self, event):
         """Delegates scroll events captured by the Ruta chip overlay."""
@@ -852,12 +1237,16 @@ class CodeView(ttk.Frame):
         return "break"
 
     def _refresh_folder_chip_overlays(self):
-        """Renders a gray chip over each visible Ruta cell."""
+        """Renders the extra controls layered over the file table."""
         self._folder_chip_refresh_after = None
         if not hasattr(self, "tree"):
             return
 
         self._clear_folder_chip_overlays()
+        self._clear_file_action_overlays()
+
+        if not getattr(self, "file_list_shell", None) or not self.file_list_shell.winfo_manager():
+            return
 
         chip_bg = "#2e3747"
         chip_fg = "#c2cad8"
@@ -930,6 +1319,39 @@ class CodeView(ttk.Frame):
             canvas.bind("<Button-5>", self._on_folder_chip_mousewheel)
             self.folder_chip_widgets.append(canvas)
 
+        for item_id in self.tree.get_children():
+            try:
+                bbox = self.tree.bbox(item_id, "view")
+            except Exception:
+                bbox = None
+
+            if not bbox:
+                continue
+
+            x, y, width, height = bbox
+            if width <= 8 or height <= 6:
+                continue
+            if x < 0 or y < 0:
+                continue
+            if (x + width) > viewport_width or (y + height) > viewport_height:
+                continue
+
+            button_width = max(min(width - 12, Styles.scale_size(72)), Styles.scale_size(54))
+            button_height = max(height - 10, Styles.scale_size(28))
+            button = self._create_rounded_icon_button(
+                self.tree,
+                command=lambda iid=item_id: self._open_file_preview(iid),
+                icon_key="view",
+                text="Ver",
+                width=button_width,
+                height=button_height,
+                host_bg=self._get_file_row_background(item_id)
+            )
+            button_x = x + max((width - button_width) // 2, 4)
+            button_y = y + max((height - button_height) // 2, 3)
+            button.place(x=button_x, y=button_y, width=button_width, height=button_height)
+            self.file_action_widgets.append(button)
+
     def _select_file_tree_item(self, item_id):
         """Selects one file row in the table."""
         if not item_id:
@@ -956,14 +1378,16 @@ class CodeView(ttk.Frame):
         total_width = max(self.tree.winfo_width(), 780)
         size_width = max(Styles.scale_size(110), int(total_width * 0.11))
         type_width = max(Styles.scale_size(130), int(total_width * 0.14))
+        view_width = max(Styles.scale_size(92), int(total_width * 0.11))
         folder_width = max(Styles.scale_size(170), int(total_width * 0.22))
-        used_width = size_width + type_width + folder_width
+        used_width = size_width + type_width + view_width + folder_width
         name_width = max(Styles.scale_size(240), total_width - used_width)
 
         self.tree.column("#0", width=name_width)
         self.tree.column("folder", width=folder_width)
         self.tree.column("size", width=size_width)
         self.tree.column("type", width=type_width)
+        self.tree.column("view", width=view_width)
         self._schedule_folder_chip_refresh()
 
     def _format_file_size(self, num_bytes):
@@ -1212,7 +1636,7 @@ class CodeView(ttk.Frame):
 
         self.section_search_label = tk.Label(
             self.section_search_shell,
-            text="Buscar sección, subsección o segmento",
+            text="Buscar...",
             bg=Styles.COLOR_BG_SIDEBAR,
             fg=Styles.COLOR_DIM,
             font=("Segoe UI", 13, "bold"),
@@ -2033,6 +2457,9 @@ class CodeView(ttk.Frame):
 
     def refresh_file_list(self, files=None):
         """Updates the treeview with files. If None, fetches from project manager."""
+        self._clear_folder_chip_overlays()
+        self._clear_file_action_overlays()
+
         # Clear existing
         for item in self.tree.get_children():
             self.tree.delete(item)
@@ -2078,6 +2505,7 @@ class CodeView(ttk.Frame):
                     "",
                     size_label,
                     type_label,
+                    "Ver",
                     f['path'],
                     self._build_file_folder_display(rel_path)
                 ),
@@ -2287,7 +2715,8 @@ class CodeView(ttk.Frame):
             self._show_segment_code_view(
                 "",
                 title_text=f"Segmento: {segment_name}",
-                file_hint=None
+                file_hint=None,
+                preview_mode="segment"
             )
             return
 
@@ -2305,7 +2734,12 @@ class CodeView(ttk.Frame):
 
         file_hint = unique_paths[0] if len(unique_paths) == 1 else None
         title_text = f"Segmento: {section_name} > {subsection_name} > {segment_name}"
-        self._show_segment_code_view(code_text, title_text=title_text, file_hint=file_hint)
+        self._show_segment_code_view(
+            code_text,
+            title_text=title_text,
+            file_hint=file_hint,
+            preview_mode="segment"
+        )
 
     def _extract_structure_header_text(self, structure_item):
         """Returns the normalized header/signature text for a detected structure."""
@@ -3777,6 +4211,12 @@ class CodeView(ttk.Frame):
         Elimina el fichero seleccionado de la lista al hacer doble click.
         No elimina el fichero físico del disco, solo lo remueve de la vista.
         """
+        column_id = self.tree.identify_column(event.x)
+        if column_id == "#4":
+            iid = self.tree.identify_row(event.y)
+            if iid:
+                self._open_file_preview(iid)
+            return
         # Obtener el item seleccionado bajo el cursor
         iid = self.tree.identify_row(event.y)
         if iid:
@@ -3830,6 +4270,28 @@ class CodeView(ttk.Frame):
         if file_data:
             return file_data
         return None
+
+    def _open_file_preview(self, item_id):
+        """Shows the full code of the selected file in the preview panel."""
+        if not item_id:
+            return
+
+        self._select_file_tree_item(item_id)
+        full_path = self._get_tree_item_path(item_id)
+        if not full_path:
+            return
+
+        file_data = self.controller.get_file_content_by_path(full_path)
+        if not file_data:
+            messagebox.showwarning("Aviso", "No se pudo cargar el contenido del fichero seleccionado.")
+            return
+
+        self._show_segment_code_view(
+            file_data.get("content", ""),
+            title_text=f"Archivo: {file_data.get('rel_path', os.path.basename(full_path))}",
+            file_hint=full_path,
+            preview_mode="file"
+        )
 
     def _on_file_copy(self):
         file_data = self._get_selected_file_content()

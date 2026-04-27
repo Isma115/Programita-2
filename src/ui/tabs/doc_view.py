@@ -163,6 +163,7 @@ class DocView(ttk.Frame):
         self.markdown_preview_zoom = self.MARKDOWN_PREVIEW_ZOOM
         self.markdown_preview_fontscale = self.MARKDOWN_PREVIEW_FONTSCALE
         self.code_font_family = self._resolve_code_font_family()
+        self.doc_sidebar_font_family = self._resolve_doc_sidebar_font_family()
         self.code_font_size = ARB_FONT_CODE[1] if ARB_FONT_CODE else 14
         self.toolbar_surface_bg = Styles.COLOR_DOC_TOOLBAR_BG
         self._doc_tree_drag_source = None
@@ -221,15 +222,37 @@ class DocView(ttk.Frame):
                 return family
         return "Courier"
 
+    def _resolve_doc_sidebar_font_family(self):
+        preferred_families = ["Just Sans Variable", "Just Sans", "Segoe UI"]
+        try:
+            available = set(tkfont.families())
+        except Exception:
+            return "Segoe UI"
+
+        for family in preferred_families:
+            if family in available:
+                return family
+        return "Segoe UI"
+
     def _load_icons(self):
         """Loads icons from assets directory."""
         self.icons = {}
-        icon_names = ["folder_open", "file_plus", "save", "delete", "edit", "view", "moon", "sun"]
+        icon_paths = {
+            "folder_open": ("folder_open.png",),
+            "file_plus": ("file_plus.png",),
+            "save": ("save.png",),
+            "delete": ("delete.png",),
+            "edit": ("edit.png",),
+            "view": ("view.png",),
+            "moon": ("moon.png",),
+            "sun": ("sun.png",),
+            "prompt": ("filetypes", "template.png"),
+        }
         try:
             # Assuming assets is at project root
             base_path = os.path.join(os.getcwd(), "assets", "icons")
-            for name in icon_names:
-                path = os.path.join(base_path, f"{name}.png")
+            for name, relative_parts in icon_paths.items():
+                path = os.path.join(base_path, *relative_parts)
                 if os.path.exists(path):
                     img = Image.open(path).resize((20, 20), Image.Resampling.LANCZOS)
                     self.icons[name] = ImageTk.PhotoImage(img)
@@ -388,6 +411,7 @@ class DocView(ttk.Frame):
             side="left",
             padx=1,
             style="DocToolbarFlat.TButton",
+            image=self.icons.get("prompt"),
             text="Prompt",
             command=self._open_prompt_builder,
             tooltip_text="Crear prompt"
@@ -406,15 +430,15 @@ class DocView(ttk.Frame):
             tooltip_text="Cambiar vista"
         )
         
-        self.btn_diagrams = self._create_toolbar_button(
-            self.toolbar_buttons_group,
-            side="left",
-            padx=1,
-            style="DocToolbarFlat.TButton",
-            text="Diagrama",
-            command=self._open_diagram_editor,
-            tooltip_text="Crear diagrama"
-        )
+        # self.btn_diagrams = self._create_toolbar_button(
+        #     self.toolbar_buttons_group,
+        #     side="left",
+        #     padx=1,
+        #     style="DocToolbarFlat.TButton",
+        #     text="Diagrama",
+        #     command=self._open_diagram_editor,
+        #     tooltip_text="Crear diagrama"
+        # )
         
         theme_icon = self.icons.get("moon") if not self.is_dark_mode else self.icons.get("sun")
         self.btn_theme = self._create_toolbar_button(
@@ -601,7 +625,7 @@ class DocView(ttk.Frame):
         self.btn_toggle_sidebar = tk.Label(
             self.paned_window,
             text="›",
-            font=("Segoe UI", 14, "bold"),
+            font=(self.doc_sidebar_font_family, 14, "bold"),
             fg=Styles.COLOR_BUTTON_FG,
             bg=Styles.COLOR_DOC_TOOLBAR_BG,
             cursor="hand2",
@@ -614,7 +638,12 @@ class DocView(ttk.Frame):
         self.right_top_frame = ttk.Frame(self.right_frame, style="Sidebar.TFrame")
         self.right_top_frame.pack(side="top", fill="both", expand=True)
 
-        lbl_sections = ttk.Label(self.right_top_frame, text="Secciones", style="Header.TLabel")
+        lbl_sections = ttk.Label(
+            self.right_top_frame,
+            text="Secciones",
+            style="Header.TLabel",
+            font=(self.doc_sidebar_font_family, 20, "bold")
+        )
         lbl_sections.pack(fill="x")
 
         self.doc_paths_row = ttk.Frame(self.right_top_frame, style="Sidebar.TFrame")
@@ -623,7 +652,7 @@ class DocView(ttk.Frame):
         self.cmb_doc_paths = ttk.Combobox(
             self.doc_paths_row,
             state="readonly",
-            font=("Segoe UI", 14, "bold")
+            font=(self.doc_sidebar_font_family, 14, "bold")
         )
         self.cmb_doc_paths.pack(fill="x")
         self.cmb_doc_paths.bind("<<ComboboxSelected>>", self._on_doc_path_selected)
@@ -640,17 +669,17 @@ class DocView(ttk.Frame):
 
         self.section_search_label = tk.Label(
             self.section_search_shell,
-            text="Buscar sección",
+            text="Buscar...",
             bg=Styles.COLOR_BG_SIDEBAR,
             fg=Styles.COLOR_DIM,
-            font=("Segoe UI", 13, "bold"),
+            font=(self.doc_sidebar_font_family, 13, "bold"),
             anchor="w"
         )
         self.section_search_label.pack(fill="x", padx=10, pady=(8, 0))
 
         self.section_search_entry = tk.Entry(
             self.section_search_shell,
-            font=("Segoe UI", 15),
+            font=(self.doc_sidebar_font_family, 15),
             bg=Styles.COLOR_INPUT_BG,
             fg=Styles.COLOR_INPUT_FG,
             insertbackground=Styles.COLOR_INPUT_FG,
@@ -676,9 +705,9 @@ class DocView(ttk.Frame):
         self.section_tree.bind("<ButtonRelease-1>", self._on_section_tree_release, add="+")
         
         # Tags for different file types and folders
-        self.section_tree.tag_configure("folder", font=("Segoe UI", 16, "bold"), foreground=Styles.COLOR_ACCENT)
-        self.section_tree.tag_configure("md", font=("Segoe UI", 14))
-        self.section_tree.tag_configure("document", font=("Segoe UI", 14), foreground=Styles.COLOR_DIM)
+        self.section_tree.tag_configure("folder", font=(self.doc_sidebar_font_family, 16, "bold"), foreground=Styles.COLOR_ACCENT)
+        self.section_tree.tag_configure("md", font=(self.doc_sidebar_font_family, 14))
+        self.section_tree.tag_configure("document", font=(self.doc_sidebar_font_family, 14), foreground=Styles.COLOR_DIM)
         self.section_tree.tag_configure("drop_target", background="#244b74", foreground="#f4f7fb")
         
         self.section_tree.pack(fill="both", expand=True, padx=5, pady=5)
