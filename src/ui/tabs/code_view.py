@@ -447,14 +447,7 @@ class CodeView(ttk.Frame):
 
         self.path_filter_var = tk.StringVar(value="")
 
-        self.path_filter_shell = tk.Frame(
-            self.slider_frame,
-            bg=Styles.COLOR_INPUT_BG,
-            highlightthickness=1,
-            highlightbackground=Styles.COLOR_BORDER,
-            highlightcolor=Styles.COLOR_ACCENT,
-            bd=0
-        )
+        self.path_filter_shell = self._create_rounded_shell(self.slider_frame)
         self.path_filter_shell.pack(side="left", padx=(0, 0))
 
         self.path_filter_title = tk.Label(
@@ -473,7 +466,7 @@ class CodeView(ttk.Frame):
             bd=0,
             highlightthickness=0
         )
-        self.path_filter_input_shell.pack(fill="x", padx=8, pady=(0, 3))
+        self.path_filter_input_shell.pack(fill="x", padx=8, pady=(0, 6))
 
         self.txt_path_filter = tk.Entry(
             self.path_filter_input_shell,
@@ -493,14 +486,7 @@ class CodeView(ttk.Frame):
         self.path_filter_var.trace_add("write", self._on_path_filter_change)
 
         # AI Selector
-        self.ai_selector_shell = tk.Frame(
-            self.slider_frame,
-            bg=Styles.COLOR_INPUT_BG,
-            highlightthickness=1,
-            highlightbackground=Styles.COLOR_BORDER,
-            highlightcolor=Styles.COLOR_ACCENT,
-            bd=0
-        )
+        self.ai_selector_shell = self._create_rounded_shell(self.slider_frame)
         self.ai_selector_shell.pack(side="left", padx=(20, 0))
 
         self.ai_selector_title = tk.Label(
@@ -523,7 +509,7 @@ class CodeView(ttk.Frame):
             style="Borderless.TCombobox"
         )
         self.cmb_ai.current(0)
-        self.cmb_ai.pack(fill="x", padx=8, pady=(0, 3), ipady=0)
+        self.cmb_ai.pack(fill="x", padx=8, pady=(0, 6), ipady=0)
 
         # Extension Filter
         saved_extensions = ""
@@ -531,14 +517,7 @@ class CodeView(ttk.Frame):
             saved_extensions = self.controller.config_manager.get_code_extensions_filter()
         self.ext_var = tk.StringVar(value=saved_extensions)
 
-        self.ext_shell = tk.Frame(
-            self.slider_frame,
-            bg=Styles.COLOR_INPUT_BG,
-            highlightthickness=1,
-            highlightbackground=Styles.COLOR_BORDER,
-            highlightcolor=Styles.COLOR_ACCENT,
-            bd=0
-        )
+        self.ext_shell = self._create_rounded_shell(self.slider_frame)
         self.ext_shell.pack(side="left", padx=(20, 0))
 
         self.ext_title = tk.Label(
@@ -557,7 +536,7 @@ class CodeView(ttk.Frame):
             bd=0,
             highlightthickness=0
         )
-        ext_frame.pack(fill="x", padx=8, pady=(0, 3))
+        ext_frame.pack(fill="x", padx=8, pady=(0, 6))
 
         self.ext_input_shell = tk.Frame(
             ext_frame,
@@ -584,14 +563,7 @@ class CodeView(ttk.Frame):
         self.txt_ext.pack(fill="both", expand=True, padx=(2, 2), pady=(1, 1), ipady=4)  # [
         self.ext_var.trace_add("write", self._on_extension_change)
 
-        self.reload_shell = tk.Frame(
-            self.slider_frame,
-            bg=Styles.COLOR_INPUT_BG,
-            highlightthickness=1,
-            highlightbackground=Styles.COLOR_BORDER,
-            highlightcolor=Styles.COLOR_ACCENT,
-            bd=0
-        )
+        self.reload_shell = self._create_rounded_shell(self.slider_frame)
         self.reload_shell.pack(side="left", padx=(20, 0))
 
         self.reload_title = tk.Label(
@@ -612,24 +584,18 @@ class CodeView(ttk.Frame):
         )
          # [MODIFICACIÓN] Cambiar pady=(0, 3) a pady=(0, 0) para reducir el espacio vertical
         # Esto hace que el borde azul del marco exterior se vea más bajo
-        self.reload_button_shell.pack(fill="x", padx=8, pady=(0, 0))
+        self.reload_button_shell.pack(fill="x", padx=8, pady=(0, 4))
 
-        reload_button_kwargs = {
-            "style": "ToolbarIcon.TButton",
-            "command": self._on_reload_project_files
-        }
-        reload_icon = self.toolbar_icons.get("reload")
-        if reload_icon is not None:
-            reload_button_kwargs["image"] = reload_icon
-        else:
-            reload_button_kwargs["text"] = "↻"
-
-        self.btn_reload_project = ttk.Button(
+        self.btn_reload_project = self._create_rounded_icon_button(
             self.reload_button_shell,
-            **reload_button_kwargs
+            command=self._on_reload_project_files,
+            icon_key="reload",
+            text="↻",
+            width=Styles.scale_size(34),
+            height=Styles.scale_size(30),
+            host_bg=Styles.COLOR_INPUT_BG
         )
-        self.btn_reload_project.pack(fill="x", ipady=4, pady=(0, 0))
-        self.btn_reload_project.pack_configure(ipady=0)
+        self.btn_reload_project.pack(fill="x", ipady=0, pady=(0, 0))
         attach_tooltip(self.btn_reload_project, "Recargar todos los ficheros y restaurar descartados")
 
         if hasattr(self, 'controller') and hasattr(self.controller, 'config_manager'):
@@ -1133,6 +1099,38 @@ class CodeView(ttk.Frame):
                     width=width
                 )
 
+    def _create_rounded_shell(self, parent, radius=None, bg=None, outline=None):
+        """Creates a canvas-based rounded shell that can host other widgets."""
+        if radius is None:
+            radius = Styles.scale_size(Styles.CORNER_RADIUS)
+        
+        bg = bg or Styles.COLOR_INPUT_BG
+        outline = outline or Styles.COLOR_BORDER
+        
+        canvas = tk.Canvas(
+            parent,
+            bg=Styles.COLOR_BG_MAIN,
+            bd=0,
+            highlightthickness=0,
+            relief="flat"
+        )
+        
+        def on_reconfig(event):
+            canvas.delete("all")
+            w, h = event.width, event.height
+            self._draw_rounded_rect(
+                canvas, 
+                1, 1, w-1, h-1, 
+                radius=radius, 
+                fill=bg, 
+                outline=outline, 
+                width=1
+            )
+            canvas.tag_lower("all")
+            
+        canvas.bind("<Configure>", on_reconfig)
+        return canvas
+
     def _create_rounded_icon_button(
         self,
         parent,
@@ -1147,7 +1145,7 @@ class CodeView(ttk.Frame):
         button_width = max(int(width or Styles.scale_size(34)), 24)
         button_height = max(int(height or Styles.scale_size(30)), 24)
         host_bg = host_bg or Styles.COLOR_INPUT_BG
-        radius = max(6, min(button_height // 3, Styles.scale_size(8)))
+        radius = max(6, min(button_height // 3, Styles.scale_size(Styles.CORNER_RADIUS)))
 
         canvas = tk.Canvas(
             parent,
@@ -1175,29 +1173,34 @@ class CodeView(ttk.Frame):
 
         def redraw(state="normal"):
             canvas.delete("all")
+            w = canvas.winfo_width() if canvas.winfo_width() > 1 else button_width
+            h = canvas.winfo_height() if canvas.winfo_height() > 1 else button_height
+            
             fill = colors.get(state, colors["normal"])
             fg = colors["text_active"] if state in {"hover", "pressed"} else colors["text"]
             self._draw_rounded_rect(
                 canvas,
                 1,
                 1,
-                button_width - 1,
-                button_height - 1,
+                w - 1,
+                h - 1,
                 radius=radius,
                 fill=fill,
                 outline=colors["border"],
                 width=1
             )
             if icon_image is not None:
-                canvas.create_image(button_width / 2, button_height / 2, image=icon_image)
+                canvas.create_image(w / 2, h / 2, image=icon_image)
             elif text:
                 canvas.create_text(
-                    button_width / 2,
-                    button_height / 2,
+                    w / 2,
+                    h / 2,
                     text=text,
                     fill=fg,
                     font=label_font
                 )
+
+        canvas.bind("<Configure>", lambda e: redraw())
 
         def on_enter(_event):
             redraw("hover")
@@ -1610,6 +1613,30 @@ class CodeView(ttk.Frame):
             "Copiar al portapapeles las cabeceras de estructuras agrupadas por fichero"
         )
 
+        self.btn_dynamic_paste = ttk.Button(
+            self.sections_header,
+            text="PD",
+            style="ToolbarIcon.TButton",
+            command=self._on_start_dynamic_paste
+        )
+        self.btn_dynamic_paste.pack(side="right", padx=(0, 8), pady=(4, 0))
+        self.btn_dynamic_paste.state(["disabled"])
+        attach_tooltip(
+            self.btn_dynamic_paste,
+            "Copiar fichero por fichero para ir pegandolos secuencialmente con Ctrl/Cmd+V"
+        )
+
+        self.btn_cancel_dynamic_paste = ttk.Button(
+            self.sections_header,
+            text="Cancelar pegado dinamico",
+            style="ToolbarIcon.TButton",
+            command=self._on_cancel_dynamic_paste
+        )
+        attach_tooltip(
+            self.btn_cancel_dynamic_paste,
+            "Cancelar la secuencia activa de copiado y pegado dinamico"
+        )
+
         self.lbl_sections_dir = tk.Label(
             parent,
             textvariable=self.sections_dir_var,
@@ -1620,7 +1647,29 @@ class CodeView(ttk.Frame):
             justify="left"
         )
         self.lbl_sections_dir.pack(fill="x", padx=12, pady=(0, 4))
+
+        self.dynamic_paste_status_frame = tk.Frame(
+            parent,
+            bg=Styles.COLOR_BG_SIDEBAR,
+            highlightthickness=1,
+            highlightbackground=Styles.COLOR_ACCENT,
+            bd=0
+        )
+
+        self.btn_cancel_dynamic_paste_inline = ttk.Button(
+            self.dynamic_paste_status_frame,
+            text="Cancelar pegado dinamico",
+            style="ToolbarIcon.TButton",
+            command=self._on_cancel_dynamic_paste
+        )
+        self.btn_cancel_dynamic_paste_inline.pack(side="top", padx=8, pady=6)
+        attach_tooltip(
+            self.btn_cancel_dynamic_paste_inline,
+            "Cancelar la secuencia activa de copiado y pegado dinamico"
+        )
+
         self._update_sections_directory_label()
+        self.refresh_dynamic_paste_controls()
 
     def _create_section_search(self, parent):
         """Creates the section search input."""
@@ -2706,6 +2755,57 @@ class CodeView(ttk.Frame):
         state = ["!disabled"] if section_name else ["disabled"]
         if hasattr(self, "btn_copy_structure_headers"):
             self.btn_copy_structure_headers.state(state)
+        if hasattr(self, "btn_dynamic_paste"):
+            dynamic_allowed = bool(section_name) and not bool(segment_name)
+            if getattr(getattr(self.controller, "has_dynamic_paste_active", None), "__call__", None):
+                if self.controller.has_dynamic_paste_active():
+                    self.btn_dynamic_paste.state(["disabled"])
+                else:
+                    self.btn_dynamic_paste.state(["!disabled"] if dynamic_allowed else ["disabled"])
+            else:
+                self.btn_dynamic_paste.state(["!disabled"] if dynamic_allowed else ["disabled"])
+        self.refresh_dynamic_paste_controls()
+
+    def refresh_dynamic_paste_controls(self):
+        """Refreshes the visibility and text of dynamic-paste controls."""
+        if not hasattr(self, "btn_cancel_dynamic_paste"):
+            return
+
+        status = {"active": False, "current_number": 0, "total": 0, "current_file": ""}
+        if hasattr(self.controller, "get_dynamic_paste_status"):
+            status = self.controller.get_dynamic_paste_status()
+
+        if status.get("active"):
+            current_number = status.get("current_number", 0)
+            total = status.get("total", 0)
+            self.btn_cancel_dynamic_paste.configure(
+                text=f"Cancelar pegado dinamico ({current_number}/{total})"
+            )
+            self.btn_cancel_dynamic_paste_inline.configure(
+                text=f"Cancelar pegado dinamico ({current_number}/{total})"
+            )
+            if hasattr(self, "dynamic_paste_status_frame") and not self.dynamic_paste_status_frame.winfo_manager():
+                self.dynamic_paste_status_frame.pack(fill="x", padx=8, pady=(0, 6))
+            if hasattr(self, "btn_dynamic_paste"):
+                self.btn_dynamic_paste.state(["disabled"])
+        else:
+            if hasattr(self, "dynamic_paste_status_frame") and self.dynamic_paste_status_frame.winfo_manager():
+                self.dynamic_paste_status_frame.pack_forget()
+            section_name, subsection_name, segment_name = self._get_selected_scope_info()
+            self._update_section_action_buttons_without_refresh(
+                section_name,
+                subsection_name,
+                segment_name
+            )
+
+    def _update_section_action_buttons_without_refresh(self, section_name=None, subsection_name=None, segment_name=None):
+        """Updates section action buttons without re-entering dynamic-paste UI refresh."""
+        state = ["!disabled"] if section_name else ["disabled"]
+        if hasattr(self, "btn_copy_structure_headers"):
+            self.btn_copy_structure_headers.state(state)
+        if hasattr(self, "btn_dynamic_paste"):
+            dynamic_allowed = bool(section_name) and not bool(segment_name)
+            self.btn_dynamic_paste.state(["!disabled"] if dynamic_allowed else ["disabled"])
 
     def _load_selected_segment_preview(self, section_name, subsection_name, segment_name):
         """Loads the selected segment code into the left preview panel."""
@@ -3665,6 +3765,64 @@ class CodeView(ttk.Frame):
                 selected_files_data.append(files_map[file_path])
 
         return selected_files_data
+
+    def _on_start_dynamic_paste(self):
+        """Starts the sequential clipboard flow for the current section/subsection files."""
+        section_name, subsection_name, segment_name = self._get_selected_scope_info()
+        if not section_name:
+            messagebox.showwarning("Pegado dinamico", "Selecciona una seccion o subseccion primero.")
+            return
+        if segment_name:
+            messagebox.showwarning(
+                "Pegado dinamico",
+                "El pegado dinamico funciona a nivel de seccion o subseccion, no de segmento."
+            )
+            return
+
+        user_text = self.txt_prompt.get("1.0", "end-1c").strip() if hasattr(self, "txt_prompt") else ""
+        if not user_text:
+            messagebox.showwarning(
+                "Pegado dinamico",
+                "Escribe primero el mensaje para la IA antes de iniciar el pegado dinamico."
+            )
+            return
+
+        files_data = self._get_files_for_prompt()
+        if not files_data:
+            messagebox.showwarning(
+                "Pegado dinamico",
+                "No hay ficheros visibles o seleccionados para iniciar el pegado dinamico."
+            )
+            return
+
+        if not hasattr(self.controller, "start_dynamic_paste"):
+            messagebox.showerror("Pegado dinamico", "La funcionalidad no esta disponible.")
+            return
+
+        success, message = self.controller.start_dynamic_paste(files_data, user_text)
+        if not success:
+            messagebox.showerror("Pegado dinamico", message)
+            return
+
+        scope_label = section_name
+        if subsection_name:
+            scope_label = f"{section_name} > {subsection_name}"
+
+        self.refresh_dynamic_paste_controls()
+        messagebox.showinfo(
+            "Pegado dinamico",
+            f"{message}\n\nSe ha copiado el primer fichero de la lista para la seccion {scope_label}."
+        )
+
+    def _on_cancel_dynamic_paste(self):
+        """Cancels the active sequential clipboard flow."""
+        if not hasattr(self.controller, "cancel_dynamic_paste"):
+            return
+
+        was_active = self.controller.cancel_dynamic_paste()
+        self.refresh_dynamic_paste_controls()
+        if was_active:
+            messagebox.showinfo("Pegado dinamico", "El pegado dinamico ha sido cancelado.")
 
     def _build_agent_clipboard_prompt(
         self,

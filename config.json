@@ -1,5 +1,5 @@
 {
-    "last_project": "/Users/ismaelmoraledalopez/Desktop/Programita 2",
+    "last_project": "/Users/ismaelmoraledalopez/Documents/Azure-Irrigation-Web/HidraSmart-Irrigation-System",
     "file_limit": 50,
     "return_files": false,
     "doc_path": "/Users/ismaelmoraledalopez/Documents/Documentacion Irrigation",
@@ -19,7 +19,7 @@
         "/Users/ismaelmoraledalopez/Desktop/SDD-Proyecto Aurora 2",
         "/Users/ismaelmoraledalopez/Desktop/pruebas/TreeConv"
     ],
-    "current_project_index": 1,
+    "current_project_index": 0,
     "db_config": {
         "host": "hidralab-server.mysql.database.azure.com",
         "port": "3306",

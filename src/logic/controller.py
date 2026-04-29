@@ -16,6 +16,16 @@ class Controller:
     Manages the application state and logic separation.
     Acts as a bridge between the UI and the data/logic.
     """
+    DYNAMIC_PASTE_INTRO_PROMPT = (
+        'Te voy a pasar fichero por fichero, si el fichero que te pase no tiene el codigo '
+        'necesario para realizar la modificacion, escribe simplemente "Siguiente" y no digas '
+        "nada mas, pero en el caso de que tengas todos los ficheros y el codigo necesarios, realiza la peticion del usuario. "
+        "Devuelve solo las partes de codigo que hayan necesitado modificacion y, en cada sitio exacto "
+        "donde hayas tenido que modificar el codigo, deja un comentario que incluya exactamente "
+        "[MODIFICACIÓN]."
+    )
+    DYNAMIC_PASTE_ADVANCE_DELAY_MS = 180
+
     def __init__(self, app):
         """
         Initialize the controller.
@@ -39,6 +49,7 @@ class Controller:
         )
         self.hotkey_listener = GlobalHotkeyListener(self)
         self._doc_file_cache = {}
+        self._dynamic_paste_state = None
 
     def get_sections_directory(self):
         """Returns the current directory used to store code sections."""
@@ -1063,6 +1074,146 @@ class Controller:
         except Exception as e:
             print(f"Controller: Error copying to clipboard: {e}")
             return False
+
+    def start_dynamic_paste(self, files_data, user_text):
+        """Starts a file-by-file dynamic clipboard session."""
+        normalized_user_text = str(user_text or "").strip()
+        entries = []
+        for index, file_data in enumerate(files_data or []):
+            rel_path = str(file_data.get("rel_path", "") or "").strip()
+            content = str(file_data.get("content", "") or "")
+            if not rel_path:
+                continue
+            entries.append(
+                {
+                    "rel_path": rel_path,
+                    "clipboard_text": self._build_dynamic_paste_clipboard_text(
+                        normalized_user_text,
+                        rel_path,
+                        content,
+                        include_intro=(index == 0)
+                    ),
+                }
+            )
+
+        if not entries:
+            return False, "No hay ficheros disponibles para el pegado dinamico."
+
+        first_text = entries[0]["clipboard_text"]
+        if not self.copy_to_clipboard(first_text):
+            return False, "No se pudo copiar el primer fichero al portapapeles."
+
+        self._dynamic_paste_state = {
+            "entries": entries,
+            "current_index": 0,
+            "awaiting_advance": False,
+            "advance_token": 0,
+        }
+        self._notify_dynamic_paste_state_changed()
+        return True, f"Pegado dinamico iniciado con {len(entries)} fichero(s)."
+
+    def cancel_dynamic_paste(self):
+        """Stops the active dynamic clipboard session, if any."""
+        if self._dynamic_paste_state is None:
+            return False
+        self._dynamic_paste_state = None
+        self._notify_dynamic_paste_state_changed()
+        return True
+
+    def schedule_dynamic_paste_advance(self):
+        """Queues the copy of the next file after the current paste shortcut."""
+        state = self._dynamic_paste_state
+        if not state:
+            return False
+        if state.get("awaiting_advance"):
+            return True
+
+        root = getattr(self.app, "root", None)
+        if root is None:
+            return False
+
+        state["awaiting_advance"] = True
+        state["advance_token"] = int(state.get("advance_token", 0)) + 1
+        advance_token = state["advance_token"]
+
+        def _advance():
+            current_state = self._dynamic_paste_state
+            if not current_state or current_state is not state:
+                return
+            if advance_token != current_state.get("advance_token"):
+                return
+
+            current_state["awaiting_advance"] = False
+            next_index = int(current_state.get("current_index", 0)) + 1
+            entries = current_state.get("entries", [])
+
+            if next_index >= len(entries):
+                self.cancel_dynamic_paste()
+                return
+
+            next_entry = entries[next_index]
+            copied = self.copy_to_clipboard(next_entry.get("clipboard_text", ""))
+            if not copied:
+                self.cancel_dynamic_paste()
+                return
+
+            current_state["current_index"] = next_index
+            self._notify_dynamic_paste_state_changed()
+
+        root.after(self.DYNAMIC_PASTE_ADVANCE_DELAY_MS, _advance)
+        return True
+
+    def has_dynamic_paste_active(self):
+        """Returns whether a dynamic clipboard session is active."""
+        return bool(self._dynamic_paste_state)
+
+    def get_dynamic_paste_status(self):
+        """Returns UI-friendly information about the current dynamic clipboard session."""
+        state = self._dynamic_paste_state
+        if not state:
+            return {
+                "active": False,
+                "current_number": 0,
+                "total": 0,
+                "current_file": "",
+            }
+
+        entries = state.get("entries", [])
+        current_index = int(state.get("current_index", 0))
+        current_entry = entries[current_index] if 0 <= current_index < len(entries) else {}
+        return {
+            "active": True,
+            "current_number": current_index + 1,
+            "total": len(entries),
+            "current_file": current_entry.get("rel_path", ""),
+        }
+
+    def _build_dynamic_paste_clipboard_text(self, user_text, rel_path, content, include_intro=False):
+        """Builds the clipboard payload for a single dynamic-paste step."""
+        lines = []
+        if include_intro:
+            lines.extend(
+                [
+                    self.DYNAMIC_PASTE_INTRO_PROMPT,
+                    "",
+                    "Peticion del usuario:",
+                    user_text,
+                    "",
+                ]
+            )
+
+        lines.append(f"--- Archivo: {rel_path} ---")
+        lines.append(content.rstrip("\n"))
+        return "\n".join(lines).rstrip() + "\n"
+
+    def _notify_dynamic_paste_state_changed(self):
+        """Refreshes the Code view controls that reflect dynamic clipboard state."""
+        try:
+            code_view = getattr(getattr(self.app, "layout", None), "code_view", None)
+            if code_view and hasattr(code_view, "refresh_dynamic_paste_controls"):
+                code_view.refresh_dynamic_paste_controls()
+        except Exception as e:
+            print(f"Controller: Error notifying dynamic paste state change: {e}")
 
     def get_all_commands(self):
         """Returns a list of all available commands (built-in + addons)."""
