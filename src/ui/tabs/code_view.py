@@ -183,16 +183,20 @@ class CodeView(ttk.Frame):
         self._last_selected_section = None
         self._last_selected_subsection = None
         self._last_selected_segment = None
+        self._last_selected_region = None
         self._last_selected_scope_iid = None
+        self._last_selected_scope_kind = None
         self._visible_section_ids = []
         self._responsive_after_id = None
         self._checkbox_visual_size = Styles.scale_size(30)
         self.sections_dir_var = tk.StringVar(value="")
+        self.section_view_mode = tk.StringVar(value="sections")
         self._search_timer = None
         self._last_relevant_files = None
         self._discarded_file_paths = set()
         self.file_type_icons = {}
         self.toolbar_icons = {}
+        self.section_tree_icons = {}
         self.folder_chip_widgets = []
         self.file_action_widgets = []
         self._folder_chip_refresh_after = None
@@ -205,6 +209,7 @@ class CodeView(ttk.Frame):
         self._initialize_output_state()
         self._load_file_type_icons()
         self._load_toolbar_icons()
+        self._load_section_tree_icons()
         self._create_layout()
         self._set_return_mode(self.var_return_files.get(), self.var_return_chunks.get(), refresh_sections=False)
 
@@ -259,10 +264,12 @@ class CodeView(ttk.Frame):
         try:
             base_path = os.path.join(os.getcwd(), "assets", "icons")
             icon_size = Styles.scale_size(18)
+            send_icon_size = Styles.scale_size(24)
             icon_map = {
                 "reload": "reload.png",
                 "view": "view_eye.png",
                 "back": "arrow_back_left.png",
+                "folder": "folder_open.png",
             }
 
             for icon_key, filename in icon_map.items():
@@ -276,10 +283,66 @@ class CodeView(ttk.Frame):
                 image = image.resize((icon_size, icon_size), Image.Resampling.LANCZOS)
                 self.toolbar_icons[icon_key] = ImageTk.PhotoImage(image)
 
+            self.toolbar_icons["send"] = self._create_send_toolbar_icon(size=(send_icon_size, send_icon_size))
+            self.toolbar_icons["project_prev"] = self._create_project_nav_icon("prev", size=(icon_size, icon_size))
+            self.toolbar_icons["project_next"] = self._create_project_nav_icon("next", size=(icon_size, icon_size))
             self.toolbar_icons["fullscreen_enter"] = self._create_fullscreen_toolbar_icon("enter", size=(icon_size, icon_size))
             self.toolbar_icons["fullscreen_exit"] = self._create_fullscreen_toolbar_icon("exit", size=(icon_size, icon_size))
         except Exception as exc:
             print(f"CodeView: Error cargando iconos de toolbar: {exc}")
+
+    def _create_send_toolbar_icon(self, size=(18, 18)):
+        """Creates a crisp paper-plane send icon for prompt actions."""
+        upscale = 6
+        large_size = (size[0] * upscale, size[1] * upscale)
+        image = Image.new("RGBA", large_size, (0, 0, 0, 0))
+        draw = ImageDraw.Draw(image)
+        color = "#eef4ff"
+        stroke = max(5, round(min(large_size) / 13))
+        points = [
+            (round(large_size[0] * 0.14), round(large_size[1] * 0.50)),
+            (round(large_size[0] * 0.84), round(large_size[1] * 0.18)),
+            (round(large_size[0] * 0.62), round(large_size[1] * 0.82)),
+            (round(large_size[0] * 0.51), round(large_size[1] * 0.56)),
+        ]
+        draw.polygon(points, outline=color, fill=None, width=stroke)
+        draw.line(
+            [
+                (round(large_size[0] * 0.16), round(large_size[1] * 0.50)),
+                (round(large_size[0] * 0.50), round(large_size[1] * 0.56)),
+            ],
+            fill=color,
+            width=stroke,
+            joint="curve",
+        )
+        image = image.resize(size, Image.Resampling.LANCZOS)
+        return ImageTk.PhotoImage(image)
+
+    def _create_project_nav_icon(self, direction, size=(18, 18)):
+        """Creates a simple chevron icon for switching projects."""
+        upscale = 6
+        large_size = (size[0] * upscale, size[1] * upscale)
+        image = Image.new("RGBA", large_size, (0, 0, 0, 0))
+        draw = ImageDraw.Draw(image)
+        color = "#eef4ff"
+        stroke = max(6, round(min(large_size) / 9))
+
+        if direction == "next":
+            points = [
+                (round(large_size[0] * 0.34), round(large_size[1] * 0.20)),
+                (round(large_size[0] * 0.68), round(large_size[1] * 0.50)),
+                (round(large_size[0] * 0.34), round(large_size[1] * 0.80)),
+            ]
+        else:
+            points = [
+                (round(large_size[0] * 0.66), round(large_size[1] * 0.20)),
+                (round(large_size[0] * 0.32), round(large_size[1] * 0.50)),
+                (round(large_size[0] * 0.66), round(large_size[1] * 0.80)),
+            ]
+
+        draw.line(points, fill=color, width=stroke, joint="curve")
+        image = image.resize(size, Image.Resampling.LANCZOS)
+        return ImageTk.PhotoImage(image)
 
     def _create_fullscreen_toolbar_icon(self, mode, size=(18, 18)):
         """Creates a crisp fullscreen enter/exit icon for the file preview header."""
@@ -309,6 +372,63 @@ class CodeView(ttk.Frame):
             segment([(right - short, top), (right, top), (right, top + short)])
             segment([(left + short, bottom), (left, bottom), (left, bottom - short)])
             segment([(right, bottom - short), (right, bottom), (right - short, bottom)])
+
+        image = image.resize(size, Image.Resampling.LANCZOS)
+        return ImageTk.PhotoImage(image)
+
+    def _load_section_tree_icons(self):
+        """Creates stylized expand/collapse icons for the sections tree."""
+        icon_size = Styles.scale_size(14)
+        self.section_tree_icons = {
+            "collapsed": self._create_section_tree_arrow_icon("collapsed", size=(icon_size, icon_size)),
+            "expanded": self._create_section_tree_arrow_icon("expanded", size=(icon_size, icon_size)),
+            "spacer": self._create_section_tree_arrow_icon("spacer", size=(icon_size, icon_size)),
+        }
+
+    def _create_section_tree_arrow_icon(self, mode, size=(18, 18)):
+        """Draws a compact two-tone arrow badge used in the sections hierarchy."""
+        upscale = 6
+        large_size = (size[0] * upscale, size[1] * upscale)
+        image = Image.new("RGBA", large_size, (0, 0, 0, 0))
+        draw = ImageDraw.Draw(image)
+
+        if mode == "spacer":
+            spacer = Image.new("RGBA", (1, 1), (0, 0, 0, 0))
+            return ImageTk.PhotoImage(spacer)
+
+        badge_fill = (27, 47, 79, 220)
+        badge_outline = "#3e7ee0"
+        arrow_shadow = "#245fb8"
+        arrow_highlight = "#f2f7ff"
+        min_side = min(large_size)
+        inset = round(min_side * 0.05)
+        radius = round(min_side * 0.22)
+        stroke_outer = max(8, round(min_side * 0.14))
+        stroke_inner = max(4, round(min_side * 0.07))
+
+        draw.rounded_rectangle(
+            (inset, inset, large_size[0] - inset, large_size[1] - inset),
+            radius=radius,
+            fill=badge_fill,
+            outline=badge_outline,
+            width=max(3, round(min_side * 0.035)),
+        )
+
+        if mode == "expanded":
+            points = [
+                (round(large_size[0] * 0.22), round(large_size[1] * 0.34)),
+                (round(large_size[0] * 0.50), round(large_size[1] * 0.68)),
+                (round(large_size[0] * 0.78), round(large_size[1] * 0.34)),
+            ]
+        else:
+            points = [
+                (round(large_size[0] * 0.34), round(large_size[1] * 0.22)),
+                (round(large_size[0] * 0.68), round(large_size[1] * 0.50)),
+                (round(large_size[0] * 0.34), round(large_size[1] * 0.78)),
+            ]
+
+        draw.line(points, fill=arrow_shadow, width=stroke_outer, joint="curve")
+        draw.line(points, fill=arrow_highlight, width=stroke_inner, joint="curve")
 
         image = image.resize(size, Image.Resampling.LANCZOS)
         return ImageTk.PhotoImage(image)
@@ -393,9 +513,11 @@ class CodeView(ttk.Frame):
 
         self.btn_prev_project = ttk.Button(
             self.project_bar,
-            text="◀",
+            text="",
+            image=self.toolbar_icons.get("project_prev"),
+            compound="center",
             style="Nav.TButton",
-            width=1,
+            width=2,
             command=lambda: self.controller.prev_project()
         )
         self.btn_prev_project.pack(side="left")
@@ -406,15 +528,17 @@ class CodeView(ttk.Frame):
             text="Sin proyecto",
             style="TLabel",
             anchor="center",
-            font=("Segoe UI", 18)
+            font=(Styles.FONT_FAMILY, 18)
         )
         self.lbl_project_name.pack(side="left", fill="x", expand=True, padx=3)
 
         self.btn_next_project = ttk.Button(
             self.project_bar,
-            text="▶",
+            text="",
+            image=self.toolbar_icons.get("project_next"),
+            compound="center",
             style="Nav.TButton",
-            width=1,
+            width=2,
             command=lambda: self.controller.next_project()
         )
         self.btn_next_project.pack(side="left")
@@ -429,6 +553,18 @@ class CodeView(ttk.Frame):
         )
         self.btn_add_project.pack(side="left", padx=(6, 0))
         attach_tooltip(self.btn_add_project, "Añadir proyecto")
+
+        self.btn_change_sections_dir = ttk.Button(
+            self.project_bar,
+            text="",
+            image=self.toolbar_icons.get("folder"),
+            compound="center",
+            style="AddProject.TButton",
+            width=2,
+            command=self._on_change_sections_directory
+        )
+        self.btn_change_sections_dir.pack(side="left", padx=(6, 0))
+        attach_tooltip(self.btn_change_sections_dir, "Cambiar carpeta de secciones")
 
         # Initialize project label
         self._update_project_label()
@@ -455,7 +591,7 @@ class CodeView(ttk.Frame):
             text="Buscar...",
             bg=Styles.COLOR_INPUT_BG,
             fg=Styles.COLOR_DIM,
-            font=("Segoe UI", 11, "bold"),
+            font=(Styles.FONT_FAMILY, 11, "bold"),
             anchor="w"
         )
         self.path_filter_title.pack(fill="x", padx=10, pady=(3, 0))
@@ -478,7 +614,7 @@ class CodeView(ttk.Frame):
             highlightthickness=0,
             relief="flat",
             width=28,
-            font=("Segoe UI", 12)
+            font=(Styles.FONT_FAMILY, 12)
         )
         self.txt_path_filter._skip_soften = True
         Styles.strip_classic_widget_chrome(self.txt_path_filter)
@@ -494,7 +630,7 @@ class CodeView(ttk.Frame):
             text="Seleccionar IA",
             bg=Styles.COLOR_INPUT_BG,
             fg=Styles.COLOR_DIM,
-            font=("Segoe UI", 11, "bold"),
+            font=(Styles.FONT_FAMILY, 11, "bold"),
             anchor="w"
         )
         self.ai_selector_title.pack(fill="x", padx=10, pady=(3, 0))
@@ -525,7 +661,7 @@ class CodeView(ttk.Frame):
             text="Extensiones",
             bg=Styles.COLOR_INPUT_BG,
             fg=Styles.COLOR_DIM,
-            font=("Segoe UI", 11, "bold"),
+            font=(Styles.FONT_FAMILY, 11, "bold"),
             anchor="w"
         )
         self.ext_title.pack(fill="x", padx=10, pady=(3, 0))
@@ -556,7 +692,7 @@ class CodeView(ttk.Frame):
             highlightthickness=0,
             relief="flat",
             width=15,
-            font=("Segoe UI", 12)
+            font=(Styles.FONT_FAMILY, 12)
         )
         self.txt_ext._skip_soften = True
         Styles.strip_classic_widget_chrome(self.txt_ext)
@@ -571,7 +707,7 @@ class CodeView(ttk.Frame):
             text="Recargar",
             bg=Styles.COLOR_INPUT_BG,
             fg=Styles.COLOR_DIM,
-            font=("Segoe UI", 11, "bold"),
+            font=(Styles.FONT_FAMILY, 11, "bold"),
             anchor="w"
         )
         self.reload_title.pack(fill="x", padx=10, pady=(3, 0))
@@ -615,10 +751,8 @@ class CodeView(ttk.Frame):
 
         self.file_list_shell = tk.Frame(
             self.tree_frame,
-            bg=Styles.COLOR_INPUT_BG,
-            highlightthickness=1,
-            highlightbackground=Styles.COLOR_BORDER,
-            highlightcolor=Styles.COLOR_ACCENT,
+            bg=Styles.COLOR_SIDEBAR_CARD_BG,
+            highlightthickness=0,
             bd=0
         )
         self.file_list_shell.pack(fill="both", expand=True)
@@ -683,10 +817,8 @@ class CodeView(ttk.Frame):
 
         self.segment_code_shell = tk.Frame(
             self.tree_frame,
-            bg=Styles.COLOR_INPUT_BG,
-            highlightthickness=1,
-            highlightbackground=Styles.COLOR_BORDER,
-            highlightcolor=Styles.COLOR_ACCENT,
+            bg=Styles.COLOR_SIDEBAR_CARD_BG,
+            highlightthickness=0,
             bd=0
         )
 
@@ -724,7 +856,7 @@ class CodeView(ttk.Frame):
             text="Código del segmento",
             bg=Styles.COLOR_INPUT_BG,
             fg=Styles.COLOR_DIM,
-            font=("Segoe UI", 11, "bold"),
+            font=(Styles.FONT_FAMILY, 11, "bold"),
             anchor="w"
         )
         self.segment_code_header.pack(side="left", fill="x", expand=True)
@@ -811,7 +943,40 @@ class CodeView(ttk.Frame):
                 arb_highlight_syntax(self.segment_code_text, file_hint)
             except Exception as exc:
                 print(f"CodeView: Error applying segment preview syntax highlight: {exc}")
+                
+            if hasattr(self, "path_filter_var"):
+                query = self.path_filter_var.get().strip()
+                if query:
+                    self._highlight_text_in_segment_code_view(query)
+                    
             self.segment_code_text.configure(state="disabled")
+
+    def _highlight_text_in_segment_code_view(self, query):
+        """Highlights the occurrences of the search query in the segment code view."""
+        if not hasattr(self, "segment_code_text") or not self.segment_code_text:
+            return
+            
+        self.segment_code_text.tag_remove("search_highlight", "1.0", tk.END)
+        # Using a bright color with high contrast for search results
+        self.segment_code_text.tag_configure("search_highlight", background="#ffff00", foreground="#000000")
+        
+        if not query:
+            return
+            
+        start = "1.0"
+        first_match = None
+        while True:
+            pos = self.segment_code_text.search(query, start, tk.END, nocase=True)
+            if not pos:
+                break
+            if not first_match:
+                first_match = pos
+            end = f"{pos}+{len(query)}c"
+            self.segment_code_text.tag_add("search_highlight", pos, end)
+            start = end
+            
+        if first_match:
+            self.segment_code_text.see(first_match)
 
     def _on_preview_back(self):
         """Returns from the code preview to the file list."""
@@ -975,14 +1140,14 @@ class CodeView(ttk.Frame):
             fieldbackground=Styles.COLOR_INPUT_BG,
             borderwidth=0,
             relief="flat",
-            font=("Segoe UI", row_font_size),
+            font=(Styles.FONT_FAMILY, row_font_size),
             rowheight=row_height
         )
         style.configure(
             "Files.Treeview.Heading",
             background=Styles.COLOR_BG_SIDEBAR,
             foreground="#d7e4fb",
-            font=("Segoe UI", heading_font_size, "bold"),
+            font=(Styles.FONT_FAMILY, heading_font_size, "bold"),
             borderwidth=0,
             relief="flat",
             padding=Styles.scale_padding((14, 12))
@@ -1169,7 +1334,7 @@ class CodeView(ttk.Frame):
         }
 
         icon_image = self.toolbar_icons.get(icon_key) if icon_key else None
-        label_font = Styles.scale_font(("Segoe UI", 11, "bold"))
+        label_font = Styles.scale_font((Styles.FONT_FAMILY, 11, "bold"))
 
         def redraw(state="normal"):
             canvas.delete("all")
@@ -1253,7 +1418,7 @@ class CodeView(ttk.Frame):
 
         chip_bg = "#2e3747"
         chip_fg = "#c2cad8"
-        chip_font = ("Segoe UI", Styles.scale_size(12), "bold")
+        chip_font = (Styles.FONT_FAMILY, Styles.scale_size(12), "bold")
         chip_font_obj = tkfont.Font(font=chip_font)
         viewport_width = max(self.tree.winfo_width(), 0)
         viewport_height = max(self.tree.winfo_height(), 0)
@@ -1535,7 +1700,7 @@ class CodeView(ttk.Frame):
 
         self.txt_prompt = tk.Text(
             self.prompt_frame, 
-            height=8,
+            height=5,
             font=Styles.FONT_MAIN, 
             bg=Styles.COLOR_INPUT_BG, 
             fg=Styles.COLOR_INPUT_FG, 
@@ -1556,8 +1721,11 @@ class CodeView(ttk.Frame):
 
         self.btn_copy = ttk.Button(
             btn_container, # [MODIFICACIÓN] El botón ahora se empaqueta dentro del contenedor desplazado
-            text="Copiar Prompt",
-            style="Action.TButton",
+            text="" if self.toolbar_icons.get("send") else "Enviar",
+            image=self.toolbar_icons.get("send"),
+            compound="center",
+            style="SendPrompt.Action.TButton",
+            width=2,
             command=self._on_copy_prompt
         )
         self.btn_copy.pack(side="right") # [MODIFICACIÓN] Eliminado padx y anchor ya que están en el contenedor padre
@@ -1570,89 +1738,280 @@ class CodeView(ttk.Frame):
 
         # Split Right Pane into Top (List), Bottom (Checkbox area) and Bottom Spacer
         self.right_top_frame = ttk.Frame(self.right_frame, style="Sidebar.TFrame")
-        self.right_top_frame.pack(side="top", fill="x", expand=False)
+        self.right_top_frame.pack(side="top", fill="both", expand=True)
 
         self.right_bottom_frame = ttk.Frame(self.right_frame, style="Sidebar.TFrame")
         self.right_bottom_frame.pack(side="top", fill="x", expand=False)
 
         # Bottom spacer to push everything up
         self.right_bottom_spacer = ttk.Frame(self.right_frame, style="Sidebar.TFrame")
-        self.right_bottom_spacer.pack(side="top", fill="both", expand=True)
+        self.right_bottom_spacer.pack(side="top", fill="x", expand=False)
 
         self._create_sections_header(self.right_top_frame)
         self._create_section_search(self.right_top_frame)
         self._create_section_tree(self.right_top_frame)
+        self._create_section_list_controls(self.right_bottom_frame)
 
     def _create_sections_header(self, parent):
         """Creates the 'Secciones' header and directory label."""
         self.sections_header = ttk.Frame(parent, style="Sidebar.TFrame")
         self.sections_header.pack(fill="x")
 
-        lbl_sections = ttk.Label(self.sections_header, text="Secciones", style="Header.TLabel")
+        self.sections_header_var = tk.StringVar(value="Secciones")
+        lbl_sections = ttk.Label(self.sections_header, textvariable=self.sections_header_var, style="Header.TLabel")
         lbl_sections.pack(side="left", fill="x", expand=True)
-
-        self.btn_change_sections_dir = ttk.Button(
-            self.sections_header,
-            text="Carpeta",
-            style="ToolbarIcon.TButton",
-            command=self._on_change_sections_directory
-        )
-        self.btn_change_sections_dir.pack(side="right", padx=(0, 8), pady=(4, 0))
-        attach_tooltip(self.btn_change_sections_dir, "Cambiar carpeta de secciones")
-
-        self.btn_copy_structure_headers = ttk.Button(
-            self.sections_header,
-            text="Copiar estructuras",
-            style="ToolbarIcon.TButton",
-            command=self._on_copy_structure_headers
-        )
-        self.btn_copy_structure_headers.pack(side="right", padx=(0, 8), pady=(4, 0))
-        self.btn_copy_structure_headers.state(["disabled"])
-        attach_tooltip(
-            self.btn_copy_structure_headers,
-            "Copiar al portapapeles las cabeceras de estructuras agrupadas por fichero"
-        )
-
-        self.btn_dynamic_paste = ttk.Button(
-            self.sections_header,
-            text="PD",
-            style="ToolbarIcon.TButton",
-            command=self._on_start_dynamic_paste
-        )
-        self.btn_dynamic_paste.pack(side="right", padx=(0, 8), pady=(4, 0))
-        self.btn_dynamic_paste.state(["disabled"])
-        attach_tooltip(
-            self.btn_dynamic_paste,
-            "Copiar fichero por fichero para ir pegandolos secuencialmente con Ctrl/Cmd+V"
-        )
-
-        self.btn_cancel_dynamic_paste = ttk.Button(
-            self.sections_header,
-            text="Cancelar pegado dinamico",
-            style="ToolbarIcon.TButton",
-            command=self._on_cancel_dynamic_paste
-        )
-        attach_tooltip(
-            self.btn_cancel_dynamic_paste,
-            "Cancelar la secuencia activa de copiado y pegado dinamico"
-        )
 
         self.lbl_sections_dir = tk.Label(
             parent,
             textvariable=self.sections_dir_var,
             bg=Styles.COLOR_BG_SIDEBAR,
             fg=Styles.COLOR_DIM,
-            font=("Segoe UI", 11),
+            font=(Styles.FONT_FAMILY, 11),
             anchor="w",
             justify="left"
         )
         self.lbl_sections_dir.pack(fill="x", padx=12, pady=(0, 4))
 
+        self._update_sections_directory_label()
+        self._update_section_view_toggle_buttons()
+        self.refresh_dynamic_paste_controls()
+
+    def _create_section_mode_card(self, parent, column, mode, title):
+        """Creates a folder-like card that switches between section list modes."""
+        slot = tk.Frame(parent, bg=Styles.COLOR_INPUT_BG, cursor="hand2")
+        slot.grid(row=0, column=column, sticky="sew", padx=(0, 6) if column == 0 else (6, 0))
+
+        top_tab = tk.Frame(
+            slot,
+            bg=Styles.COLOR_BUTTON_BG,
+            height=Styles.scale_size(10),
+            width=Styles.scale_size(92),
+            cursor="hand2",
+            bd=0,
+            highlightthickness=0
+        )
+        top_tab.pack(anchor="w", padx=(14, 0))
+        top_tab.pack_propagate(False)
+
+        body = tk.Frame(
+            slot,
+            bg=Styles.COLOR_SIDEBAR_CARD_INNER,
+            cursor="hand2",
+            bd=0,
+            highlightthickness=0
+        )
+        body.pack(fill="x")
+
+        title_label = tk.Label(
+            body,
+            text=title,
+            bg=Styles.COLOR_INPUT_BG,
+            fg=Styles.COLOR_FG_TEXT,
+            font=Styles.scale_font((Styles.FONT_FAMILY, 15, "bold")),
+            anchor="w",
+            justify="left",
+            padx=14,
+            pady=Styles.scale_size(6)
+        )
+        title_label.pack(fill="x", pady=(10, 10))
+
+        for widget in (slot, top_tab, body, title_label):
+            widget.bind("<Button-1>", lambda event, selected_mode=mode: self._set_section_view_mode(selected_mode))
+
+        attach_tooltip(body, title)
+        self.section_mode_cards[mode] = {
+            "slot": slot,
+            "top_tab": top_tab,
+            "body": body,
+            "title": title_label,
+        }
+
+    def _create_section_search(self, parent):
+        """Creates the section search input."""
+        self.section_search_shell = tk.Frame(
+            parent,
+            bg=Styles.COLOR_SIDEBAR_CARD_BG,
+            highlightthickness=0,
+            bd=0
+        )
+        self.section_search_shell.pack(fill="x", padx=8, pady=(4, 4))
+
+        self.section_search_entry = tk.Entry(
+            self.section_search_shell,
+            font=(Styles.FONT_FAMILY, 15),
+            bg=Styles.COLOR_INPUT_BG,
+            fg=Styles.COLOR_INPUT_FG,
+            insertbackground=Styles.COLOR_INPUT_FG,
+            relief="flat",
+            bd=0,
+            highlightthickness=0
+        )
+        self.section_search_entry.pack(fill="x", padx=10, pady=8, ipady=4)
+        self.section_search_entry.bind("<KeyRelease>", self._on_section_search_change)
+        self.section_search_entry.bind("<FocusIn>", self._on_section_search_focus_in)
+        self.section_search_entry.bind("<FocusOut>", self._on_section_search_focus_out)
+        self._section_search_placeholder_text = "Buscar..."
+        self._section_search_placeholder_active = False
+        self._show_section_search_placeholder()
+
+    def _show_section_search_placeholder(self):
+        """Displays the placeholder text inside the section search entry."""
+        if not hasattr(self, "section_search_entry"):
+            return
+        self.section_search_entry.delete(0, tk.END)
+        self.section_search_entry.insert(0, self._section_search_placeholder_text)
+        self.section_search_entry.configure(fg=Styles.COLOR_DIM)
+        self._section_search_placeholder_active = True
+
+    def _hide_section_search_placeholder(self):
+        """Clears the placeholder text before user input."""
+        if not hasattr(self, "section_search_entry") or not self._section_search_placeholder_active:
+            return
+        self.section_search_entry.delete(0, tk.END)
+        self.section_search_entry.configure(fg=Styles.COLOR_INPUT_FG)
+        self._section_search_placeholder_active = False
+
+    def _on_section_search_focus_in(self, event=None):
+        """Removes the placeholder when the search entry gains focus."""
+        self._hide_section_search_placeholder()
+
+    def _on_section_search_focus_out(self, event=None):
+        """Restores the placeholder when the search entry is empty."""
+        if not hasattr(self, "section_search_entry"):
+            return
+        if not self.section_search_entry.get().strip():
+            self._show_section_search_placeholder()
+
+    def _get_section_search_query(self):
+        """Returns the effective section search query excluding placeholder text."""
+        if not hasattr(self, "section_search_entry") or self._section_search_placeholder_active:
+            return ""
+        return self.section_search_entry.get().strip().lower()
+
+    def _create_section_tree(self, parent):
+        """Creates the sections and subsections treeview."""
+        self._configure_section_tree_style()
+        self.section_list_shell = tk.Frame(
+            parent,
+            bg=Styles.COLOR_SIDEBAR_CARD_BG,
+            highlightthickness=0,
+            bd=0
+        )
+        self.section_list_shell.pack(fill="both", expand=True, padx=8, pady=(4, 5))
+
+        self.section_mode_tabs = tk.Frame(self.section_list_shell, bg=Styles.COLOR_INPUT_BG)
+        self.section_mode_tabs.pack(fill="x", padx=10, pady=(0, 0))
+        self.section_mode_tabs.columnconfigure(0, weight=1, uniform="section_modes")
+        self.section_mode_tabs.columnconfigure(1, weight=1, uniform="section_modes")
+        self.section_mode_cards = {}
+
+        self._create_section_mode_card(
+            self.section_mode_tabs,
+            column=0,
+            mode="sections",
+            title="Secciones",
+        )
+        self._create_section_mode_card(
+            self.section_mode_tabs,
+            column=1,
+            mode="regions",
+            title="Regiones",
+        )
+
+        self.section_tree_body = tk.Frame(self.section_list_shell, bg=Styles.COLOR_INPUT_BG)
+        self.section_tree_body.pack(fill="both", expand=True, padx=0, pady=(0, 0))
+
+        self.section_tree = ttk.Treeview(
+            self.section_tree_body,
+            show="tree",
+            selectmode="browse",
+            style="Section.Treeview",
+            height=18
+        )
+        self.section_tree.column("#0", stretch=True)
+        self.section_tree.bind("<<TreeviewSelect>>", self._on_section_select)
+        self.section_tree.bind("<<TreeviewOpen>>", self._on_section_tree_open, add="+")
+        self.section_tree.bind("<<TreeviewClose>>", self._on_section_tree_close, add="+")
+        self.section_tree.bind("<Button-1>", self._on_section_click)
+        
+        self.section_tree.tag_configure("section", font=(Styles.FONT_FAMILY, 15, "bold"), foreground=Styles.COLOR_FG_TEXT)
+        self.section_tree.tag_configure("subsection", font=(Styles.FONT_FAMILY, 13), foreground=Styles.COLOR_FG_TEXT)
+        self.section_tree.tag_configure("segment", font=(Styles.FONT_FAMILY, 12))
+        self.section_tree.tag_configure("size_blue", foreground=Styles.COLOR_ACCENT)
+        self.section_tree.tag_configure("size_green", foreground="#2ecc71")
+        self.section_tree.tag_configure("size_yellow", foreground="#f1c40f")
+        self.section_tree.tag_configure("size_red", foreground="#ff5c5c")
+        
+        self.section_tree.pack(fill="both", expand=True, padx=4, pady=(2, 4))
+
+        self.section_tree_bottom_spacer = tk.Frame(
+            self.section_tree_body,
+            bg=Styles.COLOR_INPUT_BG,
+            height=8,
+            cursor="arrow"
+        )
+        self.section_tree_bottom_spacer.pack(fill="x", padx=4, pady=(0, 2))
+        self.section_tree_bottom_spacer.pack_propagate(False)
+        self.section_tree_bottom_spacer.bind("<Button-1>", self._on_section_spacer_click)
+
+        # Bind Right Click
+        self.section_tree.bind("<Button-2>", self._show_context_menu)
+        self.section_tree.bind("<Button-3>", self._show_context_menu)
+        self.section_tree.bind("<Control-Button-1>", self._show_context_menu)
+        self._update_section_view_toggle_buttons()
+
+    def _configure_section_tree_style(self):
+        """Uses a dedicated Treeview style without the default indicator glyph."""
+        style = ttk.Style()
+        row_height = Styles.scale_size(40)
+
+        style.configure(
+            "Section.Treeview",
+            background=Styles.COLOR_INPUT_BG,
+            foreground=Styles.COLOR_FG_TEXT,
+            fieldbackground=Styles.COLOR_INPUT_BG,
+            borderwidth=0,
+            bordercolor=Styles.COLOR_INPUT_BG,
+            relief="flat",
+            font=Styles.FONT_MAIN,
+            rowheight=row_height,
+        )
+        style.map(
+            "Section.Treeview",
+            background=[("selected", Styles.COLOR_SELECTION_BG)],
+            foreground=[("selected", "#ffffff")],
+        )
+        style.layout(
+            "Section.Treeview.Item",
+            [
+                (
+                    "Treeitem.padding",
+                    {
+                        "sticky": "nswe",
+                        "children": [
+                            ("Treeitem.image", {"side": "left", "sticky": ""}),
+                            (
+                                "Treeitem.focus",
+                                {
+                                    "side": "left",
+                                    "sticky": "nswe",
+                                    "children": [
+                                        ("Treeitem.text", {"sticky": "nswe"}),
+                                    ],
+                                },
+                            ),
+                        ],
+                    },
+                ),
+            ],
+        )
+
+    def _create_section_list_controls(self, parent):
+        """Creates controls associated with the current section/subsection selection."""
         self.dynamic_paste_status_frame = tk.Frame(
             parent,
-            bg=Styles.COLOR_BG_SIDEBAR,
-            highlightthickness=1,
-            highlightbackground=Styles.COLOR_ACCENT,
+            bg=Styles.COLOR_SIDEBAR_CARD_ALT,
+            highlightthickness=0,
             bd=0
         )
 
@@ -1662,87 +2021,42 @@ class CodeView(ttk.Frame):
             style="ToolbarIcon.TButton",
             command=self._on_cancel_dynamic_paste
         )
-        self.btn_cancel_dynamic_paste_inline.pack(side="top", padx=8, pady=6)
+        self.btn_cancel_dynamic_paste_inline.pack(side="top", fill="x", padx=8, pady=6)
         attach_tooltip(
             self.btn_cancel_dynamic_paste_inline,
             "Cancelar la secuencia activa de copiado y pegado dinamico"
         )
 
-        self._update_sections_directory_label()
-        self.refresh_dynamic_paste_controls()
+    def _set_section_view_mode(self, mode):
+        normalized_mode = "regions" if mode == "regions" else "sections"
+        if self.section_view_mode.get() == normalized_mode:
+            return
+        self.section_view_mode.set(normalized_mode)
+        self._update_section_view_toggle_buttons()
+        self._refresh_sections(force_reload=True)
 
-    def _create_section_search(self, parent):
-        """Creates the section search input."""
-        self.section_search_shell = tk.Frame(
-            parent,
-            bg=Styles.COLOR_BG_SIDEBAR,
-            highlightthickness=1,
-            highlightbackground=Styles.COLOR_BORDER,
-            highlightcolor=Styles.COLOR_ACCENT,
-            bd=0
-        )
-        self.section_search_shell.pack(fill="x", padx=8, pady=(4, 4))
+    def _is_regions_view_active(self):
+        return self.section_view_mode.get() == "regions"
 
-        self.section_search_label = tk.Label(
-            self.section_search_shell,
-            text="Buscar...",
-            bg=Styles.COLOR_BG_SIDEBAR,
-            fg=Styles.COLOR_DIM,
-            font=("Segoe UI", 13, "bold"),
-            anchor="w"
-        )
-        self.section_search_label.pack(fill="x", padx=10, pady=(8, 0))
+    def _update_section_view_toggle_buttons(self):
+        if hasattr(self, "sections_header_var"):
+            self.sections_header_var.set("Regiones" if self._is_regions_view_active() else "Secciones")
+        active_mode = "regions" if self._is_regions_view_active() else "sections"
+        if hasattr(self, "section_mode_cards"):
+            for mode, widgets in self.section_mode_cards.items():
+                is_active = mode == active_mode
+                body_bg = Styles.COLOR_SIDEBAR_CARD_ALT if is_active else Styles.COLOR_SIDEBAR_CARD_INNER
+                tab_bg = Styles.COLOR_ACCENT if is_active else Styles.COLOR_BUTTON_BG
+                title_fg = Styles.COLOR_FG_TEXT if is_active else "#c9d5ea"
+                cursor = "arrow" if is_active else "hand2"
 
-        self.section_search_entry = tk.Entry(
-            self.section_search_shell,
-            font=("Segoe UI", 15),
-            bg=Styles.COLOR_INPUT_BG,
-            fg=Styles.COLOR_INPUT_FG,
-            insertbackground=Styles.COLOR_INPUT_FG,
-            relief="flat",
-            bd=0,
-            highlightthickness=0
-        )
-        self.section_search_entry.pack(fill="x", padx=10, pady=(4, 6), ipady=4)
-        self.section_search_entry.bind("<KeyRelease>", self._on_section_search_change)
-
-    def _create_section_tree(self, parent):
-        """Creates the sections and subsections treeview."""
-        self.section_tree = ttk.Treeview(
-            parent,
-            show="tree",
-            selectmode="browse",
-            style="Borderless.Treeview",
-            height=12
-        )
-        self.section_tree.column("#0", stretch=True)
-        self.section_tree.bind("<<TreeviewSelect>>", self._on_section_select)
-        self.section_tree.bind("<Button-1>", self._on_section_click)
-        
-        self.section_tree.tag_configure("section", font=("Segoe UI", 15, "bold"), foreground=Styles.COLOR_FG_TEXT)
-        self.section_tree.tag_configure("subsection", font=("Segoe UI", 13), foreground=Styles.COLOR_FG_TEXT)
-        self.section_tree.tag_configure("segment", font=("Segoe UI", 12))
-        self.section_tree.tag_configure("size_blue", foreground=Styles.COLOR_ACCENT)
-        self.section_tree.tag_configure("size_green", foreground="#2ecc71")
-        self.section_tree.tag_configure("size_yellow", foreground="#f1c40f")
-        self.section_tree.tag_configure("size_red", foreground="#ff5c5c")
-        
-        self.section_tree.pack(fill="x", expand=False, padx=5, pady=(2, 5))
-
-        self.section_tree_bottom_spacer = tk.Frame(
-            parent,
-            bg=Styles.COLOR_BG_SIDEBAR,
-            height=8,
-            cursor="arrow"
-        )
-        self.section_tree_bottom_spacer.pack(fill="x", padx=5, pady=(0, 2))
-        self.section_tree_bottom_spacer.pack_propagate(False)
-        self.section_tree_bottom_spacer.bind("<Button-1>", self._on_section_spacer_click)
-
-        # Bind Right Click
-        self.section_tree.bind("<Button-2>", self._show_context_menu)
-        self.section_tree.bind("<Button-3>", self._show_context_menu)
-        self.section_tree.bind("<Control-Button-1>", self._show_context_menu)
+                widgets["slot"].configure(cursor=cursor)
+                widgets["top_tab"].configure(bg=tab_bg, cursor=cursor)
+                widgets["body"].configure(
+                    bg=body_bg,
+                    cursor=cursor
+                )
+                widgets["title"].configure(bg=body_bg, fg=title_fg, cursor=cursor)
 
     def _create_return_files_checkbox(self, parent):
         """Creates the custom 'Devolver archivos' checkbox."""
@@ -1770,7 +2084,7 @@ class CodeView(ttk.Frame):
             self.chk_container, 
             text="Devolver archivos", 
             style="TLabel",
-            font=("Segoe UI", 18, "bold")
+            font=(Styles.FONT_FAMILY, 18, "bold")
         )
         self.lbl_chk_text.configure(background=Styles.COLOR_BG_SIDEBAR)
         self.lbl_chk_text.pack(side="left", padx=(10, 0))
@@ -1810,7 +2124,7 @@ class CodeView(ttk.Frame):
             self.chk_chunks_container,
             text="Devolver Trozos",
             style="TLabel",
-            font=("Segoe UI", 18, "bold")
+            font=(Styles.FONT_FAMILY, 18, "bold")
         )
         self.lbl_chk_chunks_text.configure(background=Styles.COLOR_BG_SIDEBAR)
         self.lbl_chk_chunks_text.pack(side="left", padx=(10, 0))
@@ -1848,7 +2162,7 @@ class CodeView(ttk.Frame):
             self.chk_headers_container,
             text="Cabecera Archivo",
             style="TLabel",
-            font=("Segoe UI", 18, "bold")
+            font=(Styles.FONT_FAMILY, 18, "bold")
         )
         self.lbl_chk_headers_text.configure(background=Styles.COLOR_BG_SIDEBAR)
         self.lbl_chk_headers_text.pack(side="left", padx=(10, 0))
@@ -1873,6 +2187,10 @@ class CodeView(ttk.Frame):
         self._refresh_sections()
         self.after_idle(self._set_default_sections_panel_width)
         self.bind("<Configure>", self._on_resize)
+        self.bind("<<BackgroundSearchDone>>", self._on_background_search_done)
+        
+        # Load project files initially
+        self._show_file_list_view()
 
     def _set_default_sections_panel_width(self):
         try:
@@ -1905,7 +2223,6 @@ class CodeView(ttk.Frame):
         compact_width = width < 960
 
         project_font_size = Styles.scale_size(14 if compact_height else 18)
-        section_label_size = Styles.scale_size(11 if compact_height else 13)
         section_dir_size = Styles.scale_size(9 if ultra_compact_height else 10 if compact_height else 11)
         section_entry_size = Styles.scale_size(13 if compact_height else 15)
         tree_section_size = Styles.scale_size(13 if compact_height else 15)
@@ -1923,15 +2240,14 @@ class CodeView(ttk.Frame):
         ai_title_size = Styles.scale_size(9 if ultra_compact_height else 10 if compact_height else 11)
         path_filter_width = max(18 if compact_width else 22 if narrow_width else 28, 16)
 
-        self.lbl_project_name.configure(font=("Segoe UI", project_font_size))
-        self.section_search_label.configure(font=("Segoe UI", section_label_size, "bold"))
+        self.lbl_project_name.configure(font=(Styles.FONT_FAMILY, project_font_size))
         self.lbl_sections_dir.configure(
-            font=("Segoe UI", section_dir_size),
+            font=(Styles.FONT_FAMILY, section_dir_size),
             wraplength=max(self.right_frame.winfo_width() - 30, Styles.scale_size(180))
         )
-        self.section_search_entry.configure(font=("Segoe UI", section_entry_size))
-        self.section_tree.tag_configure("section", font=("Segoe UI", tree_section_size, "bold"))
-        self.section_tree.tag_configure("subsection", font=("Segoe UI", tree_subsection_size))
+        self.section_search_entry.configure(font=(Styles.FONT_FAMILY, section_entry_size))
+        self.section_tree.tag_configure("section", font=(Styles.FONT_FAMILY, tree_section_size, "bold"))
+        self.section_tree.tag_configure("subsection", font=(Styles.FONT_FAMILY, tree_subsection_size))
         self.section_tree_bottom_spacer.configure(height=spacer_height)
 
         self._configure_file_tree_style(
@@ -1942,13 +2258,13 @@ class CodeView(ttk.Frame):
         self._update_file_tree_columns()
 
         self.cmb_ai.configure(width=ai_width)
-        self.path_filter_title.configure(font=("Segoe UI", ai_title_size, "bold"))
-        self.txt_path_filter.configure(font=("Segoe UI", max(ai_title_size + 2, 11)))
+        self.path_filter_title.configure(font=(Styles.FONT_FAMILY, ai_title_size, "bold"))
+        self.txt_path_filter.configure(font=(Styles.FONT_FAMILY, max(ai_title_size + 2, 11)))
         self.txt_path_filter.configure(width=path_filter_width)
-        self.ai_selector_title.configure(font=("Segoe UI", ai_title_size, "bold"))
-        self.ext_title.configure(font=("Segoe UI", ai_title_size, "bold"))
-        self.reload_title.configure(font=("Segoe UI", ai_title_size, "bold"))
-        self.txt_ext.configure(font=("Segoe UI", max(ai_title_size + 2, 11)))
+        self.ai_selector_title.configure(font=(Styles.FONT_FAMILY, ai_title_size, "bold"))
+        self.ext_title.configure(font=(Styles.FONT_FAMILY, ai_title_size, "bold"))
+        self.reload_title.configure(font=(Styles.FONT_FAMILY, ai_title_size, "bold"))
+        self.txt_ext.configure(font=(Styles.FONT_FAMILY, max(ai_title_size + 2, 11)))
         self.txt_ext.configure(width=max(path_filter_width - 8, 12))
         self.txt_prompt.configure(height=prompt_height)
         self.prompt_frame.pack_configure(pady=top_prompt_pady)
@@ -1956,16 +2272,15 @@ class CodeView(ttk.Frame):
 
     def _update_top_bar_alignment(self):
         """Centers the top controls visually between the left and right arrow buttons."""
-        if not hasattr(self, "slider_frame") or not hasattr(self, "btn_add_project"):
+        if not hasattr(self, "slider_frame") or not hasattr(self, "btn_next_project"):
             return
 
         try:
             self.update_idletasks()
-            add_width = self.btn_add_project.winfo_width()
-            next_right_gap = self.btn_add_project.winfo_x() - (
-                self.btn_next_project.winfo_x() + self.btn_next_project.winfo_width()
-            )
-            right_bias = max(0, add_width + max(next_right_gap, 0))
+            right_edge_widget = self.btn_change_sections_dir if hasattr(self, "btn_change_sections_dir") else self.btn_add_project
+            next_right_edge = self.btn_next_project.winfo_x() + self.btn_next_project.winfo_width()
+            right_group_edge = right_edge_widget.winfo_x() + right_edge_widget.winfo_width()
+            right_bias = max(0, right_group_edge - next_right_edge)
             self.slider_frame.pack_configure(padx=(0, right_bias))
         except Exception:
             pass
@@ -2230,7 +2545,7 @@ class CodeView(ttk.Frame):
             text="Verde: 0-100 | Amarillo: 101-300 | Rojo: 301-600 | Rojo oscuro: más de 600",
             bg=Styles.COLOR_BG_MAIN,
             fg=Styles.COLOR_DIM,
-            font=("Segoe UI", 11),
+            font=(Styles.FONT_FAMILY, 11),
             anchor="w"
         )
         legend.pack(fill="x", pady=(2, 0))
@@ -2272,7 +2587,7 @@ class CodeView(ttk.Frame):
             values=filter_labels,
             textvariable=selected_type_var,
             width=18,
-            font=("Segoe UI", 12)
+            font=(Styles.FONT_FAMILY, 12)
         )
         type_filter.pack(side="left", padx=(8, 0))
 
@@ -2584,7 +2899,10 @@ class CodeView(ttk.Frame):
         self._schedule_file_list_refresh()
 
     def _on_path_filter_change(self, *args):
-        """Applies the local route filter over the current search results."""
+        """Applies the local route filter over the current search results or highlights code view."""
+        if hasattr(self, '_code_preview_mode') and self._code_preview_mode:
+            query = self.path_filter_var.get().strip()
+            self._highlight_text_in_segment_code_view(query)
         self.refresh_file_list(self._last_relevant_files)
 
     def _start_background_search(self):
@@ -2617,10 +2935,21 @@ class CodeView(ttk.Frame):
                 min_files=min_files,
                 max_files=max_files
             )
-            # Schedule UI update on main thread
-            self.after(0, lambda: self._update_file_list_safe(relevant_files))
+            # Safe way to pass data to main thread without corrupting Tkinter's lock on macOS
+            self._pending_search_results = relevant_files
+            try:
+                self.event_generate("<<BackgroundSearchDone>>", when="tail")
+            except tk.TclError:
+                pass
         except Exception as e:
             print(f"Search error: {e}")
+
+    def _on_background_search_done(self, event=None):
+        """Handles the completion of the background search on the main thread."""
+        if hasattr(self, '_pending_search_results'):
+            files = self._pending_search_results
+            self._pending_search_results = None
+            self._update_file_list_safe(files)
 
     def _update_file_list_safe(self, files):
         """Updates UI with search results (Main Thread)."""
@@ -2662,29 +2991,34 @@ class CodeView(ttk.Frame):
             if str(file_data.get("path", "") or "") not in self._discarded_file_paths
         ]
 
-    def _get_selected_scope_info(self):
-        """Returns (section_name, subsection_name_or_None, segment_name_or_None) from current Treeview selection."""
+    def _get_selected_tree_item_info(self):
+        """Returns (kind, section_name, subsection_name_or_None, leaf_name_or_None) from current Treeview selection."""
         if not hasattr(self, 'section_tree'):
-            return None, None, None
+            return None, None, None, None
         selected = self.section_tree.selection()
         if not selected:
-            return None, None, None
+            return None, None, None, None
         iid = selected[0]
+        if iid.startswith("RSEG:"):
+            return "region_segment", None, None, iid[5:]
         if iid.startswith("SEG:"):
             rest = iid[4:]
             parts = rest.split("::", 2)
             if len(parts) == 3:
-                return parts[0], parts[1], parts[2]
+                return "segment", parts[0], parts[1], parts[2]
         if iid.startswith("SS:"):
-            # Subsection: "SS:ParentName::SubName"
             rest = iid[3:]
             parts = rest.split("::", 1)
             if len(parts) == 2:
-                return parts[0], parts[1], None
+                return "subsection", parts[0], parts[1], None
         elif iid.startswith("S:"):
-            # Parent section: "S:SectionName"
-            return iid[2:], None, None
-        return None, None, None
+            return "section", iid[2:], None, None
+        return None, None, None, None
+
+    def _get_selected_scope_info(self):
+        """Returns (section_name, subsection_name_or_None, leaf_name_or_None) from current Treeview selection."""
+        _kind, section_name, subsection_name, leaf_name = self._get_selected_tree_item_info()
+        return section_name, subsection_name, leaf_name
 
     def _get_selected_section_info(self):
         """Returns (section_name, subsection_name_or_None) using the parent subsection when a segment is selected."""
@@ -2705,6 +3039,11 @@ class CodeView(ttk.Frame):
             return f"SS:{section_name}::{subsection_name}"
         return f"S:{section_name}"
 
+    def _build_region_iid(self, region_name):
+        if not region_name:
+            return None
+        return f"RSEG:{region_name}"
+
     def _on_section_search_change(self, event=None):
         preferred_iid = None
         selected = self.section_tree.selection() if hasattr(self, "section_tree") else ()
@@ -2712,6 +3051,8 @@ class CodeView(ttk.Frame):
             preferred_iid = selected[0]
         elif self._last_selected_scope_iid:
             preferred_iid = self._last_selected_scope_iid
+        elif self._is_regions_view_active() and self._last_selected_region:
+            preferred_iid = self._build_region_iid(self._last_selected_region)
         elif self._last_selected_section:
             preferred_iid = self._build_section_iid(
                 self._last_selected_section,
@@ -2727,17 +3068,23 @@ class CodeView(ttk.Frame):
         if selected:
             scope_iid = selected[0]
 
-        section_name, subsection_name, segment_name = self._get_selected_scope_info()
-        self._update_section_action_buttons(section_name, subsection_name, segment_name)
+        scope_kind, section_name, subsection_name, leaf_name = self._get_selected_tree_item_info()
+        segment_name = leaf_name if scope_kind == "segment" else None
+        region_name = leaf_name if scope_kind == "region_segment" else None
+        self._update_section_action_buttons(section_name, subsection_name, leaf_name)
         
         # Only reload if the selection has actually changed
         if not force_reload and scope_iid == self._last_selected_scope_iid:
             return
             
         self._last_selected_scope_iid = scope_iid
+        self._last_selected_scope_kind = scope_kind
         self._last_selected_section = section_name
         self._last_selected_subsection = subsection_name
-        self._last_selected_segment = segment_name
+        if segment_name:
+            self._last_selected_segment = segment_name
+        if region_name:
+            self._last_selected_region = region_name
         
         # Save selection
         if section_name:
@@ -2746,29 +3093,19 @@ class CodeView(ttk.Frame):
 
         if segment_name:
             self._load_selected_segment_preview(section_name, subsection_name, segment_name)
+        elif region_name:
+            self._load_selected_region_preview(region_name)
         else:
             self._show_file_list_view()
             self._schedule_file_list_refresh()
 
     def _update_section_action_buttons(self, section_name=None, subsection_name=None, segment_name=None):
         """Reserved for section actions that depend on current selection."""
-        state = ["!disabled"] if section_name else ["disabled"]
-        if hasattr(self, "btn_copy_structure_headers"):
-            self.btn_copy_structure_headers.state(state)
-        if hasattr(self, "btn_dynamic_paste"):
-            dynamic_allowed = bool(section_name) and not bool(segment_name)
-            if getattr(getattr(self.controller, "has_dynamic_paste_active", None), "__call__", None):
-                if self.controller.has_dynamic_paste_active():
-                    self.btn_dynamic_paste.state(["disabled"])
-                else:
-                    self.btn_dynamic_paste.state(["!disabled"] if dynamic_allowed else ["disabled"])
-            else:
-                self.btn_dynamic_paste.state(["!disabled"] if dynamic_allowed else ["disabled"])
         self.refresh_dynamic_paste_controls()
 
     def refresh_dynamic_paste_controls(self):
         """Refreshes the visibility and text of dynamic-paste controls."""
-        if not hasattr(self, "btn_cancel_dynamic_paste"):
+        if not hasattr(self, "btn_cancel_dynamic_paste_inline"):
             return
 
         status = {"active": False, "current_number": 0, "total": 0, "current_file": ""}
@@ -2778,16 +3115,11 @@ class CodeView(ttk.Frame):
         if status.get("active"):
             current_number = status.get("current_number", 0)
             total = status.get("total", 0)
-            self.btn_cancel_dynamic_paste.configure(
-                text=f"Cancelar pegado dinamico ({current_number}/{total})"
-            )
             self.btn_cancel_dynamic_paste_inline.configure(
                 text=f"Cancelar pegado dinamico ({current_number}/{total})"
             )
             if hasattr(self, "dynamic_paste_status_frame") and not self.dynamic_paste_status_frame.winfo_manager():
                 self.dynamic_paste_status_frame.pack(fill="x", padx=8, pady=(0, 6))
-            if hasattr(self, "btn_dynamic_paste"):
-                self.btn_dynamic_paste.state(["disabled"])
         else:
             if hasattr(self, "dynamic_paste_status_frame") and self.dynamic_paste_status_frame.winfo_manager():
                 self.dynamic_paste_status_frame.pack_forget()
@@ -2800,12 +3132,7 @@ class CodeView(ttk.Frame):
 
     def _update_section_action_buttons_without_refresh(self, section_name=None, subsection_name=None, segment_name=None):
         """Updates section action buttons without re-entering dynamic-paste UI refresh."""
-        state = ["!disabled"] if section_name else ["disabled"]
-        if hasattr(self, "btn_copy_structure_headers"):
-            self.btn_copy_structure_headers.state(state)
-        if hasattr(self, "btn_dynamic_paste"):
-            dynamic_allowed = bool(section_name) and not bool(segment_name)
-            self.btn_dynamic_paste.state(["!disabled"] if dynamic_allowed else ["disabled"])
+        return
 
     def _load_selected_segment_preview(self, section_name, subsection_name, segment_name):
         """Loads the selected segment code into the left preview panel."""
@@ -2839,6 +3166,40 @@ class CodeView(ttk.Frame):
             title_text=title_text,
             file_hint=file_hint,
             preview_mode="segment"
+        )
+
+    def _load_selected_region_preview(self, region_name):
+        """Loads the selected code segment built from regions into the left preview panel."""
+        region = self.controller.region_segment_manager.get_region_segment(region_name)
+        region_items = list((region or {}).get("items", []))
+        if not region_items:
+            self._show_segment_code_view(
+                "",
+                title_text=f"Región: {region_name}",
+                file_hint=None,
+                preview_mode="region"
+            )
+            return
+
+        file_infos = list(self.controller.project_manager.get_files())
+        code_text, _copied_count = build_segment_full_text_from_items(file_infos, region_items)
+
+        unique_paths = []
+        seen_paths = set()
+        for item in region_items:
+            file_path = item.get("file_path")
+            if not file_path or file_path in seen_paths:
+                continue
+            seen_paths.add(file_path)
+            unique_paths.append(file_path)
+
+        file_hint = unique_paths[0] if len(unique_paths) == 1 else None
+        title_text = f"Región: {region_name}"
+        self._show_segment_code_view(
+            code_text,
+            title_text=title_text,
+            file_hint=file_hint,
+            preview_mode="region"
         )
 
     def _extract_structure_header_text(self, structure_item):
@@ -3580,14 +3941,25 @@ class CodeView(ttk.Frame):
     def _on_section_click(self, event):
         """Handle clicks on the section tree. Deselect if clicked on empty space."""
         iid = self.section_tree.identify_row(event.y)
-        if not iid or iid == "EMPTY_DESELECT":
+        element = self.section_tree.identify("element", event.x, event.y)
+        if not iid or self._is_empty_deselect_iid(iid):
             # Clicked on empty space - deselect
             selected = self.section_tree.selection()
             if selected:
                 self.section_tree.selection_remove(*selected)
             self._on_section_select(force_reload=True)
-            if iid == "EMPTY_DESELECT":
+            if self._is_empty_deselect_iid(iid):
                 return "break"
+
+        if (
+            iid
+            and element == "Treeitem.image"
+            and not self._is_empty_deselect_iid(iid)
+            and self.section_tree.get_children(iid)
+        ):
+            self.section_tree.item(iid, open=not bool(self.section_tree.item(iid, "open")))
+            self.after_idle(self._refresh_section_tree_icons)
+            return "break"
 
     def _on_section_spacer_click(self, event=None):
         """Deselect sections when clicking the fixed spacer below the tree."""
@@ -3596,6 +3968,57 @@ class CodeView(ttk.Frame):
             self.section_tree.selection_remove(*selected)
         self._on_section_select(force_reload=True)
         return "break"
+
+    def _is_empty_deselect_iid(self, iid):
+        """Returns whether the iid belongs to a dummy row used for deselection."""
+        return bool(iid) and iid.startswith("EMPTY_DESELECT")
+
+    def _on_section_tree_open(self, event=None):
+        """Refreshes the custom icon when a tree item expands."""
+        self.after_idle(self._refresh_section_tree_icons)
+
+    def _on_section_tree_close(self, event=None):
+        """Refreshes the custom icon when a tree item collapses."""
+        self.after_idle(self._refresh_section_tree_icons)
+
+    def _refresh_section_tree_icons(self):
+        """Syncs the stylized arrow icon for every visible row in the sections tree."""
+        if not hasattr(self, "section_tree"):
+            return
+
+        for item_id in self.section_tree.get_children(""):
+            self._refresh_section_tree_icons_recursive(item_id)
+
+    def _refresh_section_tree_icons_recursive(self, item_id):
+        """Recursively updates the icon assigned to an item and its descendants."""
+        if not item_id or not self.section_tree.exists(item_id):
+            return
+
+        self._update_section_tree_item_icon(item_id)
+        for child_id in self.section_tree.get_children(item_id):
+            self._refresh_section_tree_icons_recursive(child_id)
+
+    def _update_section_tree_item_icon(self, item_id):
+        """Assigns the correct icon based on whether the item can expand and its state."""
+        if not item_id or not self.section_tree.exists(item_id):
+            return
+
+        if self._is_empty_deselect_iid(item_id):
+            self.section_tree.item(item_id, image="")
+            return
+
+        children = self.section_tree.get_children(item_id)
+        if children:
+            is_open = bool(self.section_tree.item(item_id, "open"))
+            icon_key = "expanded" if is_open else "collapsed"
+            self.section_tree.item(item_id, image=self.section_tree_icons[icon_key])
+            return
+
+        parent_id = self.section_tree.parent(item_id)
+        if parent_id:
+            self.section_tree.item(item_id, image=self.section_tree_icons["spacer"])
+        else:
+            self.section_tree.item(item_id, image="")
 
     def _on_copy_prompt(self, event=None):
         # If triggered by event, prevent default behavior (newline)
@@ -3608,8 +4031,8 @@ class CodeView(ttk.Frame):
             messagebox.showwarning("Aviso", "Escribe un mensaje primero.")
             return
 
-        # Check selected section/subsection/segment
-        section, subsection, segment_name = self._get_selected_scope_info()
+        # Check selected scope
+        scope_kind, section, subsection, leaf_name = self._get_selected_tree_item_info()
         
         return_files = self.var_return_files.get()
         return_chunks = self.var_return_chunks.get()
@@ -3622,14 +4045,18 @@ class CodeView(ttk.Frame):
         if hasattr(self.controller, 'config_manager'):
             min_files = self.controller.config_manager.get_file_limit()
 
-        if segment_name:
+        if scope_kind in {"segment", "region_segment"} and leaf_name:
             segment_code = (self._segment_code_preview_text or "").strip()
             if not segment_code:
-                messagebox.showwarning("Aviso", "El segmento seleccionado no tiene código visible para copiar.")
+                messagebox.showwarning("Aviso", "La selección actual no tiene código visible para copiar.")
                 return
 
-            segment = self.controller.section_manager.get_segment(section, subsection, segment_name)
-            segment_items = list((segment or {}).get("items", []))
+            if scope_kind == "segment":
+                selected_entity = self.controller.section_manager.get_segment(section, subsection, leaf_name)
+            else:
+                selected_entity = self.controller.region_segment_manager.get_region_segment(leaf_name)
+
+            segment_items = list((selected_entity or {}).get("items", []))
             segment_file_paths = []
             seen_segment_paths = set()
             for item in segment_items:
@@ -3903,9 +4330,11 @@ class CodeView(ttk.Frame):
             # Build context menu dynamically based on what was clicked
             menu = tk.Menu(self, tearoff=0)
             
-            if not iid:
-                # Clicked on empty space - only show "Nueva Sección"
-                menu.add_command(label="Nueva Sección", command=self._on_add_section)
+            if not iid or self._is_empty_deselect_iid(iid):
+                if self._is_regions_view_active():
+                    menu.add_command(label="Nueva Región", command=self._on_add_region)
+                else:
+                    menu.add_command(label="Nueva Sección", command=self._on_add_section)
             else:
                 # Select the item
                 self.section_tree.selection_set(iid)
@@ -3918,6 +4347,7 @@ class CodeView(ttk.Frame):
                     menu.add_command(label="Agregar ficheros", command=self._on_add_files_to_selected_section)
                     menu.add_separator()
                     menu.add_command(label="Copiar estructuras", command=self._on_copy_structure_headers)
+                    menu.add_command(label="PD", command=self._on_start_dynamic_paste)
                     menu.add_command(label="Tamaño estructuras", command=self._on_show_structure_sizes)
                     menu.add_separator()
                     menu.add_command(label="Generar Prompt Docs", command=self._on_generate_docs)
@@ -3931,6 +4361,7 @@ class CodeView(ttk.Frame):
                     menu.add_command(label="Agregar ficheros", command=self._on_add_files_to_selected_section)
                     menu.add_separator()
                     menu.add_command(label="Copiar estructuras", command=self._on_copy_structure_headers)
+                    menu.add_command(label="PD", command=self._on_start_dynamic_paste)
                     menu.add_command(label="Tamaño estructuras", command=self._on_show_structure_sizes)
                     menu.add_separator()
                     menu.add_command(label="Editar Subsección", command=self._on_edit_subsection)
@@ -3942,6 +4373,11 @@ class CodeView(ttk.Frame):
                     menu.add_separator()
                     menu.add_command(label="Editar Segmento", command=self._on_edit_segment)
                     menu.add_command(label="Eliminar Segmento", command=self._on_delete_segment)
+                elif iid.startswith("RSEG:"):
+                    menu.add_command(label="Copiar Región", command=self._on_copy_region)
+                    menu.add_separator()
+                    menu.add_command(label="Editar Región", command=self._on_edit_region)
+                    menu.add_command(label="Eliminar Región", command=self._on_delete_region)
             
             try:
                 menu.tk_popup(event.x_root, event.y_root)
@@ -4144,6 +4580,104 @@ class CodeView(ttk.Frame):
             f"Se copiaron {copied_count} estructuras completas del segmento '{segment_name}'."
         )
 
+    def _on_add_region(self):
+        """Opens popup to create a saved code segment from project-wide regions."""
+        if not getattr(self.controller.project_manager, "get_files", None) or not self.controller.project_manager.get_files():
+            messagebox.showwarning("Aviso", "Carga primero un proyecto con código para crear regiones.")
+            return
+        from src.ui.popups.region_creation_popup import RegionCreationPopup
+        try:
+            popup = RegionCreationPopup(self, self.controller)
+            self.wait_window(popup)
+            if popup.saved_region_name:
+                preferred_iid = self._build_region_iid(popup.saved_region_name)
+                self._refresh_sections(preferred_iid=preferred_iid, force_reload=True)
+        except Exception as e:
+            print(f"Error opening region popup: {e}")
+            messagebox.showerror("Error", f"Error abriendo popup: {e}")
+
+    def _on_edit_region(self):
+        """Opens popup to edit the selected saved code segment built from regions."""
+        scope_kind, _section_name, _sub_name, region_name = self._get_selected_tree_item_info()
+        if scope_kind != "region_segment" or not region_name:
+            messagebox.showwarning("Aviso", "Selecciona una región para editar.")
+            return
+
+        region = self.controller.region_segment_manager.get_region_segment(region_name)
+        initial_items = region.get("items", []) if region else []
+
+        from src.ui.popups.region_creation_popup import RegionCreationPopup
+        try:
+            popup = RegionCreationPopup(
+                self,
+                self.controller,
+                region_name=region_name,
+                initial_items=initial_items
+            )
+            self.wait_window(popup)
+            if popup.saved_region_name:
+                preferred_iid = self._build_region_iid(popup.saved_region_name)
+                self._refresh_sections(preferred_iid=preferred_iid, force_reload=True)
+        except Exception as e:
+            print(f"Error opening region edit popup: {e}")
+            messagebox.showerror("Error", f"Error abriendo popup: {e}")
+
+    def _on_delete_region(self):
+        """Deletes the selected saved code segment built from regions."""
+        scope_kind, _section_name, _sub_name, region_name = self._get_selected_tree_item_info()
+        if scope_kind != "region_segment" or not region_name:
+            return
+
+        if not messagebox.askyesno("Eliminar Región", f"¿Quieres eliminar la región '{region_name}'?"):
+            return
+
+        self.controller.region_segment_manager.delete_region_segment(region_name)
+        self._refresh_sections(force_reload=True)
+
+    def _on_copy_region(self):
+        """Copies the code associated with the selected saved code segment built from regions."""
+        scope_kind, _section_name, _sub_name, region_name = self._get_selected_tree_item_info()
+        if scope_kind != "region_segment" or not region_name:
+            messagebox.showwarning("Aviso", "Selecciona una región para copiar.")
+            return
+
+        region = self.controller.region_segment_manager.get_region_segment(region_name)
+        region_items = list((region or {}).get("items", []))
+        if not region_items:
+            messagebox.showinfo("Copiar Región", "La región no tiene bloques guardados.")
+            return
+
+        file_infos = list(self.controller.project_manager.get_files())
+        if not file_infos:
+            messagebox.showinfo("Copiar Región", "No hay ficheros disponibles en el proyecto.")
+            return
+
+        clipboard_text, copied_count = build_segment_full_text_from_items(file_infos, region_items)
+        if not clipboard_text.strip():
+            messagebox.showinfo("Copiar Región", "No se pudo construir el contenido de la región.")
+            return
+
+        copied = False
+        if hasattr(self.controller, "copy_to_clipboard"):
+            copied = self.controller.copy_to_clipboard(clipboard_text)
+
+        if not copied:
+            try:
+                self.clipboard_clear()
+                self.clipboard_append(clipboard_text)
+                copied = True
+            except Exception as e:
+                print(f"Error copying region to clipboard: {e}")
+
+        if not copied:
+            messagebox.showerror("Error", "No se pudo copiar el contenido de la región al portapapeles.")
+            return
+
+        messagebox.showinfo(
+            "Copiar Región",
+            f"Se copiaron {copied_count} regiones completas de '{region_name}'."
+        )
+
     def _on_generate_docs(self):
         """Generates a documentation prompt for the selected files or visible files."""
         # 1. Get selected files from Treeview
@@ -4225,7 +4759,55 @@ class CodeView(ttk.Frame):
             self.section_tree.delete(item)
 
         self._visible_section_ids = []
-        query = self.section_search_entry.get().strip().lower() if hasattr(self, "section_search_entry") else ""
+        query = self._get_section_search_query()
+
+        if self._is_regions_view_active():
+            region_names = self.controller.region_segment_manager.get_region_segments()
+            visible_regions = [name for name in region_names if not query or query in name.lower()]
+
+            for region_name in visible_regions:
+                region_iid = self._build_region_iid(region_name)
+                region_size = self.controller.region_segment_manager.get_region_segment_total_code_size(region_name)
+                self.section_tree.insert(
+                    "",
+                    "end",
+                    iid=region_iid,
+                    text=self._format_section_tree_label(region_name, region_size),
+                    tags=("segment", self._get_section_size_tag(region_size))
+                )
+                self._visible_section_ids.append(region_iid)
+
+            self._insert_section_tree_deselect_spacers()
+            self._refresh_section_tree_icons()
+
+            selection_candidates = []
+            if preferred_iid:
+                selection_candidates.append(preferred_iid)
+            if self._last_selected_scope_iid:
+                selection_candidates.append(self._last_selected_scope_iid)
+            if self._last_selected_region:
+                selection_candidates.append(self._build_region_iid(self._last_selected_region))
+            if self._visible_section_ids:
+                selection_candidates.append(self._visible_section_ids[0])
+
+            target_iid = None
+            for iid in selection_candidates:
+                if iid and self.section_tree.exists(iid):
+                    target_iid = iid
+                    break
+
+            current_selection = self.section_tree.selection()
+            if current_selection:
+                self.section_tree.selection_remove(*current_selection)
+
+            if target_iid:
+                self.section_tree.selection_set(target_iid)
+                self.section_tree.see(target_iid)
+                self._on_section_select(force_reload=force_reload)
+            else:
+                self._on_section_select(force_reload=True)
+            return
+
         sections = self.controller.section_manager.get_sections()
         for s in sections:
             subsections = self.controller.section_manager.get_subsections(s)
@@ -4233,25 +4815,25 @@ class CodeView(ttk.Frame):
             visible_subsections = []
 
             for sub in subsections:
-                segments = self.controller.section_manager.get_segments(s, sub)
+                child_names = self.controller.section_manager.get_segments(s, sub)
                 subsection_matches = query in sub.lower() if query else False
-                matching_segments = [segment for segment in segments if query in segment.lower()] if query else list(segments)
+                matching_children = [name for name in child_names if query in name.lower()] if query else list(child_names)
 
                 if query:
                     if section_matches:
-                        visible_segments = list(segments)
+                        visible_children = list(child_names)
                     elif subsection_matches:
-                        visible_segments = list(segments)
-                    elif matching_segments:
-                        visible_segments = matching_segments
+                        visible_children = list(child_names)
+                    elif matching_children:
+                        visible_children = matching_children
                     else:
                         continue
                 else:
-                    visible_segments = list(segments)
+                    visible_children = list(child_names)
 
                 visible_subsections.append({
                     "name": sub,
-                    "segments": visible_segments,
+                    "children": visible_children,
                 })
 
             if query and not section_matches and not visible_subsections:
@@ -4284,19 +4866,20 @@ class CodeView(ttk.Frame):
                     tags=("subsection",)
                 )
 
-                for segment_name in subsection_entry["segments"]:
-                    segment_iid = self._build_section_iid(s, sub, segment_name)
-                    segment_size = self.controller.section_manager.get_segment_total_code_size(s, sub, segment_name)
+                for child_name in subsection_entry["children"]:
+                    child_iid = self._build_section_iid(s, sub, child_name)
+                    child_size = self.controller.section_manager.get_segment_total_code_size(s, sub, child_name)
                     self.section_tree.insert(
                         sub_iid,
                         "end",
-                        iid=segment_iid,
-                        text=self._format_section_tree_label(segment_name, segment_size),
-                        tags=("segment", self._get_section_size_tag(segment_size))
+                        iid=child_iid,
+                        text=self._format_section_tree_label(child_name, child_size),
+                        tags=("segment", self._get_section_size_tag(child_size))
                     )
 
-        # Insert dummy empty space at the end to allow deselection
-        self.section_tree.insert("", "end", iid="EMPTY_DESELECT", text=" ", tags=("subsection",))
+        # Insert a minimal empty space at the end to make deselection easier.
+        self._insert_section_tree_deselect_spacers()
+        self._refresh_section_tree_icons()
 
         selection_candidates = []
         if preferred_iid:
@@ -4304,13 +4887,14 @@ class CodeView(ttk.Frame):
         if self._last_selected_scope_iid:
             selection_candidates.append(self._last_selected_scope_iid)
         if self._last_selected_section:
-            selection_candidates.append(
-                self._build_section_iid(
-                    self._last_selected_section,
-                    self._last_selected_subsection,
-                    self._last_selected_segment
+            if self._last_selected_segment:
+                selection_candidates.append(
+                    self._build_section_iid(
+                        self._last_selected_section,
+                        self._last_selected_subsection,
+                        self._last_selected_segment
+                    )
                 )
-            )
             selection_candidates.append(
                 self._build_section_iid(self._last_selected_section, self._last_selected_subsection)
             )
@@ -4341,6 +4925,7 @@ class CodeView(ttk.Frame):
             parent_iid = self.section_tree.parent(target_iid)
             if parent_iid:
                 self.section_tree.item(parent_iid, open=True)
+                self._update_section_tree_item_icon(parent_iid)
             self._on_section_select(force_reload=force_reload)
         else:
             self._on_section_select(force_reload=True)
@@ -4348,6 +4933,19 @@ class CodeView(ttk.Frame):
     def _format_section_tree_label(self, name, total_bytes):
         """Builds the text shown in the sections tree including the total code size."""
         return f"{name}  [{self._format_section_size_kb(total_bytes)}]"
+
+    def _insert_section_tree_deselect_spacers(self, rows=2):
+        """Adds a couple of empty rows at the end of the tree for easier deselection."""
+        total_rows = max(1, int(rows))
+        for index in range(total_rows):
+            suffix = "" if index == 0 else f"_{index}"
+            self.section_tree.insert(
+                "",
+                "end",
+                iid=f"EMPTY_DESELECT{suffix}",
+                text=" ",
+                tags=("subsection",)
+            )
 
     def _format_section_size_kb(self, total_bytes):
         """Formats the size label for sections and subsections."""

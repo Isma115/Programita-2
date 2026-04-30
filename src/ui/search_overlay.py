@@ -67,7 +67,7 @@ class SearchOverlay(tk.Toplevel):
         # --- Search entry ---
         self.entry = tk.Entry(
             inner,
-            font=("Segoe UI", 16),
+            font=(Styles.FONT_FAMILY, 16),
             bg=Styles.COLOR_INPUT_BG,
             fg=Styles.COLOR_INPUT_FG,
             insertbackground="white",
@@ -84,7 +84,7 @@ class SearchOverlay(tk.Toplevel):
 
         self.listbox = tk.Listbox(
             self.listbox_frame,
-            font=("Segoe UI", 14),
+            font=(Styles.FONT_FAMILY, 14),
             bg=Styles.COLOR_INPUT_BG,
             fg=Styles.COLOR_FG_TEXT,
             selectbackground=Styles.COLOR_ACCENT,
@@ -100,7 +100,7 @@ class SearchOverlay(tk.Toplevel):
         self.status_label = tk.Label(
             inner,
             text="",
-            font=("Segoe UI", 11),
+            font=(Styles.FONT_FAMILY, 11),
             bg=Styles.COLOR_BG_SIDEBAR,
             fg=Styles.COLOR_DIM,
             anchor="w",

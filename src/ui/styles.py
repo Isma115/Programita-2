@@ -1,5 +1,7 @@
 import tkinter as tk
+import tkinter.font as tkfont
 from tkinter import ttk
+import platform
 
 class Styles:
     """
@@ -10,19 +12,19 @@ class Styles:
     UI_SCALE = 0.90
 
     # ── HidraSmart Dark Blue Palette ──
-    COLOR_BG_MAIN = "#0a1220"        # Deep navy background
-    COLOR_BG_SIDEBAR = "#101a2d"     # Slightly lighter navy for sidebars/toolbar
+    COLOR_BG_MAIN = "#08101b"        # Deep navy background
+    COLOR_BG_SIDEBAR = "#0e1728"     # Dark surface for sidebars/toolbar
     COLOR_FG_TEXT = "#edf3ff"        # Cool white text
     COLOR_ACCENT = "#2f80ff"         # Electric blue accent
     COLOR_ACCENT_HOVER = "#4d96ff"   # Hover blue
-    COLOR_BORDER = "#263a5c"         # Subtle blue border
+    COLOR_BORDER = "#121c2c"         # Neutral dark contour when a border is unavoidable
     COLOR_DIM = "#8b9ab6"            # Dimmed text (blue-gray)
-    COLOR_PANE_DIVIDER = "#223552"   # Divider matching border
+    COLOR_PANE_DIVIDER = "#1a2940"   # Divider matching darker chrome
 
     # Input/List Colors
-    COLOR_INPUT_BG = "#131f34"       # Input field background
+    COLOR_INPUT_BG = "#182740"       # Input field background
     COLOR_INPUT_FG = "#ffffff"       # White input text
-    COLOR_SELECTION_BG = "#20365a"   # Selection highlight
+    COLOR_SELECTION_BG = "#27466f"   # Selection highlight
     COLOR_CODE_FILE = "#dbe5f4"      # Light gray for file names in structure trees
     COLOR_CODE_VIEW = "#63e6ff"      # Cyan for view-oriented code structures
     COLOR_CODE_BACKEND = "#ffd866"   # Yellow for backend/data structures
@@ -39,23 +41,24 @@ class Styles:
     COLOR_BUTTON_BORDER = "#30363d"
     COLOR_BUTTON_FG = "#c9d1d9"
     COLOR_BUTTON_FG_ACTIVE = "#f0f6fc"
-    COLOR_SIDEBAR_CARD_BG = "#111b2b"
-    COLOR_SIDEBAR_CARD_INNER = "#17253b"
-    COLOR_SIDEBAR_CARD_ALT = "#1b2c47"
-    COLOR_SIDEBAR_ROW_BG = "#1a2943"
+    COLOR_SIDEBAR_CARD_BG = "#132033"
+    COLOR_SIDEBAR_CARD_INNER = "#1b2b45"
+    COLOR_SIDEBAR_CARD_ALT = "#223757"
+    COLOR_SIDEBAR_ROW_BG = "#213550"
 
     # Fonts
-    FONT_FAMILY = "Segoe UI"
-    BASE_FONT_MAIN = ("Segoe UI", 18, "bold")
-    BASE_FONT_HEADER = ("Segoe UI", 20, "bold")
+    FONT_FAMILY = ".AppleSystemUIFont" if platform.system() == "Darwin" else "Segoe UI" if platform.system() == "Windows" else "Ubuntu"
+    BASE_FONT_MAIN = (FONT_FAMILY, 18, "bold")
+    BASE_FONT_HEADER = (FONT_FAMILY, 20, "bold")
     BASE_FONT_CODE = ("Consolas", 14)
-    BASE_FONT_BUTTON = ("Segoe UI", 18, "bold")
-    BASE_FONT_BREADCRUMB = ("Segoe UI", 12)
+    BASE_FONT_BUTTON = (FONT_FAMILY, 18, "bold")
+    BASE_FONT_BREADCRUMB = (FONT_FAMILY, 12)
     FONT_MAIN = BASE_FONT_MAIN
     FONT_HEADER = BASE_FONT_HEADER
     FONT_CODE = BASE_FONT_CODE
     FONT_BUTTON = BASE_FONT_BUTTON
     FONT_BREADCRUMB = BASE_FONT_BREADCRUMB
+    WEB_UI_FONT_STACK = '-apple-system, BlinkMacSystemFont, "Segoe UI Variable", "Segoe UI", system-ui, sans-serif'
 
     # Rounded corner radius
     CORNER_RADIUS = 8
@@ -91,6 +94,42 @@ class Styles:
         return (family, max(int(round(size * Styles.UI_SCALE)), 1), *rest)
 
     @staticmethod
+    def ui_font(size, *styles):
+        return (Styles.FONT_FAMILY, size, *styles)
+
+    @staticmethod
+    def _refresh_base_fonts():
+        Styles.BASE_FONT_MAIN = Styles.ui_font(18, "bold")
+        Styles.BASE_FONT_HEADER = Styles.ui_font(20, "bold")
+        Styles.BASE_FONT_BUTTON = Styles.ui_font(18, "bold")
+        Styles.BASE_FONT_BREADCRUMB = Styles.ui_font(12)
+
+    @staticmethod
+    def resolve_vscode_ui_font_family(root):
+        candidates = [
+            ".AppleSystemUIFont",
+            "SF Pro Text",
+            "SF Pro Display",
+            "Segoe UI Variable",
+            "Segoe UI",
+            "Ubuntu",
+            "Noto Sans",
+            "Cantarell",
+            "Helvetica Neue",
+            "Helvetica",
+            "Arial",
+        ]
+        try:
+            available = set(tkfont.families(root=root))
+        except Exception:
+            return Styles.FONT_FAMILY
+
+        for family in candidates:
+            if family in available:
+                return family
+        return Styles.FONT_FAMILY
+
+    @staticmethod
     def apply_tk_scaling(root):
         if getattr(root, "_programita_tk_scaled", False):
             return
@@ -121,8 +160,8 @@ class Styles:
             "relief": "flat",
             "borderwidth": 0,
             "highlightthickness": 0,
-            "highlightbackground": Styles.COLOR_BORDER,
-            "highlightcolor": Styles.COLOR_ACCENT,
+            "highlightbackground": Styles.COLOR_INPUT_BG,
+            "highlightcolor": Styles.COLOR_INPUT_BG,
         }
 
         try:
@@ -186,8 +225,8 @@ class Styles:
             bg=bg or Styles.COLOR_SIDEBAR_CARD_BG,
             bd=0,
             highlightthickness=0,
-            highlightbackground=Styles.COLOR_BORDER,
-            highlightcolor=Styles.COLOR_ACCENT
+            highlightbackground=bg or Styles.COLOR_SIDEBAR_CARD_BG,
+            highlightcolor=bg or Styles.COLOR_SIDEBAR_CARD_BG
         )
 
     @staticmethod
@@ -199,8 +238,8 @@ class Styles:
             relief="flat",
             bd=0,
             highlightthickness=0,
-            highlightbackground=Styles.COLOR_BORDER,
-            highlightcolor=Styles.COLOR_ACCENT
+            highlightbackground=Styles.COLOR_INPUT_BG,
+            highlightcolor=Styles.COLOR_INPUT_BG
         )
 
     @staticmethod
@@ -221,6 +260,8 @@ class Styles:
     def _init_base_config(style, root):
         style.theme_use('clam') 
         Styles.apply_tk_scaling(root)
+        Styles.FONT_FAMILY = Styles.resolve_vscode_ui_font_family(root)
+        Styles._refresh_base_fonts()
         Styles.FONT_MAIN = Styles.scale_font(Styles.BASE_FONT_MAIN)
         Styles.FONT_HEADER = Styles.scale_font(Styles.BASE_FONT_HEADER)
         Styles.FONT_CODE = Styles.scale_font(Styles.BASE_FONT_CODE)
@@ -230,10 +271,12 @@ class Styles:
 
         # Configure Main Window background
         root.configure(bg=Styles.COLOR_BG_MAIN)
+        root.option_add("*Font", Styles.scale_font(Styles.ui_font(12)))
 
         # Dropdown/Combobox popups handling
         root.option_add("*TCombobox*Listbox*Background", Styles.COLOR_INPUT_BG)
         root.option_add("*TCombobox*Listbox*Foreground", Styles.COLOR_INPUT_FG)
+        root.option_add("*TCombobox*Listbox.font", Styles.scale_font(Styles.ui_font(12)))
         root.option_add("*TCombobox*Listbox*selectBackground", Styles.COLOR_ACCENT)
         root.option_add("*TCombobox*Listbox*selectForeground", "#ffffff")
         Styles._bind_soft_widget_chrome(root)
@@ -269,21 +312,21 @@ class Styles:
             "SidebarTitle.TLabel",
             background=Styles.COLOR_SIDEBAR_CARD_BG,
             foreground=Styles.COLOR_FG_TEXT,
-            font=Styles.scale_font(("Segoe UI", 22, "bold")),
+            font=Styles.scale_font(Styles.ui_font( 22, "bold")),
             padding=Styles.scale_padding((12, 12, 12, 6))
         )
         style.configure(
             "SidebarHint.TLabel",
             background=Styles.COLOR_SIDEBAR_CARD_BG,
             foreground=Styles.COLOR_DIM,
-            font=Styles.scale_font(("Segoe UI", 11, "bold")),
+            font=Styles.scale_font(Styles.ui_font( 11, "bold")),
             padding=Styles.scale_padding((12, 0, 12, 4))
         )
         style.configure(
             "SidebarSection.TLabel",
             background=Styles.COLOR_SIDEBAR_CARD_BG,
             foreground=Styles.COLOR_FG_TEXT,
-            font=Styles.scale_font(("Segoe UI", 16, "bold")),
+            font=Styles.scale_font(Styles.ui_font( 16, "bold")),
             padding=Styles.scale_padding((12, 8, 12, 6))
         )
         style.configure(
@@ -304,10 +347,10 @@ class Styles:
             darkcolor=Styles.COLOR_BG_SIDEBAR,
             lightcolor=Styles.COLOR_BG_SIDEBAR,
             troughcolor=Styles.COLOR_BG_MAIN,
-            bordercolor=Styles.COLOR_BORDER,
+            bordercolor=Styles.COLOR_BG_MAIN,
             arrowcolor=Styles.COLOR_DIM,
             relief="flat",
-            borderwidth=Styles.SOFT_EDGE_BORDER
+            borderwidth=0
         )
         style.map(
             "Vertical.TScrollbar",
@@ -321,7 +364,7 @@ class Styles:
             "Nav.TButton",
             background=Styles.COLOR_BUTTON_BG,
             foreground=Styles.COLOR_BUTTON_FG,
-            font=Styles.scale_font(("Segoe UI", 17, "bold")),
+            font=Styles.scale_font(Styles.ui_font( 17, "bold")),
             borderwidth=1,
             bordercolor=Styles.COLOR_BUTTON_BORDER,
             lightcolor=Styles.COLOR_BUTTON_BORDER,
@@ -341,7 +384,7 @@ class Styles:
             "NavFlat.TButton",
             background=Styles.COLOR_DOC_TOOLBAR_BG,
             foreground=Styles.COLOR_BUTTON_FG,
-            font=Styles.scale_font(("Segoe UI", 17, "bold")),
+            font=Styles.scale_font(Styles.ui_font( 17, "bold")),
             borderwidth=0,
             focuscolor=Styles.COLOR_DOC_TOOLBAR_BG,
             padding=Styles.scale_padding((18, 12)),
@@ -366,7 +409,7 @@ class Styles:
             "AddProject.TButton",
             background=Styles.COLOR_BUTTON_BG,
             foreground=Styles.COLOR_BUTTON_FG,
-            font=Styles.scale_font(("Segoe UI", 18, "bold")),  # Fuente más grande
+            font=Styles.scale_font(Styles.ui_font( 18, "bold")),  # Fuente más grande
             borderwidth=1,
             bordercolor=Styles.COLOR_BUTTON_BORDER,
             lightcolor=Styles.COLOR_BUTTON_BORDER,
@@ -385,7 +428,7 @@ class Styles:
             "SidebarToggle.TButton",
             background=Styles.COLOR_BUTTON_BG,
             foreground=Styles.COLOR_BUTTON_FG,
-            font=Styles.scale_font(("Segoe UI", 14, "bold")),
+            font=Styles.scale_font(Styles.ui_font( 14, "bold")),
             borderwidth=Styles.SOFT_EDGE_BORDER,
             bordercolor=Styles.COLOR_BUTTON_BORDER,
             lightcolor=Styles.COLOR_BUTTON_BORDER,
@@ -405,7 +448,7 @@ class Styles:
             "FullscreenToggle.TButton",
             background=Styles.COLOR_BUTTON_BG,
             foreground=Styles.COLOR_BUTTON_FG,
-            font=Styles.scale_font(("Segoe UI", 14, "bold")),
+            font=Styles.scale_font(Styles.ui_font( 14, "bold")),
             borderwidth=Styles.SOFT_EDGE_BORDER,
             bordercolor=Styles.COLOR_BUTTON_BORDER,
             lightcolor=Styles.COLOR_BUTTON_BORDER,
@@ -426,7 +469,7 @@ class Styles:
             "ToolbarIcon.TButton",
             background=Styles.COLOR_BUTTON_BG,
             foreground=Styles.COLOR_BUTTON_FG,
-            font=Styles.scale_font(("Segoe UI", 14)),
+            font=Styles.scale_font(Styles.ui_font( 14)),
             borderwidth=Styles.SOFT_EDGE_BORDER,
             bordercolor=Styles.COLOR_BUTTON_BORDER,
             lightcolor=Styles.COLOR_BUTTON_BORDER,
@@ -446,7 +489,7 @@ class Styles:
             "ToolbarGroup.TButton",
             background=Styles.COLOR_BUTTON_BG,
             foreground=Styles.COLOR_BUTTON_FG,
-            font=Styles.scale_font(("Segoe UI", 14)),
+            font=Styles.scale_font(Styles.ui_font( 14)),
             borderwidth=0,
             focuscolor=Styles.COLOR_BUTTON_BG,
             padding=Styles.scale_padding((10, 6)),
@@ -463,7 +506,7 @@ class Styles:
             "DocToolbarFlat.TButton",
             background=Styles.COLOR_DOC_TOOLBAR_BG,
             foreground=Styles.COLOR_BUTTON_FG,
-            font=Styles.scale_font(("Segoe UI", 14)),
+            font=Styles.scale_font(Styles.ui_font( 14)),
             borderwidth=0,
             focuscolor=Styles.COLOR_DOC_TOOLBAR_BG,
             padding=Styles.scale_padding((10, 6)),
@@ -481,7 +524,7 @@ class Styles:
             "Action.TButton",
             background=Styles.COLOR_BUTTON_BG,
             foreground=Styles.COLOR_BUTTON_FG,
-            font=Styles.scale_font(("Segoe UI", 14, "bold")),
+            font=Styles.scale_font(Styles.ui_font( 14, "bold")),
             borderwidth=Styles.SOFT_EDGE_BORDER,
             bordercolor=Styles.COLOR_BUTTON_BORDER,
             lightcolor=Styles.COLOR_BUTTON_BORDER,
@@ -492,6 +535,25 @@ class Styles:
         )
         style.map(
             "Action.TButton",
+            background=[("active", Styles.COLOR_BUTTON_HOVER), ("pressed", Styles.COLOR_BUTTON_ACTIVE)],
+            foreground=[("active", Styles.COLOR_BUTTON_FG_ACTIVE), ("pressed", Styles.COLOR_BUTTON_FG_ACTIVE)]
+        )
+
+        style.configure(
+            "SendPrompt.Action.TButton",
+            background=Styles.COLOR_BUTTON_BG,
+            foreground=Styles.COLOR_BUTTON_FG,
+            font=Styles.scale_font(Styles.ui_font( 14, "bold")),
+            borderwidth=Styles.SOFT_EDGE_BORDER,
+            bordercolor=Styles.COLOR_BUTTON_BORDER,
+            lightcolor=Styles.COLOR_BUTTON_BORDER,
+            darkcolor=Styles.COLOR_BUTTON_BORDER,
+            padding=Styles.scale_padding((16, 16)),
+            relief="flat",
+            anchor="center"
+        )
+        style.map(
+            "SendPrompt.Action.TButton",
             background=[("active", Styles.COLOR_BUTTON_HOVER), ("pressed", Styles.COLOR_BUTTON_ACTIVE)],
             foreground=[("active", Styles.COLOR_BUTTON_FG_ACTIVE), ("pressed", Styles.COLOR_BUTTON_FG_ACTIVE)]
         )
@@ -537,10 +599,10 @@ class Styles:
             background=Styles.COLOR_INPUT_BG,
             foreground=Styles.COLOR_FG_TEXT,
             fieldbackground=Styles.COLOR_INPUT_BG,
-            borderwidth=Styles.SOFT_EDGE_BORDER,
-            bordercolor=Styles.COLOR_BORDER,
-            lightcolor=Styles.COLOR_BORDER,
-            darkcolor=Styles.COLOR_BORDER,
+            borderwidth=0,
+            bordercolor=Styles.COLOR_INPUT_BG,
+            lightcolor=Styles.COLOR_INPUT_BG,
+            darkcolor=Styles.COLOR_INPUT_BG,
             relief="flat",
             font=Styles.FONT_MAIN,
             rowheight=Styles.scale_size(40)
@@ -549,11 +611,11 @@ class Styles:
             "Treeview.Heading",
             background=Styles.COLOR_BG_SIDEBAR,
             foreground=Styles.COLOR_FG_TEXT,
-            font=Styles.scale_font(("Segoe UI", 14, "bold")),
-            borderwidth=Styles.SOFT_EDGE_BORDER,
-            bordercolor=Styles.COLOR_BORDER,
-            lightcolor=Styles.COLOR_BORDER,
-            darkcolor=Styles.COLOR_BORDER,
+            font=Styles.scale_font(Styles.ui_font( 14, "bold")),
+            borderwidth=0,
+            bordercolor=Styles.COLOR_BG_SIDEBAR,
+            lightcolor=Styles.COLOR_BG_SIDEBAR,
+            darkcolor=Styles.COLOR_BG_SIDEBAR,
             relief="flat",
             padding=Styles.scale_padding((10, 10))
         )
@@ -573,11 +635,11 @@ class Styles:
         style.configure(
             "TLabelframe",
             background=Styles.COLOR_BG_MAIN,
-            bordercolor=Styles.COLOR_BORDER,
-            lightcolor=Styles.COLOR_BORDER,
-            darkcolor=Styles.COLOR_BORDER,
-            borderwidth=1,
-            relief="solid"
+            bordercolor=Styles.COLOR_BG_MAIN,
+            lightcolor=Styles.COLOR_BG_MAIN,
+            darkcolor=Styles.COLOR_BG_MAIN,
+            borderwidth=0,
+            relief="flat"
         )
         style.configure(
             "TLabelframe.Label",
@@ -606,7 +668,7 @@ class Styles:
             "TCheckbutton",
             background=Styles.COLOR_BG_SIDEBAR,
             foreground=Styles.COLOR_FG_TEXT,
-            font=Styles.scale_font(("Segoe UI", 18, "bold")),
+            font=Styles.scale_font(Styles.ui_font( 18, "bold")),
             focuscolor=Styles.COLOR_BG_SIDEBAR,
             padding=Styles.scale_padding(10)
         )
@@ -622,13 +684,13 @@ class Styles:
             background=Styles.COLOR_INPUT_BG, 
             foreground=Styles.COLOR_FG_TEXT,
             fieldbackground=Styles.COLOR_INPUT_BG,
-            bordercolor=Styles.COLOR_BORDER,
+            bordercolor=Styles.COLOR_INPUT_BG,
             darkcolor=Styles.COLOR_INPUT_BG,
             lightcolor=Styles.COLOR_INPUT_BG,
             arrowcolor=Styles.COLOR_DIM,
             padding=Styles.SOFT_EDGE_PADDING,
             relief="flat",
-            borderwidth=Styles.SOFT_EDGE_BORDER
+            borderwidth=0
         )
         style.map(
             "TCombobox",
@@ -681,13 +743,13 @@ class Styles:
             "TEntry",
             fieldbackground=Styles.COLOR_INPUT_BG,
             foreground=Styles.COLOR_FG_TEXT,
-            bordercolor=Styles.COLOR_BORDER,
+            bordercolor=Styles.COLOR_INPUT_BG,
             darkcolor=Styles.COLOR_INPUT_BG,
             lightcolor=Styles.COLOR_INPUT_BG,
             insertcolor=Styles.COLOR_INPUT_FG,
             padding=Styles.SOFT_EDGE_PADDING,
             relief="flat",
-            borderwidth=Styles.SOFT_EDGE_BORDER
+            borderwidth=0
         )
         style.map(
             "TEntry",

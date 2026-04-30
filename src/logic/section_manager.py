@@ -18,6 +18,11 @@ class SectionManager:
                         "SegmentName": {
                             "items": [{...}]
                         }
+                    },
+                    "regions": {
+                        "RegionName": {
+                            "items": [{...}]
+                        }
                     }
                 },
                 ...
@@ -65,6 +70,8 @@ class SectionManager:
             return
 
         for filename in sorted(os.listdir(self.sections_path), key=str.lower):
+            if filename.startswith("__"):
+                continue
             if filename.endswith(".json"):
                 name = filename[:-5] # remove .json
                 filepath = os.path.join(self.sections_path, filename)
@@ -99,10 +106,10 @@ class SectionManager:
 
     def _normalize_subsection_payload(self, sub_data):
         if isinstance(sub_data, list):
-            return {"files": list(sub_data), "segments": {}}
+            return {"files": list(sub_data), "segments": {}, "regions": {}}
 
         if not isinstance(sub_data, dict):
-            return {"files": [], "segments": {}}
+            return {"files": [], "segments": {}, "regions": {}}
 
         segments = {}
         raw_segments = sub_data.get("segments", {})
@@ -110,15 +117,27 @@ class SectionManager:
             for segment_name, segment_data in raw_segments.items():
                 segments[segment_name] = self._normalize_segment_payload(segment_data)
 
+        regions = {}
+        raw_regions = sub_data.get("regions", {})
+        if isinstance(raw_regions, dict):
+            for region_name, region_data in raw_regions.items():
+                regions[region_name] = self._normalize_region_payload(region_data)
+
         return {
             "files": list(sub_data.get("files", [])),
             "segments": segments,
+            "regions": regions,
         }
 
     def _normalize_segment_payload(self, segment_data):
         if not isinstance(segment_data, dict):
             return {"items": []}
         return {"items": list(segment_data.get("items", []))}
+
+    def _normalize_region_payload(self, region_data):
+        if not isinstance(region_data, dict):
+            return {"items": []}
+        return {"items": list(region_data.get("items", []))}
 
     def _filter_segment_items_for_files(self, items, valid_files):
         valid_paths = set(valid_files or [])
@@ -130,6 +149,9 @@ class SectionManager:
                 continue
             filtered_items.append(dict(item))
         return filtered_items
+
+    def _filter_region_items_for_files(self, items, valid_files):
+        return self._filter_segment_items_for_files(items, valid_files)
 
     def _cleanup_subsection_segments(self, subsection_data):
         subsection_data = subsection_data if isinstance(subsection_data, dict) else {}
@@ -146,6 +168,22 @@ class SectionManager:
                 valid_files
             )
             segments[segment_name] = normalized_segment
+
+    def _cleanup_subsection_regions(self, subsection_data):
+        subsection_data = subsection_data if isinstance(subsection_data, dict) else {}
+        valid_files = subsection_data.get("files", [])
+        regions = subsection_data.get("regions", {})
+        if not isinstance(regions, dict):
+            subsection_data["regions"] = {}
+            return
+
+        for region_name, region_data in list(regions.items()):
+            normalized_region = self._normalize_region_payload(region_data)
+            normalized_region["items"] = self._filter_region_items_for_files(
+                normalized_region.get("items", []),
+                valid_files
+            )
+            regions[region_name] = normalized_region
 
     def _save_section_to_disk(self, name):
         """Saves a specific section to disk."""
@@ -220,6 +258,7 @@ class SectionManager:
         for sub_name, sub_data in existing_subsections.items():
             sub_data["files"] = [f for f in sub_data.get("files", []) if f in parent_files_set]
             self._cleanup_subsection_segments(sub_data)
+            self._cleanup_subsection_regions(sub_data)
 
         self._save_section_to_disk(clean_new_name)
 
@@ -336,7 +375,7 @@ class SectionManager:
         parent_files = set(self.sections[section_name]["files"])
         valid_files = [f for f in (files or []) if f in parent_files]
         
-        subsections[sub_name] = {"files": valid_files, "segments": {}}
+        subsections[sub_name] = {"files": valid_files, "segments": {}, "regions": {}}
         self._save_section_to_disk(section_name)
 
     def update_subsection(self, section_name, old_sub_name, new_sub_name, new_files):
@@ -358,7 +397,9 @@ class SectionManager:
         # Validate files are subset of parent
         parent_files = set(self.sections[section_name]["files"])
         valid_files = [f for f in (new_files or []) if f in parent_files]
-        existing_segments = self._normalize_subsection_payload(subsections.get(old_sub_name, {})).get("segments", {})
+        existing_subsection = self._normalize_subsection_payload(subsections.get(old_sub_name, {}))
+        existing_segments = existing_subsection.get("segments", {})
+        existing_regions = existing_subsection.get("regions", {})
 
         # Remove old, add new
         if clean_new_name != old_sub_name:
@@ -367,8 +408,10 @@ class SectionManager:
         subsections[clean_new_name] = {
             "files": valid_files,
             "segments": existing_segments,
+            "regions": existing_regions,
         }
         self._cleanup_subsection_segments(subsections[clean_new_name])
+        self._cleanup_subsection_regions(subsections[clean_new_name])
         self._save_section_to_disk(section_name)
 
     def delete_subsection(self, section_name, sub_name):
@@ -513,5 +556,114 @@ class SectionManager:
         segments = subsection.get("segments", {})
         if segment_name in segments:
             del segments[segment_name]
+            subsections[sub_name] = subsection
+            self._save_section_to_disk(section_name)
+
+    # ── Region Methods ──
+
+    def get_regions(self, section_name, sub_name):
+        """Returns list of region names for a subsection."""
+        section = self.sections.get(section_name, {})
+        subsections = section.get("subsections", {})
+        subsection = self._normalize_subsection_payload(subsections.get(sub_name, {}))
+        return list(subsection.get("regions", {}).keys())
+
+    def get_region(self, section_name, sub_name, region_name):
+        """Returns the stored region payload for a subsection."""
+        section = self.sections.get(section_name, {})
+        subsections = section.get("subsections", {})
+        subsection = self._normalize_subsection_payload(subsections.get(sub_name, {}))
+        region = subsection.get("regions", {}).get(region_name)
+        if not region:
+            return None
+        return self._normalize_region_payload(region)
+
+    def get_files_in_region(self, section_name, sub_name, region_name):
+        """Returns the distinct files touched by a region, falling back to the parent subsection files."""
+        region = self.get_region(section_name, sub_name, region_name)
+        if not region:
+            return self.get_files_in_subsection(section_name, sub_name)
+
+        file_paths = []
+        seen_paths = set()
+        for item in region.get("items", []):
+            file_path = item.get("file_path")
+            if not file_path or file_path in seen_paths:
+                continue
+            seen_paths.add(file_path)
+            file_paths.append(file_path)
+
+        return file_paths or self.get_files_in_subsection(section_name, sub_name)
+
+    def get_region_total_code_size(self, section_name, sub_name, region_name):
+        """Returns the total byte size for a region based on its selected code blocks."""
+        region = self.get_region(section_name, sub_name, region_name)
+        if not region:
+            return self.BASE_SECTION_SIZE_BYTES
+        return self._calculate_segment_items_code_size(region.get("items", []))
+
+    def create_region(self, section_name, sub_name, region_name, items=None):
+        """Creates a region selection inside a subsection using selected code regions."""
+        if section_name not in self.sections:
+            raise ValueError(f"Section '{section_name}' not found.")
+
+        subsections = self.sections[section_name].get("subsections", {})
+        if sub_name not in subsections:
+            raise ValueError(f"Subsection '{sub_name}' not found in '{section_name}'.")
+
+        clean_name = (region_name or "").strip()
+        if not clean_name:
+            raise ValueError("Region name cannot be empty.")
+
+        subsection = self._normalize_subsection_payload(subsections[sub_name])
+        regions = subsection.setdefault("regions", {})
+        if clean_name in regions:
+            raise ValueError(f"Region '{clean_name}' already exists in '{sub_name}'.")
+
+        regions[clean_name] = {
+            "items": self._filter_region_items_for_files(items, subsection.get("files", []))
+        }
+        subsections[sub_name] = subsection
+        self._save_section_to_disk(section_name)
+
+    def update_region(self, section_name, sub_name, old_region_name, new_region_name, items=None):
+        """Updates an existing region selection inside a subsection."""
+        if section_name not in self.sections:
+            raise ValueError(f"Section '{section_name}' not found.")
+
+        subsections = self.sections[section_name].get("subsections", {})
+        if sub_name not in subsections:
+            raise ValueError(f"Subsection '{sub_name}' not found in '{section_name}'.")
+
+        subsection = self._normalize_subsection_payload(subsections[sub_name])
+        regions = subsection.setdefault("regions", {})
+        if old_region_name not in regions:
+            raise ValueError(f"Region '{old_region_name}' not found in '{sub_name}'.")
+
+        clean_name = (new_region_name or "").strip()
+        if not clean_name:
+            raise ValueError("Region name cannot be empty.")
+        if clean_name != old_region_name and clean_name in regions:
+            raise ValueError(f"Region '{clean_name}' already exists in '{sub_name}'.")
+
+        if clean_name != old_region_name:
+            del regions[old_region_name]
+
+        regions[clean_name] = {
+            "items": self._filter_region_items_for_files(items, subsection.get("files", []))
+        }
+        subsections[sub_name] = subsection
+        self._save_section_to_disk(section_name)
+
+    def delete_region(self, section_name, sub_name, region_name):
+        """Deletes a region from a subsection."""
+        if section_name not in self.sections:
+            return
+
+        subsections = self.sections[section_name].get("subsections", {})
+        subsection = self._normalize_subsection_payload(subsections.get(sub_name, {}))
+        regions = subsection.get("regions", {})
+        if region_name in regions:
+            del regions[region_name]
             subsections[sub_name] = subsection
             self._save_section_to_disk(section_name)

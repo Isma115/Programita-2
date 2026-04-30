@@ -74,7 +74,7 @@ class SubsectionCreationPopup(tk.Toplevel):
             header,
             text=f"Sección padre: {self.section_name}",
             style="TLabel",
-            font=("Segoe UI", 14)
+            font=(Styles.FONT_FAMILY, 14)
         ).pack(side="left")
 
         # ── Name Entry ──
@@ -207,7 +207,7 @@ class SubsectionCreationPopup(tk.Toplevel):
                 selectcolor=Styles.COLOR_INPUT_BG,
                 activebackground=Styles.COLOR_INPUT_BG,
                 activeforeground=Styles.COLOR_ACCENT,
-                font=("Segoe UI", 14),
+                font=(Styles.FONT_FAMILY, 14),
                 anchor="w",
                 padx=10,
                 pady=3,
@@ -236,7 +236,7 @@ class SubsectionCreationPopup(tk.Toplevel):
             text="Tamaño código: 0.0 KB",
             bg=Styles.COLOR_INPUT_BG,
             fg=Styles.COLOR_ACCENT,
-            font=("Segoe UI", 11, "bold"),
+            font=(Styles.FONT_FAMILY, 11, "bold"),
             padx=12,
             pady=6
         )

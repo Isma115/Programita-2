@@ -223,16 +223,7 @@ class DocView(ttk.Frame):
         return "Courier"
 
     def _resolve_doc_sidebar_font_family(self):
-        preferred_families = ["Just Sans Variable", "Just Sans", "Segoe UI"]
-        try:
-            available = set(tkfont.families())
-        except Exception:
-            return "Segoe UI"
-
-        for family in preferred_families:
-            if family in available:
-                return family
-        return "Segoe UI"
+        return Styles.FONT_FAMILY
 
     def _load_icons(self):
         """Loads icons from assets directory."""
@@ -246,7 +237,7 @@ class DocView(ttk.Frame):
             "view": ("view.png",),
             "moon": ("moon.png",),
             "sun": ("sun.png",),
-            "prompt": ("filetypes", "template.png"),
+            "prompt": ("prompt.png",),
         }
         try:
             # Assuming assets is at project root
@@ -468,10 +459,10 @@ class DocView(ttk.Frame):
         # self.selector_row.pack(side="top", fill="x", padx=15, pady=(0, 6))
 
         self.lbl_file_count = tk.Label(self.selector_row, text="Documentos:",
-            font=("Segoe UI", 12), bg=self.toolbar_surface_bg, fg=Styles.COLOR_DIM)
+            font=(Styles.FONT_FAMILY, 12), bg=self.toolbar_surface_bg, fg=Styles.COLOR_DIM)
         # self.lbl_file_count.pack(side="left", padx=(0, 10))
 
-        self.cmb_files = ttk.Combobox(self.selector_row, state="readonly", width=40, font=("Segoe UI", 14))
+        self.cmb_files = ttk.Combobox(self.selector_row, state="readonly", width=40, font=(Styles.FONT_FAMILY, 14))
         # self.cmb_files.pack(side="left", fill="x", expand=True)
         self.cmb_files.bind("<<ComboboxSelected>>", self._on_file_selected_via_combo)
 
@@ -486,7 +477,7 @@ class DocView(ttk.Frame):
         #attach_tooltip(self.btn_copy_doc, "Copiar contenido del documento")
         
         # Increase dropdown list font size
-        self.master.option_add('*TCombobox*Listbox.font', ("Segoe UI", 14))
+        self.master.option_add('*TCombobox*Listbox.font', (Styles.FONT_FAMILY, 14))
 
 
 
@@ -516,7 +507,7 @@ class DocView(ttk.Frame):
         self.editor_frame = ttk.Frame(self.left_content_frame, style="Main.TFrame")
         
         # Editor Label (Optional, maybe remove if single view is clear enough)
-        # ttk.Label(self.editor_frame, text="EDITOR (Markdown)", font=("Segoe UI", 10, "bold"), foreground=Styles.COLOR_DIM).pack(anchor="w", padx=5)
+        # ttk.Label(self.editor_frame, text="EDITOR (Markdown)", font=(Styles.FONT_FAMILY, 10, "bold"), foreground=Styles.COLOR_DIM).pack(anchor="w", padx=5)
 
         self.txt_content = tk.Text(
             self.editor_frame,
@@ -543,7 +534,7 @@ class DocView(ttk.Frame):
         self.preview_frame = ttk.Frame(self.left_content_frame, style="Main.TFrame")
 
         # Preview Label
-        # ttk.Label(self.preview_frame, text="PREVISUALIZACIÓN (Web)", font=("Segoe UI", 10, "bold"), foreground=Styles.COLOR_DIM).pack(anchor="w", padx=5)
+        # ttk.Label(self.preview_frame, text="PREVISUALIZACIÓN (Web)", font=(Styles.FONT_FAMILY, 10, "bold"), foreground=Styles.COLOR_DIM).pack(anchor="w", padx=5)
 
         # Use HtmlFrame for true web-based rendering
         self.web_view = HtmlFrame(
@@ -1411,10 +1402,10 @@ class DocView(ttk.Frame):
 
     def _open_prompt_builder(self):
         dialog = tk.Toplevel(self)
-        dialog.title("Construir Prompt")
+        dialog.title("Prompt")
         dialog.transient(self.winfo_toplevel())
         dialog.grab_set()
-        dialog.geometry("980x700")
+        dialog.geometry("980x820")
         dialog.minsize(760, 520)
         dialog.configure(bg=Styles.COLOR_BG_MAIN)
 
@@ -1457,9 +1448,11 @@ class DocView(ttk.Frame):
         prompt_index = {"value": 0}
         prompt_title_var = tk.StringVar()
         input_label_var = tk.StringVar()
+        prompt_placeholder_active = {"value": False}
 
         selector_row = ttk.Frame(wrapper, style="Main.TFrame")
         selector_row.pack(fill="x", pady=(0, 12))
+        selector_row.columnconfigure(1, weight=1)
 
         btn_prev = ttk.Button(
             selector_row,
@@ -1468,14 +1461,10 @@ class DocView(ttk.Frame):
             style="Nav.TButton",
             command=lambda: switch_prompt(-1)
         )
-        btn_prev.pack(side="left")
+        btn_prev.grid(row=0, column=0, sticky="ew")
         attach_tooltip(btn_prev, "Prompt previo")
 
-        ttk.Label(
-            selector_row,
-            textvariable=prompt_title_var,
-            style="Header.TLabel"
-        ).pack(side="left", padx=10)
+        ttk.Frame(selector_row, style="Main.TFrame").grid(row=0, column=1, sticky="ew", padx=10)
 
         btn_next = ttk.Button(
             selector_row,
@@ -1484,14 +1473,8 @@ class DocView(ttk.Frame):
             style="Nav.TButton",
             command=lambda: switch_prompt(1)
         )
-        btn_next.pack(side="left")
+        btn_next.grid(row=0, column=2, sticky="ew")
         attach_tooltip(btn_next, "Prompt siguiente")
-
-        ttk.Label(
-            selector_row,
-            text="Ctrl/Cmd + ← o → para cambiar",
-            style="TLabel"
-        ).pack(side="right")
 
         ttk.Label(wrapper, textvariable=input_label_var, style="Header.TLabel").pack(fill="x")
 
@@ -1500,7 +1483,7 @@ class DocView(ttk.Frame):
         entry = tk.Entry(
             wrapper,
             textvariable=functionality_var,
-            font=("Segoe UI", 16),
+            font=(Styles.FONT_FAMILY, 16),
             bg=Styles.COLOR_INPUT_BG,
             fg=Styles.COLOR_FG_TEXT,
             insertbackground=Styles.COLOR_FG_TEXT,
@@ -1512,7 +1495,7 @@ class DocView(ttk.Frame):
 
         prompt_text = tk.Text(
             wrapper,
-            font=("Consolas", 12),
+            font=("Consolas", 13),
             bg=Styles.COLOR_INPUT_BG,
             fg=Styles.COLOR_FG_TEXT,
             insertbackground=Styles.COLOR_FG_TEXT,
@@ -1529,11 +1512,28 @@ class DocView(ttk.Frame):
 
         def build_prompt_content():
             config = prompt_configs[prompt_index["value"]]
-            functionality_name = functionality_var.get().strip() or config["placeholder"]
+            functionality_name = ""
+            if not prompt_placeholder_active["value"]:
+                functionality_name = functionality_var.get().strip()
+            functionality_name = functionality_name or config["placeholder"]
             prompt = config["builder"](functionality_name)
             if config.get("include_file_path_instruction", True):
                 prompt = ensure_file_path_comment_instruction(prompt)
             return prompt
+
+        def show_prompt_placeholder():
+            if functionality_var.get().strip():
+                return
+            prompt_placeholder_active["value"] = True
+            entry.configure(fg=Styles.COLOR_DIM)
+            functionality_var.set(prompt_title_var.get())
+
+        def hide_prompt_placeholder():
+            if not prompt_placeholder_active["value"]:
+                return
+            prompt_placeholder_active["value"] = False
+            entry.configure(fg=Styles.COLOR_FG_TEXT)
+            functionality_var.set("")
 
         def refresh_prompt(event=None):
             prompt_text.delete("1.0", tk.END)
@@ -1543,6 +1543,10 @@ class DocView(ttk.Frame):
             config = prompt_configs[prompt_index["value"]]
             prompt_title_var.set(f"Prompt: {config['name']}")
             input_label_var.set(config["input_label"])
+            dialog.title(prompt_title_var.get())
+            if prompt_placeholder_active["value"] or not functionality_var.get().strip():
+                functionality_var.set("")
+                show_prompt_placeholder()
 
         def switch_prompt(delta):
             prompt_index["value"] = (prompt_index["value"] + delta) % len(prompt_configs)
@@ -1556,6 +1560,13 @@ class DocView(ttk.Frame):
         def on_next_prompt(event=None):
             switch_prompt(1)
             return "break"
+
+        def on_entry_focus_in(event=None):
+            hide_prompt_placeholder()
+
+        def on_entry_focus_out(event=None):
+            if not functionality_var.get().strip():
+                show_prompt_placeholder()
 
         def copy_prompt():
             config = prompt_configs[prompt_index["value"]]
@@ -1579,21 +1590,46 @@ class DocView(ttk.Frame):
         button_row = ttk.Frame(wrapper, style="Main.TFrame")
         button_row.pack(fill="x")
 
-        btn_copy_prompt = ttk.Button(button_row, text="Copiar prompt", style="Action.TButton", command=copy_prompt)
-        btn_copy_prompt.pack(side="right", padx=(8, 0))
-        attach_tooltip(btn_copy_prompt, "Copiar prompt")
+        button_group = ttk.Frame(button_row, style="Main.TFrame")
+        button_group.pack(side="right")
+        button_group.columnconfigure(0, weight=1, uniform="prompt_actions")
+        button_group.columnconfigure(1, minsize=8)
+        button_group.columnconfigure(2, weight=1, uniform="prompt_actions")
 
-        btn_close_prompt = ttk.Button(button_row, text="Cerrar", style="Secondary.TButton", command=dialog.destroy)
-        btn_close_prompt.pack(side="right")
+        btn_close_prompt = ttk.Button(
+            button_group,
+            text="Cerrar",
+            style="Secondary.TButton",
+            command=dialog.destroy
+        )
+        btn_close_prompt.grid(row=0, column=0, sticky="ew")
         attach_tooltip(btn_close_prompt, "Cerrar ventana")
 
+        btn_copy_prompt = ttk.Button(
+            button_group,
+            text="Copiar prompt",
+            style="Action.TButton",
+            command=copy_prompt
+        )
+        btn_copy_prompt.grid(row=0, column=2, sticky="ew")
+        attach_tooltip(btn_copy_prompt, "Copiar prompt")
+
+        dialog.update_idletasks()
+        max_button_width = max(
+            btn_close_prompt.winfo_reqwidth(),
+            btn_copy_prompt.winfo_reqwidth()
+        )
+        button_group.columnconfigure(0, minsize=max_button_width)
+        button_group.columnconfigure(2, minsize=max_button_width)
+
         functionality_var.trace_add("write", lambda *_: refresh_prompt())
+        entry.bind("<FocusIn>", on_entry_focus_in)
+        entry.bind("<FocusOut>", on_entry_focus_out)
         dialog.bind("<Escape>", lambda event: dialog.destroy())
         dialog.bind("<Control-Left>", on_prev_prompt)
         dialog.bind("<Control-Right>", on_next_prompt)
         dialog.bind("<Command-Left>", on_prev_prompt)
         dialog.bind("<Command-Right>", on_next_prompt)
-        entry.focus_set()
         sync_prompt_selector()
         refresh_prompt()
 
@@ -1615,7 +1651,7 @@ class DocView(ttk.Frame):
             text_color = "#24292f"
 
         # Load simple message into web view
-        html = f"<html><body style='background-color:{bg_color}; color:{text_color}; font-family:sans-serif; padding:20px; font-size:15px;'>{message}</body></html>"
+        html = f"<html><body style='background-color:{bg_color}; color:{text_color}; font-family:{Styles.WEB_UI_FONT_STACK}; padding:20px; font-size:15px;'>{message}</body></html>"
         self.web_view.load_html(html)
 
     def _capture_web_view_scroll(self):
@@ -2903,13 +2939,13 @@ class DocView(ttk.Frame):
         """Configures Tkinter tags for Markdown syntax highlighting in the EDITOR."""
         w = self.txt_content
         # Headers
-        w.tag_configure("MD_H1", foreground="#569cd6", font=("Segoe UI", 16, "bold"))
-        w.tag_configure("MD_H2", foreground="#569cd6", font=("Segoe UI", 14, "bold"))
-        w.tag_configure("MD_H3", foreground="#569cd6", font=("Segoe UI", 13, "bold"))
+        w.tag_configure("MD_H1", foreground="#569cd6", font=(Styles.FONT_FAMILY, 16, "bold"))
+        w.tag_configure("MD_H2", foreground="#569cd6", font=(Styles.FONT_FAMILY, 14, "bold"))
+        w.tag_configure("MD_H3", foreground="#569cd6", font=(Styles.FONT_FAMILY, 13, "bold"))
         
         # Formatting
-        w.tag_configure("MD_BOLD", font=("Segoe UI", 12, "bold"), foreground="#ce9178")
-        w.tag_configure("MD_ITALIC", font=("Segoe UI", 12, "italic"))
+        w.tag_configure("MD_BOLD", font=(Styles.FONT_FAMILY, 12, "bold"), foreground="#ce9178")
+        w.tag_configure("MD_ITALIC", font=(Styles.FONT_FAMILY, 12, "italic"))
         
         # Structure
         w.tag_configure("MD_CODE", font=(self.code_font_family, 11), foreground="#dcdcaa", background="#2d2d2d")
@@ -2991,7 +3027,7 @@ class DocView(ttk.Frame):
         try:
             # Handle empty content
             if not content.strip():
-                empty_html = f"<html><body style='background-color:{bg_color}; color:{text_color}; font-family:sans-serif; padding:20px; font-size:15px;'><i>Documento vacío</i></body></html>"
+                empty_html = f"<html><body style='background-color:{bg_color}; color:{text_color}; font-family:{Styles.WEB_UI_FONT_STACK}; padding:20px; font-size:15px;'><i>Documento vacío</i></body></html>"
                 self.web_view.load_html(empty_html)
                 return
 
@@ -3090,7 +3126,7 @@ class DocView(ttk.Frame):
             css = f"""
             <style>
                 body {{
-                    font-family: 'Segoe UI', -apple-system, BlinkMacSystemFont, sans-serif;
+                    font-family: {Styles.WEB_UI_FONT_STACK};
                     font-size: 15px;
                     line-height: 1.7;
                     color: {text_color};

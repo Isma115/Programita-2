@@ -5,6 +5,7 @@ import tkinter as tk
 from tkinter import messagebox
 
 import pyperclip
+from src.ui.styles import Styles
 
 
 THEME = {
@@ -330,7 +331,7 @@ def _show_confirmation_dialog(replacements):
         text="Se han detectado trozos del portapapeles que coinciden con las partes visibles de Código.",
         bg=THEME["bg"],
         fg=THEME["fg"],
-        font=("Segoe UI", 12),
+        font=(Styles.FONT_FAMILY, 12),
         wraplength=840,
         justify="left",
         anchor="w",
@@ -341,7 +342,7 @@ def _show_confirmation_dialog(replacements):
         text="Partes que se van a sustituir:",
         bg=THEME["bg"],
         fg="#569cd6",
-        font=("Segoe UI", 12, "bold"),
+        font=(Styles.FONT_FAMILY, 12, "bold"),
         anchor="w",
     ).pack(fill="x")
 
@@ -384,7 +385,7 @@ def _show_confirmation_dialog(replacements):
         command=on_yes,
         bg="#6a9955",
         fg="black",
-        font=("Segoe UI", 11, "bold"),
+        font=(Styles.FONT_FAMILY, 11, "bold"),
         padx=15,
         pady=5,
         cursor="hand2",
@@ -396,7 +397,7 @@ def _show_confirmation_dialog(replacements):
         command=on_no,
         bg="#f44336",
         fg="black",
-        font=("Segoe UI", 11),
+        font=(Styles.FONT_FAMILY, 11),
         padx=15,
         pady=5,
         cursor="hand2",
@@ -439,7 +440,7 @@ def _show_result_dialog(results):
         ),
         bg=THEME["bg"],
         fg=THEME["fg"],
-        font=("Segoe UI", 12),
+        font=(Styles.FONT_FAMILY, 12),
         wraplength=860,
         justify="left",
         anchor="w",
@@ -476,7 +477,7 @@ def _show_result_dialog(results):
         command=dialog.destroy,
         bg="#6a9955",
         fg="black",
-        font=("Segoe UI", 11, "bold"),
+        font=(Styles.FONT_FAMILY, 11, "bold"),
         padx=16,
         pady=6,
         cursor="hand2",
@@ -511,7 +512,7 @@ def _show_resolution_warning(message):
         text=message,
         bg=THEME["bg"],
         fg=THEME["fg"],
-        font=("Segoe UI", 12),
+        font=(Styles.FONT_FAMILY, 12),
         wraplength=720,
         justify="left",
         anchor="w",
@@ -523,7 +524,7 @@ def _show_resolution_warning(message):
         command=dialog.destroy,
         bg="#f44336",
         fg="black",
-        font=("Segoe UI", 11, "bold"),
+        font=(Styles.FONT_FAMILY, 11, "bold"),
         padx=16,
         pady=6,
         cursor="hand2",

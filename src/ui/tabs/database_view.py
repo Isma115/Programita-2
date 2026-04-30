@@ -114,7 +114,7 @@ class DatabaseView(ttk.Frame):
         # Connect Button (Very Light Pastel Green)
         self.btn_connect = tk.Label(
             btn_frame, text="Conectar", bg="#d1ffd7", fg="black",
-            font=("Segoe UI", 12, "bold"), padx=20, pady=8, cursor="hand2",
+            font=(Styles.FONT_FAMILY, 12, "bold"), padx=20, pady=8, cursor="hand2",
             relief="flat", bd=0
         )
         self.btn_connect.pack(side="left", padx=10)
@@ -123,7 +123,7 @@ class DatabaseView(ttk.Frame):
         # Disconnect Button (Lighter Pastel Red - slightly more saturated)
         self.btn_disconnect = tk.Label(
             btn_frame, text="Desconectar", bg="#ffb3b3", fg="black",
-            font=("Segoe UI", 12, "bold"), padx=20, pady=8, cursor="hand2",
+            font=(Styles.FONT_FAMILY, 12, "bold"), padx=20, pady=8, cursor="hand2",
             relief="flat", bd=0
         )
         self.btn_disconnect.pack(side="left", padx=10)
@@ -132,7 +132,7 @@ class DatabaseView(ttk.Frame):
         # Reconnect Button (Very Light Pastel Yellow)
         self.btn_reconnect = tk.Label(
             btn_frame, text="Reiniciar Conexión", bg="#fff9c4", fg="black",
-            font=("Segoe UI", 12, "bold"), padx=20, pady=8, cursor="hand2",
+            font=(Styles.FONT_FAMILY, 12, "bold"), padx=20, pady=8, cursor="hand2",
             relief="flat", bd=0
         )
         self.btn_reconnect.pack(side="left", padx=10)

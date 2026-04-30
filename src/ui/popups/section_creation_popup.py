@@ -95,7 +95,7 @@ class SectionCreationPopup(tk.Toplevel):
             text="Tamaño código: 0.0 KB",
             bg=Styles.COLOR_INPUT_BG,
             fg=Styles.COLOR_ACCENT,
-            font=("Segoe UI", 11, "bold"),
+            font=(Styles.FONT_FAMILY, 11, "bold"),
             padx=12,
             pady=6
         )

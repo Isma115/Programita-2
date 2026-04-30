@@ -58,7 +58,7 @@ class Tooltip:
             bd=1,
             padx=10,
             pady=6,
-            font=("Segoe UI", 10, "bold"),
+            font=(Styles.FONT_FAMILY, 10, "bold"),
             highlightthickness=1,
             highlightbackground=Styles.COLOR_BORDER,
         )

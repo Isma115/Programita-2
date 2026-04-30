@@ -33,7 +33,7 @@
       height: 100%;
       background: var(--bg-main);
       color: var(--text-main);
-      font-family: "Segoe UI", Arial, sans-serif;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI Variable", "Segoe UI", system-ui, sans-serif;
       overflow: hidden;
       user-select: none;
     }
@@ -532,7 +532,7 @@
       "#111826"
     ];
     const FONT_OPTIONS = [
-      "Segoe UI",
+      "-apple-system, BlinkMacSystemFont, \"Segoe UI Variable\", \"Segoe UI\", system-ui, sans-serif",
       "Arial",
       "Verdana",
       "Trebuchet MS",
@@ -791,7 +791,7 @@
         fill: type === "filled_rect" ? "#243042" : "#111826",
         stroke: "#8b9bb4",
         textColor: "#eef2f7",
-        fontFamily: "Segoe UI",
+        fontFamily: "-apple-system, BlinkMacSystemFont, \"Segoe UI Variable\", \"Segoe UI\", system-ui, sans-serif",
         fontSize: 16,
         fontWeight: type === "filled_rect" ? "700" : "500"
       };
@@ -810,7 +810,7 @@
         to,
         color: "#6ab0ff",
         text: "",
-        fontFamily: "Segoe UI",
+        fontFamily: "-apple-system, BlinkMacSystemFont, \"Segoe UI Variable\", \"Segoe UI\", system-ui, sans-serif",
         fontSize: 13,
         fontWeight: "500"
       };
@@ -895,7 +895,7 @@
       }
 
       els.textInput.value = selected.text || "";
-      els.fontFamily.value = selected.fontFamily || "Segoe UI";
+      els.fontFamily.value = selected.fontFamily || "-apple-system, BlinkMacSystemFont, \"Segoe UI Variable\", \"Segoe UI\", system-ui, sans-serif";
       els.fontSize.value = selected.fontSize || 16;
       els.fontBold.checked = String(selected.fontWeight) === "700";
     }
@@ -1040,7 +1040,7 @@
         const labelPos = connectorLabelPosition(connector.type, anchors.start, anchors.end);
         label.setAttribute("x", labelPos.x);
         label.setAttribute("y", labelPos.y);
-        label.setAttribute("font-family", connector.fontFamily || "Segoe UI");
+        label.setAttribute("font-family", connector.fontFamily || "-apple-system, BlinkMacSystemFont, \"Segoe UI Variable\", \"Segoe UI\", system-ui, sans-serif");
         label.setAttribute("font-size", connector.fontSize || 13);
         label.setAttribute("font-weight", connector.fontWeight || "500");
         label.textContent = connector.text;

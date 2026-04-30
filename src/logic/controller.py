@@ -1,5 +1,6 @@
 
 from src.logic.project_manager import ProjectManager
+from src.logic.region_segment_manager import RegionSegmentManager
 from src.logic.section_manager import SectionManager
 from src.logic.config_manager import ConfigManager
 from src.logic.global_hotkeys import GlobalHotkeyListener
@@ -47,6 +48,9 @@ class Controller:
             self.project_manager,
             self.config_manager.get_sections_path()
         )
+        self.region_segment_manager = RegionSegmentManager(
+            self.config_manager.get_sections_path()
+        )
         self.hotkey_listener = GlobalHotkeyListener(self)
         self._doc_file_cache = {}
         self._dynamic_paste_state = None
@@ -58,6 +62,7 @@ class Controller:
     def set_sections_directory(self, path):
         """Updates the directory used to store code sections and persists it."""
         resolved_path = self.section_manager.set_sections_path(path)
+        self.region_segment_manager.set_storage_root(resolved_path)
         self.config_manager.set_sections_path(resolved_path)
         return resolved_path
 

@@ -72,7 +72,7 @@ class MainLayout(ttk.Frame):
             text=text,
             bg=Styles.COLOR_DOC_TOOLBAR_BG,
             fg=Styles.COLOR_BUTTON_FG,
-            font=("Segoe UI", 17, "bold"),
+            font=(Styles.FONT_FAMILY, 17, "bold"),
             bd=0,
             padx=18,
             pady=12,
@@ -121,7 +121,7 @@ class MainLayout(ttk.Frame):
         self.nav_buttons_frame.pack_configure(padx=outer_padx, pady=outer_pady)
         for tab in self.nav_tabs.values():
             tab["label"].configure(
-                font=("Segoe UI", font_size, "bold"),
+                font=(Styles.FONT_FAMILY, font_size, "bold"),
                 padx=padx,
                 pady=pady
             )

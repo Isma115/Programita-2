@@ -220,10 +220,10 @@ def build_segment_full_text(file_infos, structures, selected_keys):
 def build_segment_full_text_from_items(file_infos, items):
     """Builds the full code text for stored segment items using their saved line ranges."""
     file_map = {item.get("path"): item for item in file_infos or [] if item.get("path")}
-    items_by_path = {}
     seen_items = set()
+    normalized_items = []
 
-    for item in items or []:
+    for position, item in enumerate(items or []):
         if not isinstance(item, dict):
             continue
         file_path = item.get("file_path")
@@ -238,34 +238,74 @@ def build_segment_full_text_from_items(file_infos, items):
         if unique_key in seen_items:
             continue
         seen_items.add(unique_key)
-        items_by_path.setdefault(file_path, []).append(item)
+        normalized_item = dict(item)
+        normalized_item["_input_position"] = position
+        normalized_items.append(normalized_item)
 
+    if not normalized_items:
+        return "", 0
+
+    explicit_order_available = any(item.get("order_index") is not None for item in normalized_items)
+    file_index_by_path = {
+        item.get("path"): index for index, item in enumerate(file_infos or []) if item.get("path")
+    }
+
+    def sort_key(entry):
+        if explicit_order_available:
+            try:
+                order_index = int(entry.get("order_index"))
+            except (TypeError, ValueError):
+                order_index = entry.get("_input_position", 0)
+            return (order_index, entry.get("_input_position", 0))
+        return (
+            file_index_by_path.get(entry.get("file_path"), 10 ** 9),
+            int(entry.get("start_line", 1) or 1),
+            int(entry.get("end_line", 1) or 1),
+            entry.get("_input_position", 0),
+        )
+
+    ordered_items = sorted(normalized_items, key=sort_key)
     file_blocks = []
     copied_count = 0
-    for file_info in file_infos or []:
-        file_path = file_info.get("path")
-        segment_items = items_by_path.get(file_path, [])
-        if not segment_items:
+
+    current_file_path = None
+    current_file_rel_path = ""
+    current_snippets = []
+
+    def flush_current_file():
+        nonlocal current_file_path, current_file_rel_path, current_snippets
+        body = "\n\n".join(snippet for snippet in current_snippets if snippet.strip()).strip()
+        if body:
+            file_blocks.append(f"--- Archivo: {current_file_rel_path} ---\n{body}")
+        current_file_path = None
+        current_file_rel_path = ""
+        current_snippets = []
+
+    for item in ordered_items:
+        file_path = item.get("file_path")
+        file_info = file_map.get(file_path, {})
+        if not file_info:
             continue
 
-        content = file_map.get(file_path, {}).get("content", "")
+        content = file_info.get("content", "")
         lines = content.split("\n")
-        snippets = []
-
-        for item in sorted(segment_items, key=lambda entry: (int(entry.get("start_line", 1) or 1), int(entry.get("end_line", 1) or 1))):
-            start_line = max(int(item.get("start_line", 1) or 1), 1)
-            end_line = max(int(item.get("end_line", start_line) or start_line), start_line)
-            snippet = "\n".join(lines[start_line - 1:end_line]).rstrip()
-            if not snippet.strip():
-                continue
-            snippets.append(snippet)
-            copied_count += 1
-
-        body = "\n\n".join(snippets).strip()
-        if not body:
+        start_line = max(int(item.get("start_line", 1) or 1), 1)
+        end_line = max(int(item.get("end_line", start_line) or start_line), start_line)
+        snippet = "\n".join(lines[start_line - 1:end_line]).rstrip()
+        if not snippet.strip():
             continue
 
-        file_blocks.append(f"--- Archivo: {file_info['rel_path']} ---\n{body}")
+        file_rel_path = file_info.get("rel_path") or os.path.basename(file_path or "") or "sin_archivo"
+        if current_file_path != file_path and current_snippets:
+            flush_current_file()
+        if current_file_path != file_path:
+            current_file_path = file_path
+            current_file_rel_path = file_rel_path
+        current_snippets.append(snippet)
+        copied_count += 1
+
+    if current_snippets:
+        flush_current_file()
 
     if not file_blocks:
         return "", 0

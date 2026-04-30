@@ -16,6 +16,7 @@ from src.logic.syntax_validator import validate_code_syntax
 from pygments import lex
 from pygments.lexers import get_lexer_for_filename, TextLexer
 from pygments.token import Token
+from src.ui.styles import Styles
 
 # --- CONFIGURACIÓN DE ESTILOS VS CODE ---
 THEME = {
@@ -122,7 +123,7 @@ VSCODE_TOKEN_COLORS = {
 # Fuente de código forzada a Menlo (estilo VS Code en Mac)
 FONT_CODE_FAMILY = "Menlo"
 FONT_CODE = (FONT_CODE_FAMILY, 14)
-FONT_UI = ("Segoe UI", 14) # Aumentado tamano base a 14
+FONT_UI = (Styles.FONT_FAMILY, 14) # Aumentado tamano base a 14
 _ACTIVE_ARBITRARY_POPUP = None
 
 def _normalize_text(text):
@@ -791,7 +792,7 @@ def show_popup(clipboard_text, match_text, file_path, ratio, line_num, app_insta
     # Label: Archivo
     tk.Label(
         info_frame, text="📂 Archivo:", 
-        font=("Segoe UI", 16, "bold"), fg="#569cd6", bg=THEME["bg"]
+        font=(Styles.FONT_FAMILY, 16, "bold"), fg="#569cd6", bg=THEME["bg"]
     ).pack(side="left")
     
     # Value: Path (Label)
@@ -805,19 +806,19 @@ def show_popup(clipboard_text, match_text, file_path, ratio, line_num, app_insta
 
     lbl_path = tk.Label(
         info_frame, text=short_path, 
-        font=("Segoe UI", 16), fg="#ce9178", bg=THEME["bg"]
+        font=(Styles.FONT_FAMILY, 16), fg="#ce9178", bg=THEME["bg"]
     )
     lbl_path.pack(side="left", padx=5)
 
     # Label: Line
     tk.Label(
         info_frame, text="| 🔢 Línea aprox:", 
-        font=("Segoe UI", 16, "bold"), fg="#569cd6", bg=THEME["bg"]
+        font=(Styles.FONT_FAMILY, 16, "bold"), fg="#569cd6", bg=THEME["bg"]
     ).pack(side="left", padx=(15, 0))
     
     tk.Label(
         info_frame, text=str(line_num), 
-        font=("Segoe UI", 16), fg="#b5cea8", bg=THEME["bg"]
+        font=(Styles.FONT_FAMILY, 16), fg="#b5cea8", bg=THEME["bg"]
     ).pack(side="left", padx=5)
 
     # Header Controls
@@ -937,7 +938,7 @@ def show_popup(clipboard_text, match_text, file_path, ratio, line_num, app_insta
         textvariable=syntax_status_var,
         bg=THEME["bg"],
         fg="#858585",
-        font=("Segoe UI", 11),
+        font=(Styles.FONT_FAMILY, 11),
         anchor="w",
         justify="left",
     )
@@ -969,13 +970,13 @@ def show_popup(clipboard_text, match_text, file_path, ratio, line_num, app_insta
         text="Buscar:",
         bg="#252526",
         fg="#d4d4d4",
-        font=("Segoe UI", 11, "bold")
+        font=(Styles.FONT_FAMILY, 11, "bold")
     ).pack(side="left", padx=(8, 6), pady=6)
 
     search_entry = tk.Entry(
         search_frame,
         textvariable=search_var,
-        font=("Segoe UI", 11),
+        font=(Styles.FONT_FAMILY, 11),
         bg=THEME["bg"],
         fg=THEME["fg"],
         insertbackground=THEME["cursor"],
@@ -989,7 +990,7 @@ def show_popup(clipboard_text, match_text, file_path, ratio, line_num, app_insta
         textvariable=search_status_var,
         bg="#252526",
         fg="#9cdcfe",
-        font=("Segoe UI", 10),
+        font=(Styles.FONT_FAMILY, 10),
         width=14,
         anchor="w"
     )
@@ -1302,7 +1303,7 @@ def show_popup(clipboard_text, match_text, file_path, ratio, line_num, app_insta
         command=_find_previous_match,
         bg="#333333",
         fg="#d4d4d4",
-        font=("Segoe UI", 10, "bold"),
+        font=(Styles.FONT_FAMILY, 10, "bold"),
         padx=6,
         pady=1
     ).pack(side="left", padx=(0, 4), pady=6)
@@ -1313,7 +1314,7 @@ def show_popup(clipboard_text, match_text, file_path, ratio, line_num, app_insta
         command=_find_next_match,
         bg="#333333",
         fg="#d4d4d4",
-        font=("Segoe UI", 10, "bold"),
+        font=(Styles.FONT_FAMILY, 10, "bold"),
         padx=6,
         pady=1
     ).pack(side="left", padx=(0, 4), pady=6)
@@ -1324,7 +1325,7 @@ def show_popup(clipboard_text, match_text, file_path, ratio, line_num, app_insta
         command=_hide_search_bar,
         bg="#5a1d1d",
         fg="#ff9b9b",
-        font=("Segoe UI", 10, "bold"),
+        font=(Styles.FONT_FAMILY, 10, "bold"),
         padx=6,
         pady=1
     ).pack(side="left", padx=(0, 8), pady=6)
@@ -1618,7 +1619,7 @@ def show_file_picker_dialog(file_list):
         dialog,
         text="No se pudo identificar el fichero con certeza.\nSelecciona el fichero donde buscar:",
         bg=THEME["bg"], fg="#569cd6",
-        font=("Segoe UI", 13),
+        font=(Styles.FONT_FAMILY, 13),
         justify="left"
     ).pack(padx=15, pady=(12, 8), anchor="w")
     
@@ -1654,7 +1655,7 @@ def show_file_picker_dialog(file_list):
             btn_frame,
             text=f"📄 {display_name}",
             bg="#333333", fg="#d4d4d4",
-            font=("Segoe UI", 12),
+            font=(Styles.FONT_FAMILY, 12),
             anchor="w",
             padx=10, pady=6,
             cursor="hand2"
@@ -1672,7 +1673,7 @@ def show_file_picker_dialog(file_list):
         dialog,
         text="❌ Cancelar",
         bg="#5a1d1d", fg="#ff6b6b",
-        font=("Segoe UI", 11, "bold"),
+        font=(Styles.FONT_FAMILY, 11, "bold"),
         padx=15, pady=6,
         cursor="hand2"
     )
@@ -1940,7 +1941,7 @@ def show_global_confirmation_dialog(title, message):
         text=message, 
         bg=THEME["bg"], 
         fg=THEME["fg"],
-        font=("Segoe UI", 12),
+        font=(Styles.FONT_FAMILY, 12),
         wraplength=550,
         justify="left"
     )
@@ -1963,7 +1964,7 @@ def show_global_confirmation_dialog(title, message):
         command=on_yes,
         bg="#6a9955", 
         fg="black", 
-        font=("Segoe UI", 11, "bold"),
+        font=(Styles.FONT_FAMILY, 11, "bold"),
         padx=15, pady=5,
         relief="raised",
         cursor="hand2"
@@ -1976,7 +1977,7 @@ def show_global_confirmation_dialog(title, message):
         command=on_no,
         bg="#f44336", 
         fg="black", 
-        font=("Segoe UI", 11),
+        font=(Styles.FONT_FAMILY, 11),
         padx=15, pady=5,
         relief="raised",
         cursor="hand2"

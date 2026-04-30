@@ -1,4 +1,5 @@
 import ast
+from bisect import bisect_right
 import json
 import os
 import re
@@ -49,6 +50,7 @@ class ProjectManager:
     HTML_AST_EXTENSIONS = {'.html', '.htm', '.xhtml'}
     XML_AST_EXTENSIONS = {'.xml', '.xsd', '.xsl', '.wsdl'}
     JS_AST_EXTENSIONS = {'.js', '.mjs', '.cjs', '.jsx', '.ts', '.tsx'}
+    CSS_STRUCTURE_EXTENSIONS = {'.css', '.scss', '.sass', '.less'}
     BRACE_STYLE_EXTENSIONS = {
         '.c', '.cc', '.cpp', '.cxx', '.h', '.hh', '.hpp', '.hxx',
         '.cs', '.go', '.rs', '.zig',
@@ -65,6 +67,12 @@ class ProjectManager:
         '.rb', '.lua', '.ex', '.exs', '.erl', '.hrl'
     }
     JS_AST_HELPER_PATH = os.path.join(os.path.dirname(__file__), "js_ast_structures.js")
+    CSS_KEYFRAME_STEP_RE = re.compile(
+        r'^(?:from|to|\d+(?:\.\d+)?%)\s*(?:,\s*(?:from|to|\d+(?:\.\d+)?%))*$',
+        re.IGNORECASE
+    )
+    CSS_PROPERTY_GROUP_RE = re.compile(r'^(?:--)?[A-Za-z_][\w-]*\s*:\s*$')
+    CSS_ELEMENT_SELECTOR_RE = re.compile(r'^(?:\*|[A-Za-z][\w-]*)(?:\s+(?:\*|[A-Za-z][\w-]*))*$')
 
     def __init__(self, config_manager=None):
         self.config_manager = config_manager
@@ -345,6 +353,9 @@ class ProjectManager:
             elif ext in self.XML_AST_EXTENSIONS:
                 file_structures.extend(self._extract_markup_ast_structures(file_info, content, parser_kind='xml'))
 
+            elif ext in self.CSS_STRUCTURE_EXTENSIONS:
+                file_structures.extend(self._extract_css_structures(file_info, content))
+
             else:
                 if ext in self.BRACE_STYLE_EXTENSIONS:
                     file_structures.extend(self._extract_brace_structures(file_info, lines))
@@ -598,6 +609,216 @@ class ProjectManager:
                 file_structures.extend(self._extract_react_visual_return_structures(file_info, content))
             results.extend(file_structures)
         return results
+
+    def _extract_css_structures(self, file_info, content):
+        """Extracts CSS-like rule blocks, at-rules, and nested steps from stylesheet files."""
+        normalized = (content or '').replace('\r\n', '\n').replace('\r', '\n')
+        if not normalized.strip():
+            return []
+
+        lines = normalized.split('\n')
+        line_starts = [0]
+        for index, char in enumerate(normalized):
+            if char == '\n':
+                line_starts.append(index + 1)
+
+        def line_number_for_index(char_index):
+            return max(bisect_right(line_starts, max(char_index, 0)), 1)
+
+        results = []
+        stack = []
+        statement_start = 0
+        interpolation_depth = 0
+        in_single = False
+        in_double = False
+        in_line_comment = False
+        in_block_comment = False
+        escape = False
+        index = 0
+
+        while index < len(normalized):
+            char = normalized[index]
+            next_char = normalized[index + 1] if index + 1 < len(normalized) else ''
+
+            if in_line_comment:
+                if char == '\n':
+                    in_line_comment = False
+                index += 1
+                continue
+
+            if in_block_comment:
+                if char == '*' and next_char == '/':
+                    in_block_comment = False
+                    index += 2
+                    continue
+                index += 1
+                continue
+
+            if in_single:
+                if escape:
+                    escape = False
+                elif char == '\\':
+                    escape = True
+                elif char == "'":
+                    in_single = False
+                index += 1
+                continue
+
+            if in_double:
+                if escape:
+                    escape = False
+                elif char == '\\':
+                    escape = True
+                elif char == '"':
+                    in_double = False
+                index += 1
+                continue
+
+            if char == '/' and next_char == '*':
+                in_block_comment = True
+                index += 2
+                continue
+
+            if char == '/' and next_char == '/':
+                in_line_comment = True
+                index += 2
+                continue
+
+            if char == "'":
+                in_single = True
+                index += 1
+                continue
+
+            if char == '"':
+                in_double = True
+                index += 1
+                continue
+
+            if interpolation_depth:
+                if char == '{':
+                    interpolation_depth += 1
+                elif char == '}':
+                    interpolation_depth = max(interpolation_depth - 1, 0)
+                index += 1
+                continue
+
+            if (char == '#' or char == '@') and next_char == '{':
+                interpolation_depth = 1
+                index += 2
+                continue
+
+            if char == '{':
+                raw_header, header_start_index = self._extract_css_header_segment(normalized, statement_start, index)
+                normalized_header = self._normalize_css_header_text(raw_header)
+                structure_type = self._classify_css_structure_header(normalized_header)
+
+                block_info = {"structure_type": None}
+                if structure_type:
+                    header_with_open = f"{normalized_header} {{"
+                    compact_name = " ".join(part.strip() for part in normalized_header.splitlines() if part.strip()) or normalized_header
+                    block_info = {
+                        "structure_type": structure_type,
+                        "name": compact_name,
+                        "display_name": compact_name,
+                        "start_line": line_number_for_index(header_start_index),
+                        "header": header_with_open,
+                    }
+
+                stack.append(block_info)
+                statement_start = index + 1
+                index += 1
+                continue
+
+            if char == ';':
+                statement_start = index + 1
+                index += 1
+                continue
+
+            if char == '}':
+                if stack:
+                    block_info = stack.pop()
+                    if block_info.get("structure_type"):
+                        results.append(
+                            self._build_structure(
+                                file_info,
+                                name=block_info["name"],
+                                structure_type=block_info["structure_type"],
+                                start_line=block_info["start_line"],
+                                end_line=line_number_for_index(index),
+                                lines=lines,
+                                display_name=block_info["display_name"],
+                                parser_name='css-heuristic',
+                                header_text=block_info["header"]
+                            )
+                        )
+                statement_start = index + 1
+                index += 1
+                continue
+
+            index += 1
+
+        return results
+
+    def _extract_css_header_segment(self, content, start_idx, end_idx):
+        """Returns the raw CSS header text and the char index where it starts."""
+        segment = content[max(start_idx, 0):max(end_idx, 0)]
+        offset = 0
+
+        while offset < len(segment):
+            current = segment[offset:]
+            whitespace_match = re.match(r'\s+', current)
+            if whitespace_match:
+                offset += whitespace_match.end()
+                continue
+
+            if current.startswith('/*'):
+                comment_end = current.find('*/', 2)
+                if comment_end == -1:
+                    return "", max(start_idx + offset, 0)
+                offset += comment_end + 2
+                continue
+
+            if current.startswith('//'):
+                newline_index = current.find('\n', 2)
+                if newline_index == -1:
+                    return "", max(start_idx + offset, 0)
+                offset += newline_index + 1
+                continue
+
+            break
+
+        remaining = segment[offset:]
+        leading_trim = len(remaining) - len(remaining.lstrip())
+        header_start_index = max(start_idx + offset + leading_trim, 0)
+        return remaining.strip(), header_start_index
+
+    def _normalize_css_header_text(self, header_text):
+        """Normalizes CSS headers by removing comment-only noise while preserving selector shape."""
+        cleaned = re.sub(r'/\*.*?\*/', ' ', header_text or '', flags=re.DOTALL)
+        lines = []
+        for line in cleaned.split('\n'):
+            stripped = re.sub(r'//.*$', '', line).strip()
+            if stripped:
+                lines.append(stripped)
+        return '\n'.join(lines).strip()
+
+    def _classify_css_structure_header(self, header_text):
+        """Classifies a CSS-like header into a stored structure type."""
+        cleaned = (header_text or '').strip()
+        if not cleaned:
+            return None
+
+        if cleaned.startswith('@'):
+            return 'css_at_rule'
+        if self.CSS_KEYFRAME_STEP_RE.match(cleaned):
+            return 'css_keyframe_step'
+        if self.CSS_PROPERTY_GROUP_RE.match(cleaned):
+            return 'css_property_group'
+        if any(token in cleaned for token in ('.', '#', '[', ']', ':', '&', '>', '+', '~', '*', ',')):
+            return 'css_rule'
+        if self.CSS_ELEMENT_SELECTOR_RE.match(cleaned):
+            return 'css_rule'
+        return None
 
     def _extract_react_visual_return_structures(self, file_info, content):
         """Heuristically extracts React render returns when the JS AST helper cannot parse the file."""

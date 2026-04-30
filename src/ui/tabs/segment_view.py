@@ -164,7 +164,7 @@ class SegmentView(ttk.Frame):
         self.entry_segment_name = tk.Entry(
             name_field["input_parent"],
             textvariable=self.segment_name_var,
-            font=("Segoe UI", 13),
+            font=(Styles.FONT_FAMILY, 13),
             bg="#1a2a3a",
             fg=Styles.COLOR_INPUT_FG,
             insertbackground="white",
@@ -181,7 +181,7 @@ class SegmentView(ttk.Frame):
             section_field["input_parent"],
             state="readonly",
             textvariable=self.base_section_var,
-            font=("Segoe UI", 12),
+            font=(Styles.FONT_FAMILY, 12),
             style="Borderless.TCombobox"
         )
         self.cmb_section.pack(fill="x", padx=1, pady=1)
@@ -193,7 +193,7 @@ class SegmentView(ttk.Frame):
             subsection_field["input_parent"],
             state="readonly",
             textvariable=self.base_subsection_var,
-            font=("Segoe UI", 12),
+            font=(Styles.FONT_FAMILY, 12),
             style="Borderless.TCombobox"
         )
         self.cmb_subsection.pack(fill="x", padx=1, pady=1)
@@ -204,7 +204,7 @@ class SegmentView(ttk.Frame):
         self.entry_structure_search = tk.Entry(
             search_field["input_parent"],
             textvariable=self.structure_search_var,
-            font=("Segoe UI", 13),
+            font=(Styles.FONT_FAMILY, 13),
             bg="#1a2a3a",
             fg=Styles.COLOR_INPUT_FG,
             insertbackground="white",
@@ -292,7 +292,7 @@ class SegmentView(ttk.Frame):
             text="Una estructura por línea. Usa el botón para marcar las coincidencias más similares.",
             bg=Styles.COLOR_INPUT_BG,
             fg=Styles.COLOR_DIM,
-            font=("Segoe UI", 10),
+            font=(Styles.FONT_FAMILY, 10),
             anchor="w",
             justify="left"
         )
@@ -383,7 +383,7 @@ class SegmentView(ttk.Frame):
             text=label_text,
             bg=Styles.COLOR_INPUT_BG,
             fg=Styles.COLOR_DIM,
-            font=("Segoe UI", 11, "bold"),
+            font=(Styles.FONT_FAMILY, 11, "bold"),
             anchor="w"
         )
         label.grid(row=0, column=0, sticky="ew", pady=(0, 4))

@@ -6,6 +6,7 @@ import tkinter as tk
 from tkinter import messagebox
 
 import pyperclip
+from src.ui.styles import Styles
 
 
 THEME = {
@@ -515,7 +516,22 @@ def _looks_like_brace_structure_header(header_text):
         r'^(?:["\'][^"\']+["\']|[A-Za-z_][\w.-]*)\s*:\s*$',
         r'^[A-Za-z_][\w.-]*\s*=\s*$',
     )
-    return any(re.match(pattern, header, re.IGNORECASE) for pattern in brace_signature_patterns)
+    if any(re.match(pattern, header, re.IGNORECASE) for pattern in brace_signature_patterns):
+        return True
+
+    css_header = " ".join(line.strip() for line in header.splitlines() if line.strip())
+    if not css_header:
+        return False
+
+    if css_header.startswith("@"):
+        return True
+    if re.match(r'^(?:from|to|\d+(?:\.\d+)?%)\s*(?:,\s*(?:from|to|\d+(?:\.\d+)?%))*$', css_header, re.IGNORECASE):
+        return True
+    if re.match(r'^(?:--)?[A-Za-z_][\w-]*\s*:\s*$', css_header):
+        return True
+    if any(token in css_header for token in ('.', '#', '[', ']', ':', '&', '>', '+', '~', '*', ',')):
+        return True
+    return bool(re.match(r'^(?:\*|[A-Za-z][\w-]*)(?:\s+(?:\*|[A-Za-z][\w-]*))*$', css_header))
 
 
 def _extract_brace_structure_from_clipboard(text):
@@ -1143,7 +1159,7 @@ def _show_structure_replace_dialog(header_text, matches):
         text=intro_text,
         bg=THEME["bg"],
         fg=THEME["fg"],
-        font=("Segoe UI", 12),
+        font=(Styles.FONT_FAMILY, 12),
         wraplength=800,
         justify="left",
         anchor="w",
@@ -1154,7 +1170,7 @@ def _show_structure_replace_dialog(header_text, matches):
         text="Cabecera coincidente:",
         bg=THEME["bg"],
         fg="#569cd6",
-        font=("Segoe UI", 12, "bold"),
+        font=(Styles.FONT_FAMILY, 12, "bold"),
         anchor="w",
     ).pack(fill="x")
 
@@ -1168,7 +1184,7 @@ def _show_structure_replace_dialog(header_text, matches):
         text="Estructura destino:",
         bg=THEME["bg"],
         fg="#569cd6",
-        font=("Segoe UI", 12, "bold"),
+        font=(Styles.FONT_FAMILY, 12, "bold"),
         anchor="w",
     ).pack(fill="x")
 
@@ -1224,7 +1240,7 @@ def _show_structure_replace_dialog(header_text, matches):
         command=on_yes,
         bg="#6a9955",
         fg="black",
-        font=("Segoe UI", 11, "bold"),
+        font=(Styles.FONT_FAMILY, 11, "bold"),
         padx=15,
         pady=5,
         cursor="hand2",
@@ -1236,7 +1252,7 @@ def _show_structure_replace_dialog(header_text, matches):
         command=on_no,
         bg="#f44336",
         fg="black",
-        font=("Segoe UI", 11),
+        font=(Styles.FONT_FAMILY, 11),
         padx=15,
         pady=5,
         cursor="hand2",
