@@ -281,6 +281,14 @@ def build_segment_full_text_from_items(file_infos, items):
         current_file_rel_path = ""
         current_snippets = []
 
+    def normalize_region_snippet(snippet_text):
+        snippet_lines = snippet_text.split("\n")
+        if snippet_lines and _looks_like_region_start_marker(snippet_lines[0]):
+            snippet_lines = snippet_lines[1:]
+        if snippet_lines and _looks_like_region_end_marker(snippet_lines[-1]):
+            snippet_lines = snippet_lines[:-1]
+        return "\n".join(snippet_lines).strip("\n")
+
     for item in ordered_items:
         file_path = item.get("file_path")
         file_info = file_map.get(file_path, {})
@@ -292,6 +300,8 @@ def build_segment_full_text_from_items(file_infos, items):
         start_line = max(int(item.get("start_line", 1) or 1), 1)
         end_line = max(int(item.get("end_line", start_line) or start_line), start_line)
         snippet = "\n".join(lines[start_line - 1:end_line]).rstrip()
+        if item.get("type") == "region" or str(item.get("key", "")).startswith("region::"):
+            snippet = normalize_region_snippet(snippet)
         if not snippet.strip():
             continue
 
@@ -311,6 +321,20 @@ def build_segment_full_text_from_items(file_infos, items):
         return "", 0
 
     return "\n\n\n".join(file_blocks), copied_count
+
+
+def _looks_like_region_start_marker(line_text):
+    stripped = str(line_text or "").strip().lower()
+    if not stripped:
+        return False
+    return bool(re.match(r'^(?:(?://|#|--)|/\*|<!--)\s*#?region\b', stripped))
+
+
+def _looks_like_region_end_marker(line_text):
+    stripped = str(line_text or "").strip().lower()
+    if not stripped:
+        return False
+    return bool(re.match(r'^(?:(?://|#|--)|/\*|<!--)\s*#?endregion\b', stripped))
 
 
 def extract_structure_header_text(structure_item):

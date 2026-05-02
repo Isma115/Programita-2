@@ -37,6 +37,9 @@ class ConfigManager:
         if "include_file_headers_in_codigo_txt" not in self.config:
             self.config["include_file_headers_in_codigo_txt"] = True
             migrated = True
+        if "last_code_view_mode" not in self.config:
+            self.config["last_code_view_mode"] = "sections"
+            migrated = True
 
         for legacy_key in ("return_regions", "return_structures"):
             if legacy_key in self.config:
@@ -235,6 +238,32 @@ class ConfigManager:
         self.config["code_extensions_filter"] = value if isinstance(value, str) else ""
         self.save_config()
 
+    def get_region_list_limit(self):
+        """Returns the saved limit for detected regions shown in Code View."""
+        value = self.config.get("region_list_limit", 20)
+        try:
+            return int(value)
+        except (TypeError, ValueError):
+            return 20
+
+    def set_region_list_limit(self, value):
+        """Sets the saved limit for detected regions shown in Code View."""
+        try:
+            normalized = int(value)
+        except (TypeError, ValueError):
+            normalized = 20
+        self.config["region_list_limit"] = normalized
+        self.save_config()
+
+    def get_region_list_auto_enabled(self):
+        """Returns whether the detected-regions list uses the automatic 50 KB cap."""
+        return bool(self.config.get("region_list_auto_enabled", False))
+
+    def set_region_list_auto_enabled(self, value):
+        """Sets whether the detected-regions list uses the automatic 50 KB cap."""
+        self.config["region_list_auto_enabled"] = bool(value)
+        self.save_config()
+
     def get_include_project_tree(self):
         """Returns whether prompts should include the project tree."""
         return bool(self.config.get("include_project_tree", False))
@@ -405,6 +434,16 @@ class ConfigManager:
     def set_last_code_section(self, section_name):
         """Sets the last selected section in Code View and saves config."""
         self.config["last_code_section"] = section_name
+        self.save_config()
+
+    def get_last_code_view_mode(self):
+        """Returns the last selected list mode in Code View."""
+        mode = self.config.get("last_code_view_mode", "sections")
+        return "regions" if mode == "regions" else "sections"
+
+    def set_last_code_view_mode(self, mode):
+        """Sets the last selected list mode in Code View and saves config."""
+        self.config["last_code_view_mode"] = "regions" if mode == "regions" else "sections"
         self.save_config()
 
     def get_last_doc_section(self):

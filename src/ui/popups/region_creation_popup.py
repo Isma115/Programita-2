@@ -51,6 +51,8 @@ class RegionCreationPopup(tk.Toplevel):
         self._file_info_by_path = {}
         self._current_file_index = 0
         self._is_code_expanded = False
+        self._region_name_placeholder_text = "Nombre del segmento"
+        self._region_name_placeholder_active = False
 
         self.region_name_var = tk.StringVar(value=region_name or "")
         self.region_summary_var = tk.StringVar(value="Cargando regiones...")
@@ -68,7 +70,8 @@ class RegionCreationPopup(tk.Toplevel):
 
         self._create_widgets()
         self._load_available_regions()
-        self.entry_region_name.focus_set()
+        if self.original_region_name:
+            self.entry_region_name.focus_set()
         self.bind("<Escape>", self._on_escape_pressed)
 
     def _create_widgets(self):
@@ -95,17 +98,8 @@ class RegionCreationPopup(tk.Toplevel):
         name_card.columnconfigure(1, weight=0)
         self.name_card = name_card
 
-        tk.Label(
-            name_card,
-            text="Nombre del segmento",
-            bg=Styles.COLOR_INPUT_BG,
-            fg=Styles.COLOR_DIM,
-            font=(Styles.FONT_FAMILY, 11, "bold"),
-            anchor="w",
-        ).grid(row=0, column=0, sticky="ew", padx=12, pady=(10, 4))
-
         top_actions = ttk.Frame(name_card, style="Main.TFrame")
-        top_actions.grid(row=1, column=1, sticky="e", padx=12, pady=(0, 10))
+        top_actions.grid(row=0, column=1, sticky="e", padx=12, pady=8)
 
         btn_cancel = ttk.Button(top_actions, text="Cancelar", style="Secondary.TButton", command=self.destroy)
         btn_cancel.pack(side="right", padx=(8, 0))
@@ -118,7 +112,7 @@ class RegionCreationPopup(tk.Toplevel):
         self.entry_region_name = tk.Entry(
             name_card,
             textvariable=self.region_name_var,
-            font=(Styles.FONT_FAMILY, 13),
+            font=(Styles.FONT_FAMILY, 12),
             bg="#1a2a3a",
             fg=Styles.COLOR_INPUT_FG,
             insertbackground="white",
@@ -127,7 +121,10 @@ class RegionCreationPopup(tk.Toplevel):
             relief="flat",
         )
         Styles.strip_classic_widget_chrome(self.entry_region_name)
-        self.entry_region_name.grid(row=1, column=0, sticky="ew", padx=12, pady=(0, 10), ipady=6)
+        self.entry_region_name.grid(row=0, column=0, sticky="ew", padx=12, pady=8, ipady=4)
+        self.entry_region_name.bind("<FocusIn>", self._on_region_name_focus_in)
+        self.entry_region_name.bind("<FocusOut>", self._on_region_name_focus_out)
+        self._show_region_name_placeholder()
 
         body = ttk.Frame(self, style="Main.TFrame")
         body.pack(fill="both", expand=True, padx=14, pady=(0, 10))
@@ -701,8 +698,37 @@ class RegionCreationPopup(tk.Toplevel):
             })
         return items
 
+    def _show_region_name_placeholder(self):
+        if self.region_name_var.get().strip():
+            self.entry_region_name.configure(fg=Styles.COLOR_INPUT_FG)
+            self._region_name_placeholder_active = False
+            return
+        self.entry_region_name.delete(0, tk.END)
+        self.entry_region_name.insert(0, self._region_name_placeholder_text)
+        self.entry_region_name.configure(fg=Styles.COLOR_DIM)
+        self._region_name_placeholder_active = True
+
+    def _hide_region_name_placeholder(self):
+        if not self._region_name_placeholder_active:
+            return
+        self.entry_region_name.delete(0, tk.END)
+        self.entry_region_name.configure(fg=Styles.COLOR_INPUT_FG)
+        self._region_name_placeholder_active = False
+
+    def _on_region_name_focus_in(self, event=None):
+        self._hide_region_name_placeholder()
+
+    def _on_region_name_focus_out(self, event=None):
+        if not self.entry_region_name.get().strip():
+            self._show_region_name_placeholder()
+
+    def _get_region_name_value(self):
+        if self._region_name_placeholder_active:
+            return ""
+        return self.region_name_var.get().strip()
+
     def _on_accept(self):
-        region_name = self.region_name_var.get().strip()
+        region_name = self._get_region_name_value()
         if not region_name:
             messagebox.showwarning("Aviso", "Escribe un nombre para el segmento.")
             return

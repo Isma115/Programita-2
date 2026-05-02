@@ -2,6 +2,7 @@ import tkinter as tk
 import tkinter.font as tkfont
 from tkinter import ttk, filedialog, simpledialog
 import tkinter.messagebox as messagebox
+import difflib
 import threading
 import os
 import re
@@ -12,6 +13,7 @@ from PIL import Image, ImageTk, ImageDraw
 from src.addons.structure_header_replace import detect_code_structure
 from src.addons.Arbitrary_sus import create_styled_text_widget as arb_create_styled_text_widget
 from src.addons.Arbitrary_sus import highlight_syntax as arb_highlight_syntax
+from src.logic.region_outline import extract_regions_for_files, normalize_region_match_text
 from src.logic.structure_outline import build_segment_full_text, build_segment_full_text_from_items
 from src.ui.styles import Styles
 from src.ui.tooltip import attach_tooltip
@@ -46,6 +48,11 @@ class CodeView(ttk.Frame):
     MIN_LEFT_PANEL_WIDTH = Styles.scale_size(320)
     MIN_SECTIONS_PANEL_WIDTH = Styles.scale_size(260)
     DEFAULT_MAX_FILE_LIMIT = 20
+    MIN_REGION_LIST_LIMIT = 1
+    MAX_REGION_LIST_LIMIT = 20
+    DEFAULT_REGION_LIST_LIMIT = 20
+    REGION_EXACT_MATCH_MIN_WORDS = 3
+    AUTO_REGION_LIST_MAX_BYTES = 50 * 1024
     GENERIC_MARKUP_TAGS = {
         "article", "aside", "body", "col", "colgroup", "dd", "div", "dl", "dt",
         "footer", "header", "html", "li", "main", "nav", "ol", "p", "section",
@@ -192,14 +199,21 @@ class CodeView(ttk.Frame):
         self._checkbox_visual_size = Styles.scale_size(30)
         self.sections_dir_var = tk.StringVar(value="")
         self.section_view_mode = tk.StringVar(value="sections")
+        self.region_list_limit_var = tk.IntVar(value=self.DEFAULT_REGION_LIST_LIMIT)
+        self.region_list_auto_var = tk.BooleanVar(value=False)
+        self._region_list_refresh_after = None
+        self._region_list_limit_save_after = None
         self._search_timer = None
         self._last_relevant_files = None
+        self._last_region_list_items = []
+        self._region_rows_by_iid = {}
         self._discarded_file_paths = set()
         self.file_type_icons = {}
         self.toolbar_icons = {}
         self.section_tree_icons = {}
         self.folder_chip_widgets = []
         self.file_action_widgets = []
+        self.region_name_highlight_widgets = []
         self._folder_chip_refresh_after = None
         self._segment_code_preview_text = ""
         self._segment_code_preview_file_hint = None
@@ -208,6 +222,22 @@ class CodeView(ttk.Frame):
         self._code_preview_mode = None
         self.is_file_preview_fullscreen = False
         self._sidebar_visible_before_preview_fullscreen = True
+
+        if hasattr(self.controller, "config_manager"):
+            try:
+                saved_region_limit = self.controller.config_manager.get_region_list_limit()
+                saved_region_limit = max(self.MIN_REGION_LIST_LIMIT, min(int(saved_region_limit), self.MAX_REGION_LIST_LIMIT))
+                self.region_list_limit_var.set(saved_region_limit)
+            except (AttributeError, TypeError, ValueError):
+                pass
+            try:
+                self.region_list_auto_var.set(bool(self.controller.config_manager.get_region_list_auto_enabled()))
+            except AttributeError:
+                pass
+            try:
+                self.section_view_mode.set(self.controller.config_manager.get_last_code_view_mode())
+            except AttributeError:
+                pass
 
         self._initialize_output_state()
         self._load_file_type_icons()
@@ -582,12 +612,17 @@ class CodeView(ttk.Frame):
 
         # Container for controls
         self.slider_frame = ttk.Frame(self.top_bar, style="Main.TFrame")
-        self.slider_frame.pack(padx=20)
+        self.slider_frame.pack(fill="x", expand=True, padx=20)
+        self.slider_frame.columnconfigure(0, weight=4)
+        self.slider_frame.columnconfigure(1, weight=3)
+        self.slider_frame.columnconfigure(2, weight=2)
+        self.slider_frame.columnconfigure(3, weight=0)
+        self.slider_frame.rowconfigure(0, weight=1)
 
         self.path_filter_var = tk.StringVar(value="")
 
         self.path_filter_shell = self._create_rounded_shell(self.slider_frame)
-        self.path_filter_shell.pack(side="left", padx=(0, 0))
+        self.path_filter_shell.grid(row=0, column=0, sticky="ew", padx=(0, 8))
 
         self.path_filter_title = tk.Label(
             self.path_filter_shell,
@@ -616,7 +651,7 @@ class CodeView(ttk.Frame):
             bd=0,
             highlightthickness=0,
             relief="flat",
-            width=28,
+            width=30,
             font=(Styles.FONT_FAMILY, 12)
         )
         self.txt_path_filter._skip_soften = True
@@ -626,7 +661,7 @@ class CodeView(ttk.Frame):
 
         # AI Selector
         self.ai_selector_shell = self._create_rounded_shell(self.slider_frame)
-        self.ai_selector_shell.pack(side="left", padx=(20, 0))
+        self.ai_selector_shell.grid(row=0, column=1, sticky="ew", padx=8)
 
         self.ai_selector_title = tk.Label(
             self.ai_selector_shell,
@@ -644,7 +679,7 @@ class CodeView(ttk.Frame):
             textvariable=self.ai_var, 
             values=self.AI_ORDER,
             state="readonly",
-            width=20,
+            width=22,
             style="Borderless.TCombobox"
         )
         self.cmb_ai.current(0)
@@ -657,7 +692,7 @@ class CodeView(ttk.Frame):
         self.ext_var = tk.StringVar(value=saved_extensions)
 
         self.ext_shell = self._create_rounded_shell(self.slider_frame)
-        self.ext_shell.pack(side="left", padx=(20, 0))
+        self.ext_shell.grid(row=0, column=2, sticky="ew", padx=8)
 
         self.ext_title = tk.Label(
             self.ext_shell,
@@ -694,7 +729,7 @@ class CodeView(ttk.Frame):
             bd=0,
             highlightthickness=0,
             relief="flat",
-            width=15,
+            width=17,
             font=(Styles.FONT_FAMILY, 12)
         )
         self.txt_ext._skip_soften = True
@@ -703,7 +738,7 @@ class CodeView(ttk.Frame):
         self.ext_var.trace_add("write", self._on_extension_change)
 
         self.reload_shell = self._create_rounded_shell(self.slider_frame)
-        self.reload_shell.pack(side="left", padx=(20, 0))
+        self.reload_shell.grid(row=0, column=3, sticky="ns", padx=(8, 0))
 
         self.reload_title = tk.Label(
             self.reload_shell,
@@ -730,7 +765,7 @@ class CodeView(ttk.Frame):
             command=self._on_reload_project_files,
             icon_key="reload",
             text="↻",
-            width=Styles.scale_size(34),
+            width=Styles.scale_size(52),
             height=Styles.scale_size(30),
             host_bg=Styles.COLOR_INPUT_BG
         )
@@ -1295,6 +1330,15 @@ class CodeView(ttk.Frame):
                 pass
         self.folder_chip_widgets = []
 
+    def _clear_region_name_highlight_overlays(self):
+        """Removes any existing region-name highlight overlays."""
+        for widget in self.region_name_highlight_widgets:
+            try:
+                widget.destroy()
+            except Exception:
+                pass
+        self.region_name_highlight_widgets = []
+
     def _clear_file_action_overlays(self):
         """Removes the 'Ver' button overlays from the file table."""
         for widget in self.file_action_widgets:
@@ -1506,6 +1550,7 @@ class CodeView(ttk.Frame):
             return
 
         self._clear_folder_chip_overlays()
+        self._clear_region_name_highlight_overlays()
         self._clear_file_action_overlays()
 
         if not getattr(self, "file_list_shell", None) or not self.file_list_shell.winfo_manager():
@@ -1515,8 +1560,93 @@ class CodeView(ttk.Frame):
         chip_fg = "#c2cad8"
         chip_font = (Styles.FONT_FAMILY, Styles.scale_size(12), "bold")
         chip_font_obj = tkfont.Font(font=chip_font)
+        row_font = ttk.Style().lookup("Files.Treeview", "font") or (Styles.FONT_FAMILY, Styles.scale_size(13))
+        row_font_obj = tkfont.Font(font=row_font)
         viewport_width = max(self.tree.winfo_width(), 0)
         viewport_height = max(self.tree.winfo_height(), 0)
+
+        for item_id in self.tree.get_children():
+            region_item = self._get_region_row_item(item_id)
+            highlight_phrase = (region_item or {}).get("_prompt_exact_match_phrase", "")
+            if not region_item or not highlight_phrase:
+                continue
+
+            try:
+                bbox = self.tree.bbox(item_id, "#0")
+            except Exception:
+                bbox = None
+
+            if not bbox:
+                continue
+
+            x, y, width, height = bbox
+            if width <= 24 or height <= 6:
+                continue
+            if x < 0 or y < 0:
+                continue
+            if (x + width) > viewport_width or (y + height) > viewport_height:
+                continue
+
+            header_text = (region_item.get("header") or region_item.get("name") or "Región").strip()
+            prefix, matched_text, suffix = self._split_region_header_for_highlight(header_text, highlight_phrase)
+            if not matched_text:
+                continue
+
+            icon_reserved = Styles.scale_size(36)
+            is_selected = item_id in self.tree.selection()
+            row_bg = Styles.COLOR_SELECTION_BG if is_selected else self._get_file_row_background(item_id)
+            prefix_display = f"   {prefix}"
+            match_width = row_font_obj.measure(matched_text)
+            match_height = row_font_obj.metrics("linespace")
+            pad_x = Styles.scale_size(4)
+            pad_y = 2
+            overlay_x = x + icon_reserved + row_font_obj.measure(prefix_display) - pad_x
+            overlay_y = y + max((height - (match_height + (pad_y * 2))) / 2, 1)
+            overlay_width = max(match_width + (pad_x * 2), 12)
+            overlay_height = max(match_height + (pad_y * 2), 12)
+
+            if overlay_x < x or (overlay_x + overlay_width) > (x + width):
+                continue
+
+            canvas = tk.Canvas(
+                self.tree,
+                bg=row_bg,
+                bd=0,
+                highlightthickness=0,
+                relief="flat",
+                cursor="hand2"
+            )
+            canvas.place(x=overlay_x, y=overlay_y, width=overlay_width, height=overlay_height)
+
+            self._draw_rounded_rect(
+                canvas,
+                0,
+                0,
+                overlay_width,
+                overlay_height,
+                radius=min(7, Styles.scale_size(7)),
+                fill="#f1c40f",
+                outline="#f1c40f",
+                width=0
+            )
+            canvas.create_text(
+                pad_x,
+                overlay_height / 2,
+                text=matched_text,
+                fill="#1b1b1b",
+                font=row_font,
+                anchor="w"
+            )
+
+            canvas.bind("<Button-1>", lambda event, iid=item_id: self._on_folder_chip_left_click(iid))
+            canvas.bind("<Double-1>", lambda event, iid=item_id: self._on_folder_chip_double_click(iid))
+            canvas.bind("<Button-2>", lambda event, iid=item_id: self._on_folder_chip_right_click(event, iid))
+            canvas.bind("<Button-3>", lambda event, iid=item_id: self._on_folder_chip_right_click(event, iid))
+            canvas.bind("<Control-Button-1>", lambda event, iid=item_id: self._on_folder_chip_right_click(event, iid))
+            canvas.bind("<MouseWheel>", self._on_folder_chip_mousewheel)
+            canvas.bind("<Button-4>", self._on_folder_chip_mousewheel)
+            canvas.bind("<Button-5>", self._on_folder_chip_mousewheel)
+            self.region_name_highlight_widgets.append(canvas)
 
         for item_id in self.tree.get_children():
             try:
@@ -1785,6 +1915,12 @@ class CodeView(ttk.Frame):
         except Exception:
             return None
 
+    def _get_region_row_item(self, item_id):
+        """Returns the detected project region payload for a left-list row."""
+        if not item_id:
+            return None
+        return self._region_rows_by_iid.get(item_id)
+
     def _create_prompt_area(self, parent):
         """Creates the AI prompt text area and copy button."""
         self.prompt_frame = ttk.Frame(parent, style="Main.TFrame")
@@ -1831,21 +1967,18 @@ class CodeView(ttk.Frame):
         self.right_frame = ttk.Frame(self.paned_window, style="Sidebar.TFrame", width=self.DEFAULT_SECTIONS_PANEL_WIDTH)
         self.paned_window.add(self.right_frame, minsize=self.MIN_SECTIONS_PANEL_WIDTH, stretch="never")
 
-        # Split Right Pane into Top (List), Bottom (Checkbox area) and Bottom Spacer
+        # Keep lower controls pinned to the bottom so the expandable tree cannot hide them.
+        self.right_bottom_frame = ttk.Frame(self.right_frame, style="Sidebar.TFrame")
+        self.right_bottom_frame.pack(side="bottom", fill="x", expand=False)
+
         self.right_top_frame = ttk.Frame(self.right_frame, style="Sidebar.TFrame")
         self.right_top_frame.pack(side="top", fill="both", expand=True)
-
-        self.right_bottom_frame = ttk.Frame(self.right_frame, style="Sidebar.TFrame")
-        self.right_bottom_frame.pack(side="top", fill="x", expand=False)
-
-        # Bottom spacer to push everything up
-        self.right_bottom_spacer = ttk.Frame(self.right_frame, style="Sidebar.TFrame")
-        self.right_bottom_spacer.pack(side="top", fill="x", expand=False)
 
         self._create_sections_header(self.right_top_frame)
         self._create_section_search(self.right_top_frame)
         self._create_section_tree(self.right_top_frame)
         self._create_section_list_controls(self.right_bottom_frame)
+        self.refresh_dynamic_paste_controls()
 
     def _create_sections_header(self, parent):
         """Creates the 'Secciones' header and directory label."""
@@ -2122,13 +2255,83 @@ class CodeView(ttk.Frame):
             "Cancelar la secuencia activa de copiado y pegado dinamico"
         )
 
+        self.region_list_limit_frame = tk.Frame(
+            parent,
+            bg=Styles.COLOR_SIDEBAR_CARD_ALT,
+            highlightthickness=0,
+            bd=0,
+        )
+        self.lbl_region_list_limit = tk.Label(
+            self.region_list_limit_frame,
+            text="Regiones listadas: 20",
+            bg=Styles.COLOR_SIDEBAR_CARD_ALT,
+            fg=Styles.COLOR_FG_TEXT,
+            font=(Styles.FONT_FAMILY, 12, "bold"),
+            anchor="w",
+        )
+        self.lbl_region_list_limit.pack(fill="x", padx=10, pady=(4, 0))
+        self.region_list_limit_controls_row = tk.Frame(
+            self.region_list_limit_frame,
+            bg=Styles.COLOR_SIDEBAR_CARD_ALT,
+            highlightthickness=0,
+            bd=0,
+        )
+        self.region_list_limit_controls_row.pack(fill="x", padx=10, pady=(0, 4))
+        self.region_list_limit_controls_row.columnconfigure(0, weight=1)
+        self.region_list_limit_slider = tk.Scale(
+            self.region_list_limit_controls_row,
+            from_=self.MIN_REGION_LIST_LIMIT,
+            to=self.MAX_REGION_LIST_LIMIT,
+            orient=tk.HORIZONTAL,
+            resolution=1,
+            showvalue=False,
+            variable=self.region_list_limit_var,
+            command=self._on_region_list_limit_change,
+            bg=Styles.COLOR_SIDEBAR_CARD_ALT,
+            fg=Styles.COLOR_FG_TEXT,
+            troughcolor=Styles.COLOR_INPUT_BG,
+            activebackground=Styles.COLOR_ACCENT,
+            highlightthickness=0,
+            bd=0,
+        )
+        self.region_list_limit_slider.grid(row=0, column=0, sticky="ew")
+        self.region_list_auto_check = tk.Checkbutton(
+            self.region_list_limit_controls_row,
+            text="Auto",
+            variable=self.region_list_auto_var,
+            command=self._on_region_list_auto_toggle,
+            bg=Styles.COLOR_SIDEBAR_CARD_ALT,
+            fg=Styles.COLOR_FG_TEXT,
+            activebackground=Styles.COLOR_SIDEBAR_CARD_ALT,
+            activeforeground=Styles.COLOR_FG_TEXT,
+            selectcolor=Styles.COLOR_INPUT_BG,
+            highlightthickness=0,
+            bd=0,
+            padx=6,
+            pady=0,
+            font=(Styles.FONT_FAMILY, 11, "bold"),
+            cursor="hand2",
+        )
+        self.region_list_auto_check.grid(row=0, column=1, sticky="e", padx=(8, 0))
+        attach_tooltip(
+            self.region_list_auto_check,
+            "Ajustar automáticamente las regiones visibles para no superar 50 KB acumulados"
+        )
+        self._apply_region_list_limit_control_state()
+        self._update_region_list_limit_label()
+
     def _set_section_view_mode(self, mode):
         normalized_mode = "regions" if mode == "regions" else "sections"
         if self.section_view_mode.get() == normalized_mode:
             return
         self.section_view_mode.set(normalized_mode)
+        if hasattr(self.controller, "config_manager"):
+            self.controller.config_manager.set_last_code_view_mode(normalized_mode)
         self._update_section_view_toggle_buttons()
         self._refresh_sections(force_reload=True)
+        if self._should_show_project_regions_in_file_list():
+            self._show_file_list_view()
+            self._schedule_file_list_refresh()
 
     def _is_regions_view_active(self):
         return self.section_view_mode.get() == "regions"
@@ -2324,8 +2527,8 @@ class CodeView(ttk.Frame):
         tree_subsection_size = Styles.scale_size(11 if compact_height else 13)
         prompt_height = max(Styles.scale_size(4 if ultra_compact_height else 5 if compact_height else 8), 3)
         slider_length = Styles.scale_size(130 if compact_width else 165 if narrow_width else 200)
-        ai_width = max(Styles.scale_size(14 if compact_width else 17 if narrow_width else 20), 10)
-        ext_width = max(Styles.scale_size(10 if compact_width else 12 if narrow_width else 15), 8)
+        ai_width = max(Styles.scale_size(16 if compact_width else 18 if narrow_width else 21), 11)
+        ext_width = max(Styles.scale_size(11 if compact_width else 13 if narrow_width else 16), 9)
         spacer_height = Styles.scale_size(18 if ultra_compact_height else 28 if compact_height else 42)
         top_prompt_pady = Styles.scale_size(6 if compact_height else 10)
 
@@ -2333,7 +2536,8 @@ class CodeView(ttk.Frame):
         file_heading_size = Styles.scale_size(13 if compact_width else 14 if narrow_width else 15)
         file_row_height = Styles.scale_size(42 if ultra_compact_height else 46 if compact_height else 52)
         ai_title_size = Styles.scale_size(9 if ultra_compact_height else 10 if compact_height else 11)
-        path_filter_width = max(18 if compact_width else 22 if narrow_width else 28, 16)
+        path_filter_width = max(20 if compact_width else 24 if narrow_width else 30, 16)
+        reload_button_width = Styles.scale_size(42 if compact_width else 46 if narrow_width else 48)
 
         self.lbl_project_name.configure(font=(Styles.FONT_FAMILY, project_font_size))
         self.lbl_sections_dir.configure(
@@ -2360,23 +2564,23 @@ class CodeView(ttk.Frame):
         self.ext_title.configure(font=(Styles.FONT_FAMILY, ai_title_size, "bold"))
         self.reload_title.configure(font=(Styles.FONT_FAMILY, ai_title_size, "bold"))
         self.txt_ext.configure(font=(Styles.FONT_FAMILY, max(ai_title_size + 2, 11)))
-        self.txt_ext.configure(width=max(path_filter_width - 8, 12))
+        self.txt_ext.configure(width=ext_width)
+        self.btn_reload_project.configure(width=reload_button_width)
         self.txt_prompt.configure(height=prompt_height)
         self.prompt_frame.pack_configure(pady=top_prompt_pady)
         self._update_top_bar_alignment()
 
     def _update_top_bar_alignment(self):
-        """Centers the top controls visually between the left and right arrow buttons."""
-        if not hasattr(self, "slider_frame") or not hasattr(self, "btn_next_project"):
+        """Keeps the top controls spacious without letting them dominate the row."""
+        if not hasattr(self, "slider_frame") or not hasattr(self, "top_bar"):
             return
 
         try:
             self.update_idletasks()
-            right_edge_widget = self.btn_change_sections_dir if hasattr(self, "btn_change_sections_dir") else self.btn_add_project
-            next_right_edge = self.btn_next_project.winfo_x() + self.btn_next_project.winfo_width()
-            right_group_edge = right_edge_widget.winfo_x() + right_edge_widget.winfo_width()
-            right_bias = max(0, right_group_edge - next_right_edge)
-            self.slider_frame.pack_configure(padx=(0, right_bias))
+            top_bar_width = max(self.top_bar.winfo_width(), self.winfo_width(), 1)
+            max_controls_width = Styles.scale_size(980)
+            side_padding = max(Styles.scale_size(10), (top_bar_width - max_controls_width) // 2)
+            self.slider_frame.pack_configure(fill="x", expand=True, padx=side_padding)
         except Exception:
             pass
 
@@ -2916,8 +3120,16 @@ class CodeView(ttk.Frame):
 
     def refresh_file_list(self, files=None):
         """Updates the treeview with files. If None, fetches from project manager."""
+        if self._should_show_project_regions_in_file_list():
+            self._refresh_project_region_list()
+            return
+
+        self._configure_file_tree_headings_for_files()
         self._clear_folder_chip_overlays()
+        self._clear_region_name_highlight_overlays()
         self._clear_file_action_overlays()
+        self._region_rows_by_iid = {}
+        self._last_region_list_items = []
 
         # Clear existing
         for item in self.tree.get_children():
@@ -2975,8 +3187,259 @@ class CodeView(ttk.Frame):
         self._schedule_folder_chip_refresh()
 
 
+    def _should_show_project_regions_in_file_list(self):
+        """Returns True when the left list should render detected project regions."""
+        if not self._is_regions_view_active():
+            return False
+        scope_kind, _section_name, _subsection_name, _leaf_name = self._get_selected_tree_item_info()
+        return scope_kind != "region_segment"
+
+    def _schedule_region_list_refresh(self):
+        """Debounces project-region list refreshes driven by prompt text or slider changes."""
+        if self._region_list_refresh_after:
+            try:
+                self.after_cancel(self._region_list_refresh_after)
+            except Exception:
+                pass
+        self._region_list_refresh_after = self.after(120, self._refresh_project_region_list)
+
+    def _refresh_project_region_list(self):
+        """Renders detected #region blocks in the left list, ranked by prompt similarity."""
+        self._region_list_refresh_after = None
+        self._configure_file_tree_headings_for_regions()
+        self._clear_folder_chip_overlays()
+        self._clear_region_name_highlight_overlays()
+        self._clear_file_action_overlays()
+
+        for item in self.tree.get_children():
+            self.tree.delete(item)
+
+        self._region_rows_by_iid = {}
+        self._last_relevant_files = []
+
+        extension = self.ext_var.get() if hasattr(self, "ext_var") else ""
+        if hasattr(self.controller, "get_relevant_files_for_ui"):
+            file_infos = self.controller.get_relevant_files_for_ui(
+                "",
+                selected_section=None,
+                selected_subsection=None,
+                extension=extension,
+                min_files=0,
+                max_files=None,
+            )
+        else:
+            project_manager = getattr(self.controller, "project_manager", None)
+            file_infos = list(project_manager.get_files()) if project_manager else []
+
+        self._last_relevant_files = list(file_infos or [])
+        region_items = extract_regions_for_files(file_infos)
+        ranked_regions = self._rank_project_regions_for_prompt(region_items)
+        auto_total_bytes = None
+        if self._is_region_list_auto_enabled():
+            visible_regions, auto_total_bytes = self._get_auto_limited_region_list(ranked_regions)
+        else:
+            visible_regions = ranked_regions[:self._get_region_list_limit()]
+        self._last_region_list_items = visible_regions
+        self._update_region_list_limit_label(
+            listed_count=len(visible_regions),
+            total_bytes=auto_total_bytes
+        )
+
+        for index, region in enumerate(visible_regions):
+            iid = f"REGIONROW:{index}"
+            row_tag = "row_even" if index % 2 == 0 else "row_odd"
+            rel_path = region.get("file_rel_path") or os.path.basename(region.get("file_path") or "")
+            line_span = f"L{region.get('start_line', '?')}-L{region.get('end_line', '?')}"
+            display_name = self._build_region_name_display(region)
+            self._region_rows_by_iid[iid] = region
+            self.tree.insert(
+                "",
+                "end",
+                iid=iid,
+                text=display_name,
+                image=self._get_file_icon(rel_path),
+                values=(
+                    "",
+                    self._format_file_size(len(region.get("content", "") or "")),
+                    line_span,
+                    "Ver",
+                    region.get("file_path") or "",
+                    self._build_file_folder_display(rel_path) if rel_path else "raiz",
+                ),
+                tags=(row_tag,),
+            )
+
+        self._update_file_tree_columns()
+        self._schedule_folder_chip_refresh()
+
+    def _configure_file_tree_headings_for_files(self):
+        if not hasattr(self, "tree"):
+            return
+        self.tree.heading("#0", text="Nombre")
+        self.tree.heading("folder", text="Ruta")
+        self.tree.heading("size", text="Tamaño")
+        self.tree.heading("type", text="Tipo")
+        self.tree.heading("view", text="Ver")
+
+    def _configure_file_tree_headings_for_regions(self):
+        if not hasattr(self, "tree"):
+            return
+        self.tree.heading("#0", text="Región")
+        self.tree.heading("folder", text="Archivo")
+        self.tree.heading("size", text="Tamaño")
+        self.tree.heading("type", text="Líneas")
+        self.tree.heading("view", text="Ver")
+
+    def _rank_project_regions_for_prompt(self, regions):
+        """Sorts regions by string similarity to the current AI message."""
+        query = ""
+        if hasattr(self, "txt_prompt"):
+            query = self.txt_prompt.get("1.0", "end-1c").strip()
+        normalized_query = normalize_region_match_text(query)
+        query_tokens = {token for token in normalized_query.split(" ") if token}
+
+        scored_regions = []
+        for index, region in enumerate(regions or []):
+            if not isinstance(region, dict):
+                continue
+            region_copy = dict(region)
+            region_copy["_prompt_exact_match_phrase"] = self._find_exact_region_prompt_match_phrase(
+                query,
+                region_copy.get("header") or region_copy.get("name") or ""
+            )
+            if not normalized_query:
+                scored_regions.append((0.0, index, region_copy))
+                continue
+
+            score = self._score_project_region_for_prompt(region_copy, normalized_query, query_tokens)
+            if region_copy["_prompt_exact_match_phrase"]:
+                score = min(1.0, score + 0.10)
+
+            scored_regions.append((score, index, region_copy))
+
+        scored_regions.sort(key=lambda item: (-item[0], item[1]))
+        return [region for _score, _index, region in scored_regions]
+
+    def _score_project_region_for_prompt(self, region, normalized_query, query_tokens):
+        """Ranks regions with strong preference for the visible region header over internal code."""
+        header_text = normalize_region_match_text(region.get("header") or region.get("name") or "")
+        file_rel_path = normalize_region_match_text(region.get("file_rel_path") or "")
+        content_text = normalize_region_match_text(region.get("content") or "")[:2200]
+
+        header_score = self._score_region_text_against_query(normalized_query, query_tokens, header_text)
+        path_score = self._score_region_text_against_query(normalized_query, query_tokens, file_rel_path)
+        content_score = self._score_region_text_against_query(normalized_query, query_tokens, content_text)
+
+        score = max(
+            header_score,
+            min(
+                1.0,
+                (header_score * 0.78)
+                + (path_score * 0.12)
+                + (content_score * 0.10),
+            ),
+        )
+
+        if header_text and normalized_query in header_text:
+            score = max(score, min(1.0, header_score + 0.08))
+
+        return min(score, 1.0)
+
+    def _score_region_text_against_query(self, normalized_query, query_tokens, candidate_text):
+        if not normalized_query or not candidate_text:
+            return 0.0
+
+        candidate_tokens = {token for token in candidate_text.split(" ") if token}
+        sequence_score = difflib.SequenceMatcher(None, normalized_query, candidate_text).ratio()
+        token_overlap = 0.0
+        if query_tokens and candidate_tokens:
+            token_overlap = len(query_tokens & candidate_tokens) / max(len(query_tokens), 1)
+
+        exact_bonus = 0.28 if normalized_query == candidate_text else 0.0
+        contains_bonus = 0.16 if normalized_query in candidate_text or candidate_text in normalized_query else 0.0
+        starts_bonus = 0.10 if candidate_text.startswith(normalized_query) or normalized_query.startswith(candidate_text) else 0.0
+        subset_bonus = 0.12 if query_tokens and query_tokens.issubset(candidate_tokens) else 0.0
+
+        return min(
+            1.0,
+            max(
+                sequence_score,
+                (sequence_score * 0.52)
+                + (token_overlap * 0.30)
+                + exact_bonus
+                + contains_bonus
+                + starts_bonus
+                + subset_bonus,
+            ),
+        )
+
+    def _find_exact_region_prompt_match_phrase(self, query_text, region_header):
+        """Finds the longest exact 3+ word phrase from the prompt that appears in the region header."""
+        normalized_header = normalize_region_match_text(region_header)
+        if not normalized_header:
+            return ""
+
+        raw_tokens = []
+        for token in re.findall(r"[^\s]+", str(query_text or "")):
+            cleaned = token.strip(".,;:!?()[]{}<>\"'")
+            if cleaned:
+                raw_tokens.append(cleaned)
+
+        if len(raw_tokens) < self.REGION_EXACT_MATCH_MIN_WORDS:
+            return ""
+
+        for length in range(len(raw_tokens), self.REGION_EXACT_MATCH_MIN_WORDS - 1, -1):
+            for start_index in range(0, len(raw_tokens) - length + 1):
+                phrase = " ".join(raw_tokens[start_index:start_index + length]).strip()
+                normalized_phrase = normalize_region_match_text(phrase)
+                if normalized_phrase and normalized_phrase in normalized_header:
+                    return phrase
+
+        return ""
+
+    def _split_region_header_for_highlight(self, header_text, matched_phrase):
+        """Returns prefix, matched text and suffix for the region-header highlight."""
+        raw_header = str(header_text or "")
+        normalized_phrase = normalize_region_match_text(matched_phrase)
+        if not raw_header or not normalized_phrase:
+            return raw_header, "", ""
+
+        header_words = []
+        for match in re.finditer(r"\S+", raw_header):
+            normalized_word = normalize_region_match_text(match.group(0))
+            if normalized_word:
+                header_words.append((normalized_word, match.start(), match.end()))
+
+        phrase_words = [word for word in normalized_phrase.split(" ") if word]
+        if not header_words or not phrase_words:
+            return raw_header, "", ""
+
+        phrase_len = len(phrase_words)
+        for start_index in range(0, len(header_words) - phrase_len + 1):
+            candidate_words = [item[0] for item in header_words[start_index:start_index + phrase_len]]
+            if candidate_words != phrase_words:
+                continue
+
+            start_pos = header_words[start_index][1]
+            end_pos = header_words[start_index + phrase_len - 1][2]
+            return raw_header[:start_pos], raw_header[start_pos:end_pos], raw_header[end_pos:]
+
+        return raw_header, "", ""
+
+    def _build_region_name_display(self, region):
+        """Builds the name column label for a project region row."""
+        name = (region.get("header") or region.get("name") or "Región").strip()
+        rel_path = region.get("file_rel_path") or os.path.basename(region.get("file_path") or "")
+        if rel_path:
+            return f"   {name} · {os.path.basename(rel_path)}"
+        return f"   {name}"
+
     def _schedule_file_list_refresh(self, event=None):
         """Schedules a debounced refresh of the file list using scope filters only."""
+        if self._should_show_project_regions_in_file_list():
+            self._schedule_region_list_refresh()
+            return
+
         if hasattr(self, '_search_timer') and self._search_timer:
             self.after_cancel(self._search_timer)
             
@@ -2984,7 +3447,9 @@ class CodeView(ttk.Frame):
         self._search_timer = self.after(300, self._start_background_search)
 
     def _on_prompt_text_change(self, event=None):
-        """Keeps the AI prompt input decoupled from the visible code file list."""
+        """Refreshes project-region ranking while keeping normal file search decoupled."""
+        if self._should_show_project_regions_in_file_list():
+            self._schedule_region_list_refresh()
         return None
 
     def _on_extension_change(self, *args):
@@ -3002,6 +3467,10 @@ class CodeView(ttk.Frame):
 
     def _start_background_search(self):
         """Starts the scoped file refresh in a separate thread."""
+        if self._should_show_project_regions_in_file_list():
+            self._refresh_project_region_list()
+            return
+
         section, subsection = self._get_selected_section_info()
         
         extension = self.ext_var.get()
@@ -3146,8 +3615,6 @@ class CodeView(ttk.Frame):
             preferred_iid = selected[0]
         elif self._last_selected_scope_iid:
             preferred_iid = self._last_selected_scope_iid
-        elif self._is_regions_view_active() and self._last_selected_region:
-            preferred_iid = self._build_region_iid(self._last_selected_region)
         elif self._last_selected_section:
             preferred_iid = self._build_section_iid(
                 self._last_selected_section,
@@ -3215,6 +3682,8 @@ class CodeView(ttk.Frame):
             )
             if hasattr(self, "dynamic_paste_status_frame") and not self.dynamic_paste_status_frame.winfo_manager():
                 self.dynamic_paste_status_frame.pack(fill="x", padx=8, pady=(0, 6))
+            if hasattr(self, "region_list_limit_frame") and self.region_list_limit_frame.winfo_manager():
+                self.region_list_limit_frame.pack_forget()
         else:
             if hasattr(self, "dynamic_paste_status_frame") and self.dynamic_paste_status_frame.winfo_manager():
                 self.dynamic_paste_status_frame.pack_forget()
@@ -3227,7 +3696,95 @@ class CodeView(ttk.Frame):
 
     def _update_section_action_buttons_without_refresh(self, section_name=None, subsection_name=None, segment_name=None):
         """Updates section action buttons without re-entering dynamic-paste UI refresh."""
-        return
+        if not hasattr(self, "region_list_limit_frame"):
+            return
+
+        if self._is_regions_view_active():
+            if not self.region_list_limit_frame.winfo_manager():
+                self.region_list_limit_frame.pack(fill="x", padx=8, pady=(0, Styles.scale_size(34)))
+        else:
+            if self.region_list_limit_frame.winfo_manager():
+                self.region_list_limit_frame.pack_forget()
+
+    def _get_region_list_limit(self):
+        """Returns the number of project regions to show in the left list."""
+        try:
+            value = int(float(self.region_list_limit_var.get()))
+        except (TypeError, ValueError, tk.TclError):
+            value = self.DEFAULT_REGION_LIST_LIMIT
+        value = max(self.MIN_REGION_LIST_LIMIT, min(value, self.MAX_REGION_LIST_LIMIT))
+        if hasattr(self, "region_list_limit_var") and self.region_list_limit_var.get() != value:
+            self.region_list_limit_var.set(value)
+        return value
+
+    def _is_region_list_auto_enabled(self):
+        return bool(self.region_list_auto_var.get()) if hasattr(self, "region_list_auto_var") else False
+
+    def _apply_region_list_limit_control_state(self):
+        if hasattr(self, "region_list_limit_slider"):
+            self.region_list_limit_slider.configure(
+                state=(tk.DISABLED if self._is_region_list_auto_enabled() else tk.NORMAL)
+            )
+
+    def _update_region_list_limit_label(self, listed_count=None, total_bytes=None):
+        if hasattr(self, "lbl_region_list_limit"):
+            if self._is_region_list_auto_enabled():
+                limit_text = self._format_file_size(self.AUTO_REGION_LIST_MAX_BYTES)
+                if listed_count is None or total_bytes is None:
+                    text = f"Regiones listadas: Auto (<= {limit_text})"
+                else:
+                    text = (
+                        f"Regiones listadas: Auto ({listed_count} | "
+                        f"{self._format_file_size(total_bytes)} / {limit_text})"
+                    )
+            else:
+                text = f"Regiones listadas: {self._get_region_list_limit()}"
+            self.lbl_region_list_limit.configure(text=text)
+
+    def _on_region_list_limit_change(self, _value=None):
+        self._update_region_list_limit_label()
+        self._schedule_region_list_limit_save()
+        if self._should_show_project_regions_in_file_list():
+            self._schedule_region_list_refresh()
+
+    def _on_region_list_auto_toggle(self):
+        self._apply_region_list_limit_control_state()
+        self._update_region_list_limit_label()
+        if hasattr(self.controller, "config_manager"):
+            self.controller.config_manager.set_region_list_auto_enabled(self._is_region_list_auto_enabled())
+        if self._should_show_project_regions_in_file_list():
+            self._schedule_region_list_refresh()
+
+    def _schedule_region_list_limit_save(self):
+        if self._region_list_limit_save_after:
+            try:
+                self.after_cancel(self._region_list_limit_save_after)
+            except Exception:
+                pass
+        self._region_list_limit_save_after = self.after(250, self._persist_region_list_limit)
+
+    def _persist_region_list_limit(self):
+        self._region_list_limit_save_after = None
+        if hasattr(self.controller, "config_manager"):
+            self.controller.config_manager.set_region_list_limit(self._get_region_list_limit())
+
+    def _get_region_content_size_bytes(self, region):
+        content = str((region or {}).get("content") or "")
+        return len(content.encode("utf-8"))
+
+    def _get_auto_limited_region_list(self, ranked_regions):
+        visible_regions = []
+        total_bytes = 0
+        limit_bytes = self.AUTO_REGION_LIST_MAX_BYTES
+
+        for region in ranked_regions or []:
+            region_size = self._get_region_content_size_bytes(region)
+            if total_bytes + region_size > limit_bytes:
+                break
+            visible_regions.append(region)
+            total_bytes += region_size
+
+        return visible_regions, total_bytes
 
     def _load_selected_segment_preview(self, section_name, subsection_name, segment_name):
         """Loads the selected segment code into the left preview panel."""
@@ -4171,7 +4728,7 @@ class CodeView(ttk.Frame):
 
             clipboard_content = (
                 f"Petición del Usuario:\n{text}\n\n"
-                "Formato: responde en Markdown. Cada bloque de código debe empezar con un comentario dentro del propio bloque con este texto exacto: Archivo: (ruta de archivo), usando el tipo de comentario correcto según el lenguaje.\n\n"
+                "Formato: responde en Markdown. Devuelve exclusivamente el código o los fragmentos de código modificados, sin explicaciones ni código no afectado. Cada bloque de código debe empezar con un comentario dentro del propio bloque con este texto exacto: Archivo: (ruta de archivo), usando el tipo de comentario correcto según el lenguaje. Añade también un comentario con el texto exacto [MODIFICACIÓN] en cada punto donde se haya aplicado un cambio, usando el tipo de comentario correcto según el lenguaje.\n\n"
                 f"{files_instruction}"
                 f"Código de Contexto:\n{segment_code}"
             )
@@ -4195,6 +4752,34 @@ class CodeView(ttk.Frame):
                     if selected_ai in self.AI_URLS:
                         webbrowser.open_new_tab(self.AI_URLS[selected_ai])
 
+            except Exception as e:
+                messagebox.showerror("Error", f"No se pudo guardar el fichero:\n{e}")
+            return
+
+        if self._should_show_project_regions_in_file_list():
+            selected_regions = self._get_regions_for_prompt()
+            if not selected_regions:
+                messagebox.showwarning("Aviso", "No hay regiones visibles o seleccionadas para procesar.")
+                return
+
+            clipboard_content = self._build_project_regions_prompt(text, selected_regions, return_files, return_chunks)
+            try:
+                self.clipboard_clear()
+                self.clipboard_append(clipboard_content)
+
+                documents_path = os.path.join(os.path.expanduser("~"), "Documents")
+                export_path = os.path.join(documents_path, "codigo.txt")
+                os.makedirs(documents_path, exist_ok=True)
+                with open(export_path, "w", encoding="utf-8") as f:
+                    f.write(clipboard_content)
+
+                selected_ai = self.cmb_ai.get()
+                if selected_ai == self.AUTO_AI_OPTION:
+                    selected_ai = self._get_auto_ai()
+                if selected_ai != self.AGENT_AI_OPTION:
+                    self._ai_usage_history.append(selected_ai)
+                    if selected_ai in self.AI_URLS:
+                        webbrowser.open_new_tab(self.AI_URLS[selected_ai])
             except Exception as e:
                 messagebox.showerror("Error", f"No se pudo guardar el fichero:\n{e}")
             return
@@ -4287,6 +4872,36 @@ class CodeView(ttk.Frame):
                 selected_files_data.append(files_map[file_path])
 
         return selected_files_data
+
+    def _get_regions_for_prompt(self):
+        """Returns selected detected regions or, if none selected, all visible region rows."""
+        items_to_process = self.tree.selection() or self.tree.get_children()
+        regions = []
+        for item_id in items_to_process:
+            region = self._get_region_row_item(item_id)
+            if region:
+                regions.append(region)
+        return regions
+
+    def _build_project_regions_prompt(self, user_text, regions, return_files=False, return_chunks=False):
+        """Builds a prompt using detected project regions as the code context."""
+        blocks = []
+        for region in regions or []:
+            rel_path = region.get("file_rel_path") or os.path.basename(region.get("file_path") or "archivo")
+            name = region.get("header") or region.get("name") or "Región"
+            start_line = region.get("start_line", "?")
+            end_line = region.get("end_line", "?")
+            blocks.append(
+                f"--- Región: {name} | Archivo: {rel_path} | Líneas: {start_line}-{end_line} ---\n"
+                f"{region.get('content', '').rstrip()}"
+            )
+
+        return (
+            f"Petición del Usuario:\n{user_text}\n\n"
+            "Código de Contexto (regiones detectadas):\n"
+            + "\n\n".join(blocks)
+            + f"\n\n{self.controller.get_code_output_prompt(return_files=return_files, return_chunks=return_chunks)}"
+        )
 
     def _on_start_dynamic_paste(self):
         """Starts the sequential clipboard flow for the current section/subsection files."""
@@ -4428,6 +5043,7 @@ class CodeView(ttk.Frame):
             if not iid or self._is_empty_deselect_iid(iid):
                 if self._is_regions_view_active():
                     menu.add_command(label="Nueva Región", command=self._on_add_region)
+                    menu.add_command(label="Crear inteligente", command=self._on_add_smart_region)
                 else:
                     menu.add_command(label="Nueva Sección", command=self._on_add_section)
             else:
@@ -4470,6 +5086,8 @@ class CodeView(ttk.Frame):
                     menu.add_command(label="Eliminar Segmento", command=self._on_delete_segment)
                 elif iid.startswith("RSEG:"):
                     menu.add_command(label="Copiar Región", command=self._on_copy_region)
+                    menu.add_separator()
+                    menu.add_command(label="Crear inteligente", command=self._on_add_smart_region)
                     menu.add_separator()
                     menu.add_command(label="Editar Región", command=self._on_edit_region)
                     menu.add_command(label="Eliminar Región", command=self._on_delete_region)
@@ -4691,6 +5309,22 @@ class CodeView(ttk.Frame):
             print(f"Error opening region popup: {e}")
             messagebox.showerror("Error", f"Error abriendo popup: {e}")
 
+    def _on_add_smart_region(self):
+        """Opens popup to create a saved region segment using free-form header matching."""
+        if not getattr(self.controller.project_manager, "get_files", None) or not self.controller.project_manager.get_files():
+            messagebox.showwarning("Aviso", "Carga primero un proyecto con código para crear regiones.")
+            return
+        from src.ui.popups.smart_region_creation_popup import SmartRegionCreationPopup
+        try:
+            popup = SmartRegionCreationPopup(self, self.controller)
+            self.wait_window(popup)
+            if popup.saved_region_name:
+                preferred_iid = self._build_region_iid(popup.saved_region_name)
+                self._refresh_sections(preferred_iid=preferred_iid, force_reload=True)
+        except Exception as e:
+            print(f"Error opening smart region popup: {e}")
+            messagebox.showerror("Error", f"Error abriendo popup inteligente: {e}")
+
     def _on_edit_region(self):
         """Opens popup to edit the selected saved code segment built from regions."""
         scope_kind, _section_name, _sub_name, region_name = self._get_selected_tree_item_info()
@@ -4880,10 +5514,6 @@ class CodeView(ttk.Frame):
                 selection_candidates.append(preferred_iid)
             if self._last_selected_scope_iid:
                 selection_candidates.append(self._last_selected_scope_iid)
-            if self._last_selected_region:
-                selection_candidates.append(self._build_region_iid(self._last_selected_region))
-            if self._visible_section_ids:
-                selection_candidates.append(self._visible_section_ids[0])
 
             target_iid = None
             for iid in selection_candidates:
@@ -5075,6 +5705,17 @@ class CodeView(ttk.Frame):
 
     def _remove_file_tree_item(self, item_id):
         """Removes a file row from the visible table."""
+        region_item = self._get_region_row_item(item_id)
+        if region_item:
+            self.tree.delete(item_id)
+            self._region_rows_by_iid.pop(item_id, None)
+            self._last_region_list_items = [
+                item for item in self._last_region_list_items
+                if item is not region_item
+            ]
+            self._schedule_folder_chip_refresh()
+            return
+
         file_path = self._get_tree_item_path(item_id)
         if not file_path:
             return
@@ -5128,6 +5769,20 @@ class CodeView(ttk.Frame):
             return
 
         self._select_file_tree_item(item_id)
+        region_item = self._get_region_row_item(item_id)
+        if region_item:
+            title = (
+                f"Región: {region_item.get('header') or region_item.get('name') or 'Sin nombre'} "
+                f"({region_item.get('file_rel_path') or os.path.basename(region_item.get('file_path') or '')})"
+            )
+            self._show_segment_code_view(
+                region_item.get("content", ""),
+                title_text=title,
+                file_hint=region_item.get("file_path"),
+                preview_mode="file"
+            )
+            return
+
         full_path = self._get_tree_item_path(item_id)
         if not full_path:
             return

@@ -1,5 +1,7 @@
+import difflib
 import os
 import re
+import unicodedata
 
 
 REGION_START_RE = re.compile(
@@ -88,3 +90,111 @@ def _clean_region_name(raw_text):
 
     text = text.strip().strip("\"'").strip()
     return text
+
+
+def normalize_region_match_text(raw_text):
+    """Normalizes free-form text to compare it against region headers."""
+    text = unicodedata.normalize("NFKD", str(raw_text or ""))
+    text = "".join(char for char in text if not unicodedata.combining(char))
+    text = text.lower()
+    text = re.sub(r"[_\-/|:;,.()[\]{}]+", " ", text)
+    text = re.sub(r"\s+", " ", text).strip()
+    return text
+
+
+def match_region_header_candidates(region_nodes, query_text, limit=5):
+    """Returns the best candidate regions for a free-form query line."""
+    query = (query_text or "").strip()
+    normalized_query = normalize_region_match_text(query)
+    if not normalized_query:
+        return []
+
+    query_tokens = {token for token in normalized_query.split(" ") if token}
+    if not query_tokens:
+        return []
+
+    ranked = []
+    for node in region_nodes or []:
+        if not isinstance(node, dict):
+            continue
+
+        header = (node.get("header") or node.get("name") or "").strip()
+        normalized_header = normalize_region_match_text(header)
+        if not normalized_header:
+            continue
+
+        header_tokens = {token for token in normalized_header.split(" ") if token}
+        if not header_tokens:
+            continue
+
+        sequence_score = difflib.SequenceMatcher(None, normalized_query, normalized_header).ratio()
+        overlap_count = len(query_tokens & header_tokens)
+        token_score = overlap_count / max(len(query_tokens), len(header_tokens), 1)
+        subset_bonus = 0.22 if query_tokens.issubset(header_tokens) else 0.0
+        contains_bonus = 0.18 if normalized_query in normalized_header or normalized_header in normalized_query else 0.0
+        starts_bonus = 0.12 if normalized_header.startswith(normalized_query) or normalized_query.startswith(normalized_header) else 0.0
+        exact_bonus = 0.35 if normalized_query == normalized_header else 0.0
+
+        score = max(
+            sequence_score,
+            min(
+                1.0,
+                (sequence_score * 0.58)
+                + (token_score * 0.32)
+                + subset_bonus
+                + contains_bonus
+                + starts_bonus
+                + exact_bonus,
+            ),
+        )
+
+        minimum_score = 0.52
+        if len(normalized_query) <= 4:
+            minimum_score = 0.72
+        elif len(query_tokens) >= 3:
+            minimum_score = 0.46
+
+        if overlap_count == 0 and normalized_query not in normalized_header and normalized_header not in normalized_query:
+            minimum_score = max(minimum_score, 0.60)
+
+        if score < minimum_score:
+            continue
+
+        ranked.append({
+            "node": node,
+            "header": header,
+            "score": score,
+            "normalized_header": normalized_header,
+            "file_rel_path": node.get("file_rel_path", ""),
+        })
+
+    ranked.sort(
+        key=lambda item: (
+            -item["score"],
+            len(item["normalized_header"]),
+            item["file_rel_path"],
+            item["header"],
+        )
+    )
+    return ranked[:max(int(limit or 0), 1)]
+
+
+def match_region_lines(region_nodes, raw_text, limit_per_line=5):
+    """Matches each non-empty input line against the available region headers."""
+    matches = []
+    for line_number, line_text in enumerate(str(raw_text or "").splitlines(), start=1):
+        query = line_text.strip()
+        if not query:
+            continue
+
+        candidates = match_region_header_candidates(region_nodes, query, limit=limit_per_line)
+        best_candidate = candidates[0] if candidates else None
+        matches.append({
+            "line_number": line_number,
+            "query": query,
+            "match": best_candidate["node"] if best_candidate else None,
+            "score": best_candidate["score"] if best_candidate else 0.0,
+            "candidates": candidates,
+        })
+
+    return matches

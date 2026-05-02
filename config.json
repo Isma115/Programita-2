@@ -49,5 +49,8 @@
     "export_prompts_as_folder": false,
     "include_file_headers_in_codigo_txt": true,
     "max_file_limit": 50,
-    "max_file_limit_slider_max": 50
+    "max_file_limit_slider_max": 50,
+    "region_list_limit": 8,
+    "region_list_auto_enabled": true,
+    "last_code_view_mode": "regions"
 }
