@@ -1,5 +1,5 @@
 {
-    "last_project": "/Users/ismaelmoraledalopez/Desktop/Programita 2",
+    "last_project": "/Users/ismaelmoraledalopez/Desktop/pruebas/AIExplorer",
     "file_limit": 50,
     "return_files": false,
     "doc_path": "/Users/ismaelmoraledalopez/Documents/Documentacion Irrigation",
@@ -17,9 +17,10 @@
         "/Users/ismaelmoraledalopez/Desktop/Programita 2",
         "/Users/ismaelmoraledalopez/Desktop/pruebas/Iterador/TrustedSearch",
         "/Users/ismaelmoraledalopez/Desktop/SDD-Proyecto Aurora 2",
-        "/Users/ismaelmoraledalopez/Desktop/pruebas/TreeConv"
+        "/Users/ismaelmoraledalopez/Desktop/pruebas/TreeConv",
+        "/Users/ismaelmoraledalopez/Desktop/pruebas/AIExplorer"
     ],
-    "current_project_index": 1,
+    "current_project_index": 5,
     "db_config": {
         "host": "hidralab-server.mysql.database.azure.com",
         "port": "3306",
@@ -38,7 +39,7 @@
     "last_code_section": "Asignar Volumen",
     "implementation_mode": false,
     "last_doc_file": "/Users/ismaelmoraledalopez/Documents/Documentacion Irrigation/Cesiones.md",
-    "sections_path": "/Users/ismaelmoraledalopez/Documents/Documentacion Irrigation/SeccionesCodigo/Catastro",
+    "sections_path": "/Users/ismaelmoraledalopez/Desktop/pruebas/AIExplorer/Secciones",
     "code_extensions_filter": "",
     "include_project_tree": false,
     "file_limit_slider_max": 50,

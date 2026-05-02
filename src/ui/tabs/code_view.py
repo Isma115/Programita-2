@@ -163,6 +163,7 @@ class CodeView(ttk.Frame):
         "Brewfile": "homebrew",
         "Vagrantfile": "vagrant",
     }
+    FILE_HEADER_LINE_RE = re.compile(r"^--- Archivo:\s*(.+?)\s*---\s*$", re.MULTILINE)
 
     def __init__(self, parent):
         super().__init__(parent, style="Main.TFrame")
@@ -202,6 +203,8 @@ class CodeView(ttk.Frame):
         self._folder_chip_refresh_after = None
         self._segment_code_preview_text = ""
         self._segment_code_preview_file_hint = None
+        self._segment_code_preview_file_map = {}
+        self._segment_code_file_header_tags = []
         self._code_preview_mode = None
         self.is_file_preview_fullscreen = False
         self._sidebar_visible_before_preview_fullscreen = True
@@ -920,6 +923,7 @@ class CodeView(ttk.Frame):
     def _show_segment_code_view(self, code_text, title_text=None, file_hint=None, preview_mode="segment"):
         self._segment_code_preview_text = code_text or ""
         self._segment_code_preview_file_hint = file_hint
+        self._segment_code_preview_file_map = self._build_segment_preview_file_map(self._segment_code_preview_text)
         self._code_preview_mode = preview_mode
 
         if preview_mode != "file" and self.is_file_preview_fullscreen:
@@ -943,13 +947,104 @@ class CodeView(ttk.Frame):
                 arb_highlight_syntax(self.segment_code_text, file_hint)
             except Exception as exc:
                 print(f"CodeView: Error applying segment preview syntax highlight: {exc}")
-                
+
             if hasattr(self, "path_filter_var"):
                 query = self.path_filter_var.get().strip()
                 if query:
                     self._highlight_text_in_segment_code_view(query)
-                    
+
+            self._apply_segment_code_file_header_links()
             self.segment_code_text.configure(state="disabled")
+
+    def _build_segment_preview_file_map(self, code_text):
+        """Builds a lookup from rendered relative file paths to absolute project paths."""
+        project_manager = getattr(self.controller, "project_manager", None)
+        files = list(project_manager.get_files()) if project_manager else []
+        file_map = {}
+
+        for file_info in files:
+            rel_path = str(file_info.get("rel_path") or "").strip()
+            full_path = str(file_info.get("path") or "").strip()
+            if rel_path and full_path:
+                file_map.setdefault(rel_path, full_path)
+
+        project_root = getattr(project_manager, "current_project_path", None) if project_manager else None
+        for match in self.FILE_HEADER_LINE_RE.finditer(code_text or ""):
+            rel_path = match.group(1).strip()
+            if rel_path in file_map:
+                continue
+            if project_root:
+                candidate = os.path.abspath(os.path.join(project_root, rel_path))
+                if os.path.isfile(candidate):
+                    file_map[rel_path] = candidate
+
+        return file_map
+
+    def _clear_segment_code_file_header_links(self):
+        """Removes dynamic file-header tags from the preview text widget."""
+        if not hasattr(self, "segment_code_text"):
+            return
+
+        for tag_name in self._segment_code_file_header_tags:
+            try:
+                self.segment_code_text.tag_delete(tag_name)
+            except Exception:
+                pass
+        self._segment_code_file_header_tags = []
+
+    def _apply_segment_code_file_header_links(self):
+        """Makes each rendered 'Archivo:' delimiter clickable."""
+        if not hasattr(self, "segment_code_text"):
+            return
+
+        self._clear_segment_code_file_header_links()
+        self.segment_code_text.tag_configure(
+            "file_header_link_base",
+            foreground=Styles.COLOR_ACCENT,
+            underline=1
+        )
+
+        for index, match in enumerate(self.FILE_HEADER_LINE_RE.finditer(self._segment_code_preview_text or "")):
+            rel_path = match.group(1).strip()
+            full_path = self._segment_code_preview_file_map.get(rel_path)
+            if not full_path:
+                continue
+
+            tag_name = f"file_header_link_{index}"
+            start_index = f"1.0+{match.start()}c"
+            end_index = f"1.0+{match.end()}c"
+            self.segment_code_text.tag_add("file_header_link_base", start_index, end_index)
+            self.segment_code_text.tag_add(tag_name, start_index, end_index)
+            self.segment_code_text.tag_bind(
+                tag_name,
+                "<Button-1>",
+                lambda _event, path=full_path: self._open_preview_file_in_external_editor(path)
+            )
+            self.segment_code_text.tag_bind(
+                tag_name,
+                "<Enter>",
+                lambda _event: self.segment_code_text.configure(cursor="hand2")
+            )
+            self.segment_code_text.tag_bind(
+                tag_name,
+                "<Leave>",
+                lambda _event: self.segment_code_text.configure(cursor="xterm")
+            )
+            self._segment_code_file_header_tags.append(tag_name)
+
+    def _open_preview_file_in_external_editor(self, file_path):
+        """Opens the chosen preview file in the user's currently running editor."""
+        if not file_path:
+            messagebox.showwarning("Aviso", "No se pudo resolver el archivo a abrir.")
+            return "break"
+
+        success, message = self.controller.open_file_in_external_editor(file_path)
+        if not success:
+            messagebox.showwarning(
+                "Abrir en editor",
+                f"No se pudo abrir el archivo en el editor.\n\n{message}"
+            )
+        return "break"
 
     def _highlight_text_in_segment_code_view(self, query):
         """Highlights the occurrences of the search query in the segment code view."""

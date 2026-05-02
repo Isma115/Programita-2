@@ -3,6 +3,7 @@ from src.logic.project_manager import ProjectManager
 from src.logic.region_segment_manager import RegionSegmentManager
 from src.logic.section_manager import SectionManager
 from src.logic.config_manager import ConfigManager
+from src.logic.editor_launcher import open_file_in_running_editor
 from src.logic.global_hotkeys import GlobalHotkeyListener
 from src.logic.prompt_rules import get_file_path_comment_inline_instruction
 from src.ui.styles import Styles
@@ -58,6 +59,10 @@ class Controller:
     def get_sections_directory(self):
         """Returns the current directory used to store code sections."""
         return self.section_manager.get_sections_path()
+
+    def open_file_in_external_editor(self, file_path):
+        """Opens a file in the single compatible editor app currently running."""
+        return open_file_in_running_editor(file_path)
 
     def set_sections_directory(self, path):
         """Updates the directory used to store code sections and persists it."""
@@ -449,19 +454,13 @@ class Controller:
         self.app.layout.show_database_tab()
     def replace_region_from_clipboard(self, region_name, content):
         """
-        Bridges the hotkey trigger to the project manager.
+        Temporalmente desactivado para impedir sustituciones automáticas por región.
         """
-        print(f"Controller: Attempting to replace region '{region_name}'")
-        success = self.project_manager.replace_region(region_name, content)
-        if success:
-            print(f"Controller: Successfully replaced region '{region_name}'")
-            # Refresh UI if needed
-            if hasattr(self.app.layout, 'code_view'):
-                self.app.layout.code_view.refresh_file_list()
-            return True
-        else:
-            print(f"Controller: Region '{region_name}' not found in project.")
-            return False
+        print(
+            "Controller: Region replacement is temporarily disabled. "
+            f"Ignoring region '{region_name}'."
+        )
+        return False
 
     def get_file_content_by_path(self, path):
         """Returns the content and relative path of a file given its absolute path."""

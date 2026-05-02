@@ -1809,15 +1809,9 @@ def run_arbitrary_search(app_instance, prioritize_clipboard_file=False):
 def process_smart_paste(app_instance):
     """
     Maneja la lógica de pegado inteligente lanzada por Shift+Click.
-    1. Si es una región (#region "name") -> Reemplazo automático.
-    2. Si NO es región -> Abre ventana de sustitución manual (Arbitrary Search).
-    
-    Supports multiple comment styles:
-    - // #region "name" (JS/TS/C++/Java)
-    - # #region "name" (Python/Shell)
-    - -- #region "name" (SQL/Lua)
-    - /* #region "name" */ (CSS/C)
-    - <!-- #region "name" --> (HTML/XML)
+    La sustitución automática por regiones está desactivada temporalmente.
+    Shift+Click solo debe abrir la sustitución manual (Arbitrary Search)
+    cuando no haya sido resuelta antes por sustitución de estructuras.
     """
     try:
         content = pyperclip.paste()
@@ -1832,38 +1826,7 @@ def process_smart_paste(app_instance):
                 execute_clipboard_command(app_instance, content)
                 return
 
-        # 1. Chequeo de Región
-        # Regex para detectar región con múltiples estilos de comentarios
-        # Captura el nombre de la región independientemente del estilo de comentario
-        region_patterns = [
-            # Line comment styles: //, #, --
-            r'(?://|#|--)[ \t]*#?region[ \t]+["\']?([^"\'\n\r]+?)["\']?[ \t]*(?:\r?\n|$)',
-            # Block comment style: /* */
-            r'/\*[ \t]*#?region[ \t]+["\']?([^"\'\n\r]+?)["\']?[ \t]*\*/',
-            # HTML comment style: <!-- -->
-            r'<!--[ \t]*#?region[ \t]+["\']?([^"\'\n\r]+?)["\']?[ \t]*-->',
-        ]
-        
-        region_name = None
-        for pattern in region_patterns:
-            match = re.search(pattern, content)
-            if match:
-                region_name = match.group(1).strip()
-                break
-        
-        if region_name:
-             logging.info(f"Smart Paste: Detectada región '{region_name}' en portapapeles.")
-             
-             if hasattr(app_instance, 'controller'):
-                 success = app_instance.controller.replace_region_from_clipboard(region_name, content)
-                 if success:
-                     logging.info(f"Smart Paste: Región '{region_name}' actualizada correctamente.")
-                 else:
-                     tk.messagebox.showwarning("Smart Paste", f"⚠️ No se encontró la región '{region_name}' en el proyecto.")
-             return
-
-        # 2. Fallback: Sustitución Manual
-        logging.info("Smart Paste: No es región, lanzando búsqueda arbitraria.")
+        logging.info("Smart Paste: Sustitución por regiones desactivada, lanzando búsqueda arbitraria.")
         run_arbitrary_search(
             app_instance,
             prioritize_clipboard_file=_should_prioritize_clipboard_file_hint(app_instance),
