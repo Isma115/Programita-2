@@ -1695,10 +1695,21 @@ def show_file_picker_dialog(file_list):
 def _get_code_files_for_arbitrary_search(app_instance):
     """Obtiene los ficheros objetivo de Arbitrary Search."""
     code_files = []
+    seen_paths = set()
 
-    # Prioridad: ficheros visibles/listados en CodeView
+    def _append_candidate(file_path):
+        normalized_path = os.path.normpath(str(file_path or "").strip())
+        if not normalized_path or normalized_path in seen_paths or not os.path.exists(normalized_path):
+            return
+        seen_paths.add(normalized_path)
+        code_files.append(normalized_path)
+
+    code_view = None
     if hasattr(app_instance, 'layout') and hasattr(app_instance.layout, 'code_view'):
         code_view = app_instance.layout.code_view
+
+    # Prioridad: ficheros visibles/listados en CodeView
+    if code_view:
         if hasattr(code_view, 'tree'):
             for item_id in code_view.tree.get_children():
                 file_path = None
@@ -1709,8 +1720,42 @@ def _get_code_files_for_arbitrary_search(app_instance):
                     if tags:
                         file_path = tags[0] if isinstance(tags, (list, tuple)) else tags
 
-                if file_path and os.path.exists(file_path):
-                    code_files.append(file_path)
+                _append_candidate(file_path)
+
+    # Fallback 1: preview actual de segmento/región/archivo en el panel derecho.
+    if code_view:
+        _append_candidate(getattr(code_view, "_segment_code_preview_file_hint", None))
+
+        preview_file_map = getattr(code_view, "_segment_code_preview_file_map", None)
+        if isinstance(preview_file_map, dict):
+            for file_path in preview_file_map.values():
+                _append_candidate(file_path)
+
+    # Fallback 2: elementos asociados al segmento o región seleccionados.
+    controller = getattr(app_instance, "controller", None)
+    if code_view and controller and hasattr(code_view, "_get_selected_tree_item_info"):
+        try:
+            scope_kind, section_name, subsection_name, leaf_name = code_view._get_selected_tree_item_info()
+        except Exception:
+            scope_kind, section_name, subsection_name, leaf_name = (None, None, None, None)
+
+        selected_entity = None
+        if scope_kind == "segment" and section_name and subsection_name and leaf_name:
+            try:
+                selected_entity = controller.section_manager.get_segment(section_name, subsection_name, leaf_name)
+            except Exception:
+                selected_entity = None
+        elif scope_kind == "region_segment" and leaf_name and hasattr(controller, "region_segment_manager"):
+            try:
+                selected_entity = controller.region_segment_manager.get_region_segment(leaf_name)
+            except Exception:
+                selected_entity = None
+
+        if isinstance(selected_entity, dict):
+            for item in selected_entity.get("items", []):
+                if not isinstance(item, dict):
+                    continue
+                _append_candidate(item.get("file_path"))
 
     return code_files
 
@@ -1732,7 +1777,7 @@ def run_arbitrary_search_with_text(
 
         code_files = _get_code_files_for_arbitrary_search(app_instance)
         if not code_files:
-             tk.messagebox.showwarning("Arbitrary", "No hay archivos listados en la sección de Código.")
+             tk.messagebox.showwarning("Arbitrary", "No se pudieron resolver archivos objetivo para la búsqueda.")
              return
 
         min_search_len, max_search_len = _get_arbitrary_search_bounds(app_instance, search_text)
@@ -1757,10 +1802,10 @@ def run_arbitrary_search_with_text(
                 else:
                     logging.info(
                         f"Arbitrary: La pista de archivo '{path_hint}' no coincide con "
-                        "ningún fichero visible. Se mantiene búsqueda global."
+                        "ningún fichero objetivo. Se mantiene búsqueda global."
                     )
 
-        logging.info(f"Arbitrary: Buscando en {len(code_files)} ficheros listados.")
+        logging.info(f"Arbitrary: Buscando en {len(code_files)} ficheros objetivo.")
 
         app_instance.root.config(cursor="watch")
         app_instance.root.update()
@@ -1814,27 +1859,48 @@ def process_smart_paste(app_instance):
     cuando no haya sido resuelta antes por sustitución de estructuras.
     """
     try:
+        def _log_smart_paste_skip(reason):
+            message = f"Smart Paste: Arbitrary_sus no se disparó porque {reason}."
+            logging.info(message)
+            print(message)
+
         content = pyperclip.paste()
         if not content:
-            logging.info("Smart Paste: Portapapeles vacío.")
-            return
+            _log_smart_paste_skip("el portapapeles está vacío")
+            return False
 
         # 0. Chequeo de Comando de Consola
         if is_console_command(content):
             # Preguntar al usuario con ventana topmost
             if show_global_confirmation_dialog("Ejecutar Comando", f"¿Quieres ejecutar este comando en la raíz del proyecto?\n\n{content}"):
+                _log_smart_paste_skip("el contenido del portapapeles se confirmó como comando de consola")
                 execute_clipboard_command(app_instance, content)
-                return
+                return True
 
-        logging.info("Smart Paste: Sustitución por regiones desactivada, lanzando búsqueda arbitraria.")
+        target_files = _get_code_files_for_arbitrary_search(app_instance)
+        if target_files:
+            logging.info(
+                f"Smart Paste: Se conocen {len(target_files)} fichero(s) objetivo. "
+                "Buscando directamente en ellos sin depender de la lista visible."
+            )
+            run_arbitrary_search_with_text(
+                app_instance,
+                content,
+                prioritize_clipboard_file=_should_prioritize_clipboard_file_hint(app_instance),
+            )
+            return True
+
+        logging.info("Smart Paste: No hay ficheros objetivo resueltos. Lanzando búsqueda arbitraria.")
         run_arbitrary_search(
             app_instance,
             prioritize_clipboard_file=_should_prioritize_clipboard_file_hint(app_instance),
         )
+        return True
 
     except Exception as e:
         logging.error(f"Error en Smart Paste: {e}")
         tk.messagebox.showerror("Error", f"Error procesando portapapeles: {e}")
+        return False
 
 def is_console_command(text):
     """
