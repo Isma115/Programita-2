@@ -1,5 +1,6 @@
 import os
 import subprocess
+import sys
 
 try:
     from AppKit import NSWorkspace
@@ -214,3 +215,44 @@ def open_file_in_running_editor(file_path):
         last_error = stderr or stdout or last_error
 
     return False, last_error
+
+
+def reveal_file_in_system_explorer(file_path):
+    """
+    Reveals a file in the user's system file explorer.
+
+    Returns:
+        tuple[bool, str]: success flag and status/error message.
+    """
+    normalized_path = os.path.abspath(str(file_path or ""))
+    if not normalized_path or not os.path.exists(normalized_path):
+        return False, "El archivo no existe o no se pudo resolver."
+
+    is_directory = os.path.isdir(normalized_path)
+
+    if sys.platform == "darwin":
+        command = ["open", normalized_path] if is_directory else ["open", "-R", normalized_path]
+    elif os.name == "nt":
+        command = ["explorer", normalized_path] if is_directory else ["explorer", "/select,", normalized_path]
+    else:
+        target_dir = normalized_path if is_directory else os.path.dirname(normalized_path)
+        if not target_dir or not os.path.isdir(target_dir):
+            return False, "No se pudo resolver la carpeta contenedora del archivo."
+        command = ["xdg-open", target_dir]
+
+    try:
+        completed = subprocess.run(
+            command,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+    except Exception as exc:
+        return False, str(exc)
+
+    if completed.returncode == 0:
+        return True, "Archivo mostrado en el explorador del sistema."
+
+    stderr = (completed.stderr or "").strip()
+    stdout = (completed.stdout or "").strip()
+    return False, stderr or stdout or "No se pudo abrir el explorador de archivos."

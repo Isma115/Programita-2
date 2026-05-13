@@ -5,6 +5,7 @@ from src.ui.styles import Styles
 from src.ui.layout import MainLayout
 from src.logic.controller import Controller
 from src.ui.search_overlay import SearchOverlay
+from src.logic.app_paths import bundled_path
 
 class Application:
     """
@@ -16,6 +17,7 @@ class Application:
         Initialize the Application.
         """
         self.root = tk.Tk()
+        self._set_app_icon()
         self.root.title("Programita 2")
         screen_w = self.root.winfo_screenwidth()
         screen_h = self.root.winfo_screenheight()
@@ -78,21 +80,43 @@ class Application:
         # to prevent the GIL / PyEval_RestoreThread fatal crash on macOS.
         self.root.protocol("WM_DELETE_WINDOW", self._on_close)
 
+    def _set_app_icon(self):
+        """Sets the main app icon from assets/icons/app_icon.png when available."""
+        icon_path = bundled_path("assets", "icons", "app_icon.png")
+        if not os.path.exists(icon_path):
+            return
+        try:
+            self._app_icon_image = tk.PhotoImage(file=icon_path)
+            self.root.iconphoto(True, self._app_icon_image)
+        except tk.TclError:
+            # Some environments do not support custom window icons.
+            pass
+
     def _create_menu_bar(self):
         """Creates the native menu bar for global options."""
         current_return_files = self.controller.config_manager.get_return_files()
         current_return_chunks = self.controller.config_manager.get_return_chunks()
-        if current_return_files and current_return_chunks:
+        current_return_regions = self.controller.config_manager.get_return_regions()
+        if current_return_files and (current_return_chunks or current_return_regions):
             current_return_chunks = False
+            current_return_regions = False
             self.controller.config_manager.set_return_chunks(False)
+            self.controller.config_manager.set_return_regions(False)
+        elif current_return_chunks and current_return_regions:
+            current_return_regions = False
+            self.controller.config_manager.set_return_regions(False)
 
         self.output_return_files_var = tk.BooleanVar(value=current_return_files)
         self.output_return_chunks_var = tk.BooleanVar(value=current_return_chunks)
+        self.output_return_regions_var = tk.BooleanVar(value=current_return_regions)
         self.include_project_tree_var = tk.BooleanVar(
             value=self.controller.config_manager.get_include_project_tree()
         )
         self.export_prompts_as_folder_var = tk.BooleanVar(
             value=self.controller.config_manager.get_export_prompts_as_folder()
+        )
+        self.remember_last_main_view_var = tk.BooleanVar(
+            value=self.controller.config_manager.get_remember_last_main_view()
         )
 
         self.menu_bar = tk.Menu(self.root)
@@ -106,6 +130,11 @@ class Application:
             label="Devolver trozos",
             variable=self.output_return_chunks_var,
             command=self._on_toggle_output_return_chunks
+        )
+        self.output_menu.add_checkbutton(
+            label="Devolver regiones",
+            variable=self.output_return_regions_var,
+            command=self._on_toggle_output_return_regions
         )
         self.configure_params_menu = tk.Menu(self.menu_bar, tearoff=0)
         self.configure_params_menu.add_command(
@@ -135,6 +164,11 @@ class Application:
             variable=self.export_prompts_as_folder_var,
             command=self._on_toggle_export_prompts_as_folder
         )
+        self.options_menu.add_checkbutton(
+            label="Recordar última vista (Código/Documentación)",
+            variable=self.remember_last_main_view_var,
+            command=self._on_toggle_remember_last_main_view
+        )
         self.options_menu.add_separator()
         self.options_menu.add_command(
             label="Eliminar comentarios [MODIFICACIÓN]",
@@ -146,22 +180,34 @@ class Application:
         self.root.config(menu=self.menu_bar)
         self.sync_output_menu_state()
 
-    def sync_output_menu_state(self, return_files=None, return_chunks=None):
+    def sync_output_menu_state(self, return_files=None, return_chunks=None, return_regions=None):
         """Keeps the Output menu vars in sync with CodeView state."""
-        if not hasattr(self, "output_return_files_var") or not hasattr(self, "output_return_chunks_var"):
+        if (
+            not hasattr(self, "output_return_files_var")
+            or not hasattr(self, "output_return_chunks_var")
+            or not hasattr(self, "output_return_regions_var")
+        ):
             return
 
-        if return_files is None or return_chunks is None:
+        if return_files is None or return_chunks is None or return_regions is None:
             code_view = getattr(getattr(self, "layout", None), "code_view", None)
-            if code_view is not None and hasattr(code_view, "var_return_files") and hasattr(code_view, "var_return_chunks"):
+            if (
+                code_view is not None
+                and hasattr(code_view, "var_return_files")
+                and hasattr(code_view, "var_return_chunks")
+                and hasattr(code_view, "var_return_regions")
+            ):
                 return_files = bool(code_view.var_return_files.get())
                 return_chunks = bool(code_view.var_return_chunks.get())
+                return_regions = bool(code_view.var_return_regions.get())
             else:
                 return_files = self.controller.config_manager.get_return_files()
                 return_chunks = self.controller.config_manager.get_return_chunks()
+                return_regions = self.controller.config_manager.get_return_regions()
 
         self.output_return_files_var.set(bool(return_files))
         self.output_return_chunks_var.set(bool(return_chunks))
+        self.output_return_regions_var.set(bool(return_regions))
 
     def _on_toggle_output_return_files(self):
         """Updates the return-files mode from the Output menu."""
@@ -170,7 +216,7 @@ class Application:
             return
 
         should_enable = bool(self.output_return_files_var.get())
-        code_view._set_return_mode(return_files=should_enable, return_chunks=False)
+        code_view._set_return_mode(return_files=should_enable, return_chunks=False, return_regions=False)
         self.sync_output_menu_state()
 
     def _on_toggle_output_return_chunks(self):
@@ -180,7 +226,17 @@ class Application:
             return
 
         should_enable = bool(self.output_return_chunks_var.get())
-        code_view._set_return_mode(return_files=False, return_chunks=should_enable)
+        code_view._set_return_mode(return_files=False, return_chunks=should_enable, return_regions=False)
+        self.sync_output_menu_state()
+
+    def _on_toggle_output_return_regions(self):
+        """Updates the return-regions mode from the Output menu."""
+        code_view = getattr(getattr(self, "layout", None), "code_view", None)
+        if code_view is None:
+            return
+
+        should_enable = bool(self.output_return_regions_var.get())
+        code_view._set_return_mode(return_files=False, return_chunks=False, return_regions=should_enable)
         self.sync_output_menu_state()
 
     def _on_toggle_include_project_tree(self):
@@ -194,6 +250,15 @@ class Application:
         self.controller.config_manager.set_export_prompts_as_folder(
             self.export_prompts_as_folder_var.get()
         )
+
+    def _on_toggle_remember_last_main_view(self):
+        """Persists whether Programita should restore the last top-level view."""
+        should_remember = bool(self.remember_last_main_view_var.get())
+        self.controller.config_manager.set_remember_last_main_view(should_remember)
+
+        if should_remember and hasattr(self, "layout"):
+            active_view = self.layout.get_active_main_view()
+            self.controller.config_manager.set_last_main_view(active_view)
 
     def _set_code_file_limits(self, min_limit=None, max_limit=None, preferred="min", refresh=True):
         """Updates Code View min/max file limits, even if the view is not available yet."""

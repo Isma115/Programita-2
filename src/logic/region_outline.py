@@ -12,6 +12,19 @@ REGION_END_RE = re.compile(
     r'^\s*(?:(?://|#|--)|/\*|<!--)\s*#?endregion\b(?:.*?)(?:\*/|-->)?\s*$',
     re.IGNORECASE,
 )
+REGION_MATCH_STOP_WORDS = {
+    "a", "al", "algo", "alguna", "algunas", "alguno", "algunos", "and", "ante", "as", "at",
+    "by", "con", "como", "contra", "cual", "cuales", "cualquier", "cuando", "de", "del",
+    "desde", "donde", "e", "el", "ella", "ellas", "ellos", "en", "entre", "era", "erais",
+    "eran", "eras", "eres", "es", "esa", "esas", "ese", "eso", "esos", "esta", "estaba",
+    "estabais", "estaban", "estado", "estais", "estamos", "estan", "estar", "estas", "este",
+    "esto", "estos", "for", "from", "fue", "fueron", "ha", "habia", "han", "hasta", "hay",
+    "he", "i", "in", "is", "it", "la", "las", "le", "les", "lo", "los", "me", "mi", "mis",
+    "my", "no", "nos", "o", "of", "on", "or", "os", "para", "pero", "por", "porque", "que",
+    "quien", "quienes", "se", "ser", "si", "sin", "so", "su", "sus", "te", "the", "their",
+    "them", "there", "this", "to", "tu", "tus", "un", "una", "unas", "uno", "unos", "was",
+    "we", "with", "y", "yo",
+}
 
 
 def extract_regions_for_files(file_infos):
@@ -102,6 +115,27 @@ def normalize_region_match_text(raw_text):
     return text
 
 
+def tokenize_region_match_text(raw_text, exclude_stop_words=False):
+    """Tokenizes normalized region text, optionally removing common stop-words."""
+    normalized_text = normalize_region_match_text(raw_text)
+    if not normalized_text:
+        return []
+
+    tokens = []
+    for token in normalized_text.split(" "):
+        if not token:
+            continue
+        if exclude_stop_words and token in REGION_MATCH_STOP_WORDS:
+            continue
+        tokens.append(token)
+    return tokens
+
+
+def get_region_match_keywords(raw_text):
+    """Returns non-stop-word tokens for prompt/region matching."""
+    return {token for token in tokenize_region_match_text(raw_text, exclude_stop_words=True) if token}
+
+
 def match_region_header_candidates(region_nodes, query_text, limit=5):
     """Returns the best candidate regions for a free-form query line."""
     query = (query_text or "").strip()
@@ -109,7 +143,8 @@ def match_region_header_candidates(region_nodes, query_text, limit=5):
     if not normalized_query:
         return []
 
-    query_tokens = {token for token in normalized_query.split(" ") if token}
+    query_tokens = {token for token in tokenize_region_match_text(normalized_query)}
+    query_keywords = get_region_match_keywords(normalized_query)
     if not query_tokens:
         return []
 
@@ -123,39 +158,47 @@ def match_region_header_candidates(region_nodes, query_text, limit=5):
         if not normalized_header:
             continue
 
-        header_tokens = {token for token in normalized_header.split(" ") if token}
+        header_tokens = {token for token in tokenize_region_match_text(normalized_header)}
+        header_keywords = get_region_match_keywords(normalized_header)
         if not header_tokens:
             continue
 
         sequence_score = difflib.SequenceMatcher(None, normalized_query, normalized_header).ratio()
         overlap_count = len(query_tokens & header_tokens)
         token_score = overlap_count / max(len(query_tokens), len(header_tokens), 1)
+        keyword_overlap = len(query_keywords & header_keywords)
+        keyword_score = keyword_overlap / max(len(query_keywords), len(header_keywords), 1) if (query_keywords and header_keywords) else 0.0
         subset_bonus = 0.22 if query_tokens.issubset(header_tokens) else 0.0
         contains_bonus = 0.18 if normalized_query in normalized_header or normalized_header in normalized_query else 0.0
         starts_bonus = 0.12 if normalized_header.startswith(normalized_query) or normalized_query.startswith(normalized_header) else 0.0
         exact_bonus = 0.35 if normalized_query == normalized_header else 0.0
+        keyword_bonus = 0.18 if keyword_overlap else 0.0
 
         score = max(
             sequence_score,
             min(
                 1.0,
                 (sequence_score * 0.58)
-                + (token_score * 0.32)
+                + (token_score * 0.18)
+                + (keyword_score * 0.18)
                 + subset_bonus
                 + contains_bonus
                 + starts_bonus
-                + exact_bonus,
+                + exact_bonus
+                + keyword_bonus
             ),
         )
 
         minimum_score = 0.52
         if len(normalized_query) <= 4:
             minimum_score = 0.72
-        elif len(query_tokens) >= 3:
+        elif len(query_tokens) >= 3 or len(query_keywords) >= 2:
             minimum_score = 0.46
 
         if overlap_count == 0 and normalized_query not in normalized_header and normalized_header not in normalized_query:
             minimum_score = max(minimum_score, 0.60)
+        if query_keywords and keyword_overlap == 0:
+            minimum_score = max(minimum_score, 0.64)
 
         if score < minimum_score:
             continue

@@ -36,8 +36,8 @@ class MainLayout(ttk.Frame):
         self._responsive_after_id = None
         self.bind("<Configure>", self._on_layout_resize)
 
-        # Initialize with Documentation View
-        self.show_docs_tab()
+        # Initialize with configured startup view
+        self._show_initial_tab()
 
     def _create_navbar(self):
         """Creates the top navigation bar."""
@@ -156,6 +156,14 @@ class MainLayout(ttk.Frame):
         self.doc_view = DocView(self.content_frame)
         self.database_view = DatabaseView(self.content_frame)
 
+    def _show_initial_tab(self):
+        config = getattr(self.controller, "config_manager", None)
+        if config and config.get_remember_last_main_view():
+            if config.get_last_main_view() == "code":
+                self.show_code_tab()
+                return
+        self.show_docs_tab()
+
     def show_code_tab(self):
         """Displays the Code view."""
         self._clear_content()
@@ -205,3 +213,10 @@ class MainLayout(ttk.Frame):
 
         self.is_navbar_visible = is_visible
         self.update_idletasks()
+
+    def get_active_main_view(self):
+        """Returns the currently active top-level view key."""
+        active = getattr(self, "_active_nav_tab", None)
+        if active in {"code", "docs"}:
+            return active
+        return "docs"

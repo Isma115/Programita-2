@@ -217,7 +217,7 @@ def build_segment_full_text(file_infos, structures, selected_keys):
     return "\n\n\n".join(file_blocks), copied_count
 
 
-def build_segment_full_text_from_items(file_infos, items):
+def build_segment_full_text_from_items(file_infos, items, strip_region_markers=False):
     """Builds the full code text for stored segment items using their saved line ranges."""
     file_map = {item.get("path"): item for item in file_infos or [] if item.get("path")}
     seen_items = set()
@@ -282,12 +282,9 @@ def build_segment_full_text_from_items(file_infos, items):
         current_snippets = []
 
     def normalize_region_snippet(snippet_text):
-        snippet_lines = snippet_text.split("\n")
-        if snippet_lines and _looks_like_region_start_marker(snippet_lines[0]):
-            snippet_lines = snippet_lines[1:]
-        if snippet_lines and _looks_like_region_end_marker(snippet_lines[-1]):
-            snippet_lines = snippet_lines[:-1]
-        return "\n".join(snippet_lines).strip("\n")
+        if strip_region_markers:
+            return strip_region_markers_from_text(snippet_text)
+        return str(snippet_text or "").strip("\n")
 
     for item in ordered_items:
         file_path = item.get("file_path")
@@ -300,7 +297,9 @@ def build_segment_full_text_from_items(file_infos, items):
         start_line = max(int(item.get("start_line", 1) or 1), 1)
         end_line = max(int(item.get("end_line", start_line) or start_line), start_line)
         snippet = "\n".join(lines[start_line - 1:end_line]).rstrip()
-        if item.get("type") == "region" or str(item.get("key", "")).startswith("region::"):
+        if strip_region_markers and (
+            item.get("type") == "region" or str(item.get("key", "")).startswith("region::")
+        ):
             snippet = normalize_region_snippet(snippet)
         if not snippet.strip():
             continue
@@ -335,6 +334,18 @@ def _looks_like_region_end_marker(line_text):
     if not stripped:
         return False
     return bool(re.match(r'^(?:(?://|#|--)|/\*|<!--)\s*#?endregion\b', stripped))
+
+
+def strip_region_markers_from_text(text):
+    """Removes standalone region marker comments from code text."""
+    snippet_lines = str(text or "").split("\n")
+    snippet_lines = [
+        line
+        for line in snippet_lines
+        if not _looks_like_region_start_marker(line)
+        and not _looks_like_region_end_marker(line)
+    ]
+    return "\n".join(snippet_lines).strip("\n")
 
 
 def extract_structure_header_text(structure_item):

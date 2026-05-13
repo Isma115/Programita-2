@@ -1,5 +1,6 @@
 import json
 import os
+from src.logic.app_paths import default_segments_dir, is_frozen, project_root
 
 
 class SegmentManager:
@@ -16,7 +17,9 @@ class SegmentManager:
     def _resolve_segments_path(self, segments_path=None):
         if segments_path:
             return os.path.normpath(os.path.abspath(segments_path))
-        return os.path.join(os.getcwd(), self.SEGMENTS_DIR)
+        if is_frozen():
+            return os.path.normpath(os.path.abspath(default_segments_dir()))
+        return os.path.join(str(project_root()), self.SEGMENTS_DIR)
 
     def _ensure_segments_dir(self):
         if self.segments_path and not os.path.exists(self.segments_path):

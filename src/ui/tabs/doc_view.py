@@ -20,6 +20,7 @@ from pygments.lexers import TextLexer, get_lexer_by_name, guess_lexer
 from pygments.style import Style
 from pygments.token import Comment, Keyword, Name, Number, Operator, String, Text
 from src.ui.popups.diagram_editor import DiagramEditorWindow
+from src.logic.app_paths import bundled_path
 from src.ui.styles import Styles
 from src.ui.tooltip import attach_tooltip
 try:
@@ -240,8 +241,7 @@ class DocView(ttk.Frame):
             "prompt": ("prompt.png",),
         }
         try:
-            # Assuming assets is at project root
-            base_path = os.path.join(os.getcwd(), "assets", "icons")
+            base_path = bundled_path("assets", "icons")
             for name, relative_parts in icon_paths.items():
                 path = os.path.join(base_path, *relative_parts)
                 if os.path.exists(path):

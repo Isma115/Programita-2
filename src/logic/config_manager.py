@@ -1,5 +1,16 @@
 import json
 import os
+import shutil
+from src.logic.app_paths import (
+    bundled_path,
+    config_file_path,
+    default_segments_dir,
+    default_sections_dir,
+    ensure_app_support_dir,
+    is_frozen,
+    project_root,
+    running_from_project_root,
+)
 
 class ConfigManager:
     """
@@ -8,12 +19,66 @@ class ConfigManager:
     CONFIG_FILENAME = "config.json"
 
     def __init__(self):
-        # Determine config file path (current working directory or next to main.py)
-        # We will iterate to find a good place. For now, let's use the current working directory
-        # which is usually the project root where main.py is run from.
-        self.config_path = os.path.join(os.getcwd(), self.CONFIG_FILENAME)
+        self._project_root = str(project_root())
+        self._bootstrap_runtime_data()
+        self.config_path = self._resolve_config_path()
         self.config = {}
         self.load_config()
+
+    def _bootstrap_runtime_data(self):
+        """Copies bundled defaults to Application Support on first run."""
+        if not is_frozen():
+            return
+
+        try:
+            ensure_app_support_dir()
+            self._copy_dir_if_empty(bundled_path("sections"), default_sections_dir())
+            self._copy_dir_if_empty(bundled_path("segments"), default_segments_dir())
+            self._copy_file_if_missing(
+                bundled_path("ias_disponibles.txt"),
+                os.path.join(ensure_app_support_dir(), "ias_disponibles.txt"),
+            )
+        except Exception as exc:
+            print(f"ConfigManager: Error bootstrapping runtime data: {exc}")
+
+    def _copy_dir_if_empty(self, source_dir, target_dir):
+        if not os.path.isdir(source_dir):
+            return
+        os.makedirs(target_dir, exist_ok=True)
+        has_files = any(name.endswith(".json") for name in os.listdir(target_dir))
+        if has_files:
+            return
+        for filename in os.listdir(source_dir):
+            if not filename.endswith(".json"):
+                continue
+            source = os.path.join(source_dir, filename)
+            target = os.path.join(target_dir, filename)
+            if os.path.isfile(source):
+                shutil.copy2(source, target)
+
+    def _copy_file_if_missing(self, source_file, target_file):
+        if not os.path.isfile(source_file):
+            return
+        if os.path.exists(target_file):
+            return
+        os.makedirs(os.path.dirname(target_file), exist_ok=True)
+        shutil.copy2(source_file, target_file)
+
+    def _resolve_config_path(self):
+        """Resolves where configuration should be persisted."""
+        if is_frozen():
+            return config_file_path()
+
+        cwd_path = os.path.join(os.getcwd(), self.CONFIG_FILENAME)
+        root_path = os.path.join(self._project_root, self.CONFIG_FILENAME)
+
+        if os.path.exists(cwd_path):
+            return cwd_path
+        if os.path.exists(root_path):
+            return root_path
+        if running_from_project_root():
+            return root_path
+        return cwd_path
 
     def load_config(self):
         """Loads configuration from the JSON file."""
@@ -34,14 +99,23 @@ class ConfigManager:
         if "return_chunks" not in self.config:
             self.config["return_chunks"] = False
             migrated = True
+        if "return_regions" not in self.config:
+            self.config["return_regions"] = False
+            migrated = True
         if "include_file_headers_in_codigo_txt" not in self.config:
             self.config["include_file_headers_in_codigo_txt"] = True
             migrated = True
         if "last_code_view_mode" not in self.config:
             self.config["last_code_view_mode"] = "sections"
             migrated = True
+        if "remember_last_main_view" not in self.config:
+            self.config["remember_last_main_view"] = True
+            migrated = True
+        if "last_main_view" not in self.config:
+            self.config["last_main_view"] = "docs"
+            migrated = True
 
-        for legacy_key in ("return_regions", "return_structures"):
+        for legacy_key in ("return_structures",):
             if legacy_key in self.config:
                 self.config.pop(legacy_key, None)
                 migrated = True
@@ -71,7 +145,9 @@ class ConfigManager:
         saved_path = self._normalize_path(self.config.get("sections_path"))
         if saved_path:
             return saved_path
-        return self._normalize_path(os.path.join(os.getcwd(), "sections"))
+        if is_frozen():
+            return self._normalize_path(default_sections_dir())
+        return self._normalize_path(os.path.join(self._project_root, "sections"))
 
     def set_sections_path(self, path):
         """Sets the code sections folder path and saves config."""
@@ -300,6 +376,15 @@ class ConfigManager:
         self.config["return_chunks"] = bool(value)
         self.save_config()
 
+    def get_return_regions(self):
+        """Returns whether prompts should ask for full modified regions."""
+        return bool(self.config.get("return_regions", False))
+
+    def set_return_regions(self, value):
+        """Sets whether prompts should ask for full modified regions and saves config."""
+        self.config["return_regions"] = bool(value)
+        self.save_config()
+
     def get_include_file_headers_in_codigo_txt(self):
         """Returns whether codigo.txt exports should include 'Archivo:' headers."""
         return bool(self.config.get("include_file_headers_in_codigo_txt", True))
@@ -444,6 +529,25 @@ class ConfigManager:
     def set_last_code_view_mode(self, mode):
         """Sets the last selected list mode in Code View and saves config."""
         self.config["last_code_view_mode"] = "regions" if mode == "regions" else "sections"
+        self.save_config()
+
+    def get_remember_last_main_view(self):
+        """Returns whether Programita should restore the last main view on startup."""
+        return bool(self.config.get("remember_last_main_view", True))
+
+    def set_remember_last_main_view(self, value):
+        """Sets whether Programita should restore the last main view on startup."""
+        self.config["remember_last_main_view"] = bool(value)
+        self.save_config()
+
+    def get_last_main_view(self):
+        """Returns the last selected main view key ('code' or 'docs')."""
+        view = self.config.get("last_main_view", "docs")
+        return "code" if view == "code" else "docs"
+
+    def set_last_main_view(self, view):
+        """Sets the last selected main view key ('code' or 'docs')."""
+        self.config["last_main_view"] = "code" if view == "code" else "docs"
         self.save_config()
 
     def get_last_doc_section(self):

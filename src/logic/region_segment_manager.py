@@ -1,5 +1,6 @@
 import json
 import os
+from src.logic.app_paths import default_sections_dir, is_frozen, project_root
 
 
 class RegionSegmentManager:
@@ -15,7 +16,14 @@ class RegionSegmentManager:
         self.set_storage_root(storage_root)
 
     def set_storage_root(self, storage_root=None):
-        self.storage_root = os.path.normpath(os.path.abspath(storage_root or os.getcwd()))
+        if storage_root:
+            resolved_root = storage_root
+        elif is_frozen():
+            resolved_root = default_sections_dir()
+        else:
+            resolved_root = os.path.join(str(project_root()), "sections")
+
+        self.storage_root = os.path.normpath(os.path.abspath(resolved_root))
         os.makedirs(self.storage_root, exist_ok=True)
         self.storage_path = os.path.join(self.storage_root, self.STORAGE_FILENAME)
         self._load()

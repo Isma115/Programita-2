@@ -1,5 +1,6 @@
 import os
 import json
+from src.logic.app_paths import default_sections_dir, is_frozen, project_root
 
 class SectionManager:
     """
@@ -45,7 +46,9 @@ class SectionManager:
         """Returns the absolute directory used to persist sections."""
         if sections_path:
             return os.path.normpath(os.path.abspath(sections_path))
-        return os.path.join(os.getcwd(), self.SECTIONS_DIR)
+        if is_frozen():
+            return os.path.normpath(os.path.abspath(default_sections_dir()))
+        return os.path.join(str(project_root()), self.SECTIONS_DIR)
 
     def _ensure_sections_dir(self):
         """Creates the current sections directory if it does not exist."""

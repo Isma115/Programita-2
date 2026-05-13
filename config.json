@@ -1,12 +1,9 @@
 {
-    "last_project": "/Users/ismaelmoraledalopez/Desktop/pruebas/AIExplorer",
+    "last_project": "/Users/ismaelmoraledalopez/Desktop/pruebas/Porfofo",
     "file_limit": 50,
     "return_files": false,
-    "doc_path": "/Users/ismaelmoraledalopez/Documents/Documentacion Irrigation",
-    "doc_path_history": [
-        "/Users/ismaelmoraledalopez/Documents/Documentacion Irrigation",
-        "/Users/ismaelmoraledalopez/Documents/Azure-Irrigation-Web/HidraSmart-Irrigation-System/docs"
-    ],
+    "doc_path": "",
+    "doc_path_history": [],
     "theme_colors": {
         "COLOR_ACCENT": "#1E90FF",
         "COLOR_ACCENT_HOVER": "#1873cc"
@@ -18,9 +15,11 @@
         "/Users/ismaelmoraledalopez/Desktop/pruebas/Iterador/TrustedSearch",
         "/Users/ismaelmoraledalopez/Desktop/SDD-Proyecto Aurora 2",
         "/Users/ismaelmoraledalopez/Desktop/pruebas/TreeConv",
-        "/Users/ismaelmoraledalopez/Desktop/pruebas/AIExplorer"
+        "/Users/ismaelmoraledalopez/Desktop/pruebas/AIExplorer",
+        "/Users/ismaelmoraledalopez/Desktop/pruebas/InstaTicket",
+        "/Users/ismaelmoraledalopez/Desktop/pruebas/Porfofo"
     ],
-    "current_project_index": 5,
+    "current_project_index": 7,
     "db_config": {
         "host": "hidralab-server.mysql.database.azure.com",
         "port": "3306",
@@ -38,9 +37,9 @@
     "last_doc_section": "Gestor de Equipos",
     "last_code_section": "Asignar Volumen",
     "implementation_mode": false,
-    "last_doc_file": "/Users/ismaelmoraledalopez/Documents/Documentacion Irrigation/Gestor de Equipos - Actualizar nodo.md",
-    "sections_path": "/Users/ismaelmoraledalopez/Desktop/pruebas/AIExplorer/Secciones",
-    "code_extensions_filter": ".css",
+    "last_doc_file": "",
+    "sections_path": "/Users/ismaelmoraledalopez/Desktop/pruebas/Porfofo",
+    "code_extensions_filter": "",
     "include_project_tree": false,
     "file_limit_slider_max": 50,
     "return_chunks": false,
@@ -50,7 +49,10 @@
     "include_file_headers_in_codigo_txt": true,
     "max_file_limit": 50,
     "max_file_limit_slider_max": 50,
-    "region_list_limit": 8,
+    "region_list_limit": 9,
     "region_list_auto_enabled": true,
-    "last_code_view_mode": "regions"
+    "last_code_view_mode": "regions",
+    "return_regions": false,
+    "remember_last_main_view": true,
+    "last_main_view": "code"
 }

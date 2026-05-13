@@ -20,8 +20,13 @@ class DiagramEditorWindow:
         env = os.environ.copy()
         env.setdefault("PYTHONUNBUFFERED", "1")
 
+        if getattr(sys, "frozen", False):
+            cmd = [sys.executable, "--diagram-webview"]
+        else:
+            cmd = [sys.executable, str(script_path)]
+
         self._process = subprocess.Popen(
-            [sys.executable, str(script_path)],
+            cmd,
             cwd=str(project_root),
             env=env,
         )

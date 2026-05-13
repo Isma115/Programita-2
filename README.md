@@ -23,6 +23,19 @@ The project follows a modular architecture separating UI and Logic:
 python main.py
 ```
 
+## Build macOS App (`.app`)
+
+From the project root:
+
+```bash
+./scripts/build_macos_app.sh
+```
+
+Output:
+
+- `dist/Programita 2.app`
+- `dist/Programita 2-macOS.zip`
+
 ## Features
 
 - **Modern Dark Interface**: Custom styled `ttk` widgets.

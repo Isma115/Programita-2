@@ -1,0 +1,3 @@
+cd "/Users/user/Desktop/Programita 2"
+chmod +x scripts/build_macos_app.sh
+./scripts/build_macos_app.sh

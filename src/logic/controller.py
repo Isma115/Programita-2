@@ -3,7 +3,7 @@ from src.logic.project_manager import ProjectManager
 from src.logic.region_segment_manager import RegionSegmentManager
 from src.logic.section_manager import SectionManager
 from src.logic.config_manager import ConfigManager
-from src.logic.editor_launcher import open_file_in_running_editor
+from src.logic.editor_launcher import open_file_in_running_editor, reveal_file_in_system_explorer
 from src.logic.global_hotkeys import GlobalHotkeyListener
 from src.logic.prompt_rules import get_file_path_comment_inline_instruction
 from src.ui.styles import Styles
@@ -64,6 +64,10 @@ class Controller:
         """Opens a file in the single compatible editor app currently running."""
         return open_file_in_running_editor(file_path)
 
+    def reveal_file_in_system_explorer(self, file_path):
+        """Reveals a file in the system file explorer (Finder/Explorer/etc.)."""
+        return reveal_file_in_system_explorer(file_path)
+
     def set_sections_directory(self, path):
         """Updates the directory used to store code sections and persists it."""
         resolved_path = self.section_manager.set_sections_path(path)
@@ -71,9 +75,17 @@ class Controller:
         self.config_manager.set_sections_path(resolved_path)
         return resolved_path
 
-    def get_code_output_prompt(self, return_files=False, return_chunks=False):
+    def get_code_output_prompt(self, return_files=False, return_chunks=False, return_regions=False):
         """Returns the instruction block that defines how the AI should return code."""
         path_comment_instruction = get_file_path_comment_inline_instruction()
+
+        if return_files:
+            return (
+                "IMPORTANTE: Antes de contestar, indica la lista de archivos que tienes que modificar. "
+                "Después, devuelve SOLO los archivos de código completos que hayan necesitado modificación. "
+                "No devuelvas archivos sin cambios. "
+                f"{path_comment_instruction}"
+            )
 
         if return_chunks:
             return (
@@ -84,11 +96,12 @@ class Controller:
                 f"{path_comment_instruction}"
             )
 
-        if return_files:
+        if return_regions:
             return (
-                "IMPORTANTE: Antes de contestar, indica la lista de archivos que tienes que modificar. "
-                "Después, devuelve SOLO los archivos de código completos que hayan necesitado modificación. "
-                "No devuelvas archivos sin cambios. "
+                "IMPORTANTE: Antes de contestar, indica la lista de regiones que tienes que modificar. "
+                "Después, devuelve SOLO las regiones completas que hayan necesitado modificación, "
+                "manteniendo su cabecera de región y su cierre #endregion. "
+                "No devuelvas regiones sin cambios. "
                 f"{path_comment_instruction}"
             )
 
@@ -175,6 +188,7 @@ class Controller:
         selected_subsection=None,
         return_files=False,
         return_chunks=False,
+        return_regions=False,
         include_file_headers=True,
         include_project_tree=False,
         min_files=10,
@@ -235,7 +249,7 @@ class Controller:
         
 
             
-        prompt += f"\n\n{self.get_code_output_prompt(return_files=return_files, return_chunks=return_chunks)}"
+        prompt += f"\n\n{self.get_code_output_prompt(return_files=return_files, return_chunks=return_chunks, return_regions=return_regions)}"
             
         return prompt
 
@@ -437,6 +451,7 @@ class Controller:
         """
         print("Logic: Switching to Code View")
         self.app.layout.show_code_tab()
+        self.config_manager.set_last_main_view("code")
 
     def show_docs_view(self):
         """
@@ -444,6 +459,7 @@ class Controller:
         """
         print("Logic: Switching to Docs View")
         self.app.layout.show_docs_tab()
+        self.config_manager.set_last_main_view("docs")
 
 
     def show_database_view(self):
