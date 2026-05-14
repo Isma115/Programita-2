@@ -1,5 +1,5 @@
 {
-    "last_project": "/Users/ismaelmoraledalopez/Desktop/pruebas/Porfofo",
+    "last_project": "/Users/ismaelmoraledalopez/Desktop/pruebas/InstaTicket",
     "file_limit": 50,
     "return_files": false,
     "doc_path": "",
@@ -12,14 +12,13 @@
     "project_directories": [
         "/Users/ismaelmoraledalopez/Documents/Azure-Irrigation-Web/HidraSmart-Irrigation-System",
         "/Users/ismaelmoraledalopez/Desktop/Programita 2",
-        "/Users/ismaelmoraledalopez/Desktop/pruebas/Iterador/TrustedSearch",
         "/Users/ismaelmoraledalopez/Desktop/SDD-Proyecto Aurora 2",
         "/Users/ismaelmoraledalopez/Desktop/pruebas/TreeConv",
         "/Users/ismaelmoraledalopez/Desktop/pruebas/AIExplorer",
         "/Users/ismaelmoraledalopez/Desktop/pruebas/InstaTicket",
         "/Users/ismaelmoraledalopez/Desktop/pruebas/Porfofo"
     ],
-    "current_project_index": 7,
+    "current_project_index": 5,
     "db_config": {
         "host": "hidralab-server.mysql.database.azure.com",
         "port": "3306",
@@ -54,5 +53,5 @@
     "last_code_view_mode": "regions",
     "return_regions": false,
     "remember_last_main_view": true,
-    "last_main_view": "code"
+    "last_main_view": "docs"
 }

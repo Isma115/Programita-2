@@ -36,6 +36,15 @@ Output:
 - `dist/Programita 2.app`
 - `dist/Programita 2-macOS.zip`
 
+### macOS global hotkeys
+
+`Shift + Left Click` and `Cmd/Ctrl + V` global listeners require:
+
+- PyObjC runtime modules (`Quartz`, `HIServices`, `ApplicationServices`) available at build time.
+- macOS permissions granted to the built app in:
+  - `System Settings -> Privacy & Security -> Accessibility`
+  - `System Settings -> Privacy & Security -> Input Monitoring`
+
 ## Features
 
 - **Modern Dark Interface**: Custom styled `ttk` widgets.

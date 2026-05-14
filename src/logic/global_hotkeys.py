@@ -2,6 +2,7 @@ import pyperclip
 import threading
 import re
 import platform
+import sys
 
 # macOS compatibility and stability patch
 IS_MAC = platform.system() == 'Darwin'
@@ -9,6 +10,10 @@ if IS_MAC:
     try:
         import Quartz
         import HIServices
+        try:
+            import CoreFoundation
+        except Exception:
+            CoreFoundation = None
         try:
             # Force resolution of the lazy attribute
             _ = HIServices.AXIsProcessTrusted
@@ -41,6 +46,9 @@ class GlobalHotkeyListener:
             self.m_listener = None
             return
 
+        if IS_MAC:
+            self._check_macos_trust_and_warn()
+
         self.keyboard_controller = keyboard.Controller()
         self.shift_pressed = False
         self.ctrl_pressed = False
@@ -52,6 +60,10 @@ class GlobalHotkeyListener:
         self._mac_paste_tap = None
         self._mac_paste_runloop = None
         self._mac_paste_thread = None
+        self._mac_shift_click_callback = None
+        self._mac_shift_click_tap = None
+        self._mac_shift_click_runloop = None
+        self._mac_shift_click_thread = None
         
         try:
             # On macOS, we don't use the keyboard listener as it causes 'trace trap' crashes
@@ -62,19 +74,53 @@ class GlobalHotkeyListener:
                 self.kb_listener.start()
             else:
                 self._start_macos_paste_listener()
+                self._start_macos_shift_click_listener()
             
-            # Start mouse listener for clicks
-            self.m_listener = mouse.Listener(on_click=self.on_click)
-            self.m_listener.start()
+            # Start mouse listener for clicks (non-macOS).
+            # On macOS we use Quartz event taps for fully global behavior.
+            if not IS_MAC:
+                self.m_listener = mouse.Listener(on_click=self.on_click)
+                self.m_listener.start()
             
             if IS_MAC:
-                print("GlobalHotkeyListener: Initialized (Mouse-only with Quartz-Shift check)")
+                print("GlobalHotkeyListener: Initialized (Quartz event taps for global Shift+Click and Cmd/Ctrl+V)")
             else:
                 print("GlobalHotkeyListener: Initialized and listening (Global Shift + Left Click)")
                 
         except Exception as e:
             print(f"GlobalHotkeyListener: Failed to initialize listeners: {e}")
             print("TIP: On macOS, this usually requires 'Accessibility' and 'Input Monitoring' permissions.")
+
+    def _check_macos_trust_and_warn(self):
+        """Checks macOS Accessibility trust and requests it when possible."""
+        if not IS_MAC:
+            return
+        if "HIServices" not in globals():
+            print("GlobalHotkeyListener: HIServices no disponible para comprobar permisos de accesibilidad.")
+            return
+
+        trusted = False
+        try:
+            trusted = bool(HIServices.AXIsProcessTrusted())
+        except Exception:
+            trusted = False
+
+        if not trusted:
+            try:
+                options = {HIServices.kAXTrustedCheckOptionPrompt: True}
+                trusted = bool(HIServices.AXIsProcessTrustedWithOptions(options))
+            except Exception as exc:
+                print(f"GlobalHotkeyListener: No se pudo solicitar permiso de accesibilidad automáticamente: {exc}")
+
+        if trusted:
+            return
+
+        print("GlobalHotkeyListener: La app no tiene permisos globales completos en macOS.")
+        print(f"GlobalHotkeyListener: Ejecutable actual: {getattr(sys, 'executable', '(desconocido)')}")
+        print("GlobalHotkeyListener: Abre Ajustes del Sistema > Privacidad y seguridad y concede permiso a esta app en:")
+        print("GlobalHotkeyListener: 1) Accesibilidad")
+        print("GlobalHotkeyListener: 2) Monitorización de entrada")
+        print("GlobalHotkeyListener: Reinicia la app después de conceder permisos.")
 
     def on_press(self, key):
         try:
@@ -124,21 +170,27 @@ class GlobalHotkeyListener:
         """Checks if Shift is currently pressed. Platform specific implementation."""
         if IS_MAC:
             try:
-                # 56: Left Shift, 60: Right Shift
+                flags = Quartz.CGEventSourceFlagsState(Quartz.kCGEventSourceStateCombinedSessionState)
+                if flags & Quartz.kCGEventFlagMaskShift:
+                    return True
+                # Fallback: explicit keycodes (56 left shift, 60 right shift)
                 l_shift = Quartz.CGEventSourceKeyState(Quartz.kCGEventSourceStateCombinedSessionState, 56)
                 r_shift = Quartz.CGEventSourceKeyState(Quartz.kCGEventSourceStateCombinedSessionState, 60)
-                return l_shift or r_shift
+                return bool(l_shift or r_shift)
             except Exception as e:
                 print(f"GlobalHotkeyListener: Quartz Shift check failed: {e}")
                 return False
         return self.shift_pressed
+
+    def _dispatch_trigger_async(self):
+        threading.Thread(target=self.handle_trigger, daemon=True).start()
 
     def on_click(self, x, y, button, pressed):
         if pressed and button == mouse.Button.left:
             if self._is_shift_pressed_now():
                 print("GlobalHotkeyListener: Shift + Left Click detected!")
                 # Trigger replacement in a separate thread to avoid blocking the listener
-                threading.Thread(target=self.handle_trigger, daemon=True).start()
+                self._dispatch_trigger_async()
 
     def handle_trigger(self):
         from src.addons import Arbitrary_sus, chunk_sus, file_sus, structure_header_replace
@@ -193,6 +245,18 @@ class GlobalHotkeyListener:
         )
         self._mac_paste_thread.start()
 
+    def _start_macos_shift_click_listener(self):
+        """Starts a Quartz event tap to listen for global Shift+LeftClick on macOS."""
+        if "Quartz" not in globals():
+            print("GlobalHotkeyListener: Quartz no disponible para escuchar Shift+Click.")
+            return
+
+        self._mac_shift_click_thread = threading.Thread(
+            target=self._run_macos_shift_click_listener,
+            daemon=True
+        )
+        self._mac_shift_click_thread.start()
+
     def _run_macos_paste_listener(self):
         """Runs the macOS key listener loop in a background thread."""
         try:
@@ -240,16 +304,83 @@ class GlobalHotkeyListener:
                 return
 
             runloop_source = Quartz.CFMachPortCreateRunLoopSource(None, self._mac_paste_tap, 0)
-            self._mac_paste_runloop = Quartz.CFRunLoopGetCurrent()
-            Quartz.CFRunLoopAddSource(
+            self._mac_paste_runloop = self._cf_call("CFRunLoopGetCurrent")
+            self._cf_call(
+                "CFRunLoopAddSource",
                 self._mac_paste_runloop,
                 runloop_source,
-                Quartz.kCFRunLoopCommonModes
+                self._cf_symbol("kCFRunLoopCommonModes"),
             )
             Quartz.CGEventTapEnable(self._mac_paste_tap, True)
-            Quartz.CFRunLoopRun()
+            self._cf_call("CFRunLoopRun")
         except Exception as e:
             print(f"GlobalHotkeyListener: Error iniciando listener de Cmd/Ctrl+V en macOS: {e}")
+
+    def _run_macos_shift_click_listener(self):
+        """Runs a global Shift+LeftClick listener loop on macOS."""
+        try:
+            event_mask = Quartz.CGEventMaskBit(Quartz.kCGEventLeftMouseDown)
+
+            def _callback(_proxy, event_type, event, _refcon):
+                try:
+                    if event_type != Quartz.kCGEventLeftMouseDown:
+                        return event
+
+                    flags = Quartz.CGEventGetFlags(event)
+                    if flags & Quartz.kCGEventFlagMaskShift:
+                        print("GlobalHotkeyListener: Shift + Left Click detected! (Quartz global tap)")
+                        self._dispatch_trigger_async()
+                except Exception as e:
+                    print(f"GlobalHotkeyListener: Error en callback de Shift+Click: {e}")
+
+                return event
+
+            self._mac_shift_click_callback = _callback
+            self._mac_shift_click_tap = Quartz.CGEventTapCreate(
+                Quartz.kCGSessionEventTap,
+                Quartz.kCGHeadInsertEventTap,
+                Quartz.kCGEventTapOptionListenOnly,
+                event_mask,
+                self._mac_shift_click_callback,
+                None
+            )
+
+            if not self._mac_shift_click_tap:
+                print("GlobalHotkeyListener: No se pudo crear el event tap de Shift+Click.")
+                return
+
+            runloop_source = Quartz.CFMachPortCreateRunLoopSource(None, self._mac_shift_click_tap, 0)
+            self._mac_shift_click_runloop = self._cf_call("CFRunLoopGetCurrent")
+            self._cf_call(
+                "CFRunLoopAddSource",
+                self._mac_shift_click_runloop,
+                runloop_source,
+                self._cf_symbol("kCFRunLoopCommonModes"),
+            )
+            Quartz.CGEventTapEnable(self._mac_shift_click_tap, True)
+            self._cf_call("CFRunLoopRun")
+        except Exception as e:
+            print(f"GlobalHotkeyListener: Error iniciando listener de Shift+Click en macOS: {e}")
+
+    def _cf_symbol(self, symbol_name):
+        """Resolves CoreFoundation symbols from Quartz first, then CoreFoundation."""
+        if not IS_MAC:
+            raise AttributeError(symbol_name)
+
+        for module_name in ("Quartz", "CoreFoundation"):
+            module = globals().get(module_name)
+            if module is None:
+                continue
+            try:
+                return getattr(module, symbol_name)
+            except Exception:
+                continue
+        raise AttributeError(symbol_name)
+
+    def _cf_call(self, symbol_name, *args):
+        """Calls a resolved CoreFoundation symbol with the provided args."""
+        callable_symbol = self._cf_symbol(symbol_name)
+        return callable_symbol(*args)
 
     def stop(self):
         if self.kb_listener:
@@ -264,6 +395,11 @@ class GlobalHotkeyListener:
                 pass
         if IS_MAC and "Quartz" in globals() and self._mac_paste_runloop is not None:
             try:
-                Quartz.CFRunLoopStop(self._mac_paste_runloop)
+                self._cf_call("CFRunLoopStop", self._mac_paste_runloop)
+            except Exception:
+                pass
+        if IS_MAC and "Quartz" in globals() and self._mac_shift_click_runloop is not None:
+            try:
+                self._cf_call("CFRunLoopStop", self._mac_shift_click_runloop)
             except Exception:
                 pass

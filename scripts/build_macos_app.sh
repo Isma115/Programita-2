@@ -3,6 +3,7 @@ set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 APP_NAME="Programita 2"
+APP_BUNDLE_ID="${APP_BUNDLE_ID:-com.programita2.desktop}"
 VENV_DIR="$ROOT_DIR/.venv-build"
 PYTHON_BIN="${PYTHON_BIN:-python3}"
 ICON_PNG="$ROOT_DIR/assets/icons/app_icon.png"
@@ -10,6 +11,7 @@ ICON_ICNS="$ROOT_DIR/assets/icons/app_icon.icns"
 ICON_CONTENT_SCALE="${ICON_CONTENT_SCALE:-0.82}"
 
 echo "==> Root: $ROOT_DIR"
+echo "==> Bundle ID: $APP_BUNDLE_ID"
 echo "==> Creating build venv at: $VENV_DIR"
 "$PYTHON_BIN" -m venv "$VENV_DIR"
 source "$VENV_DIR/bin/activate"
@@ -17,6 +19,24 @@ source "$VENV_DIR/bin/activate"
 echo "==> Installing dependencies"
 python -m pip install --upgrade pip setuptools wheel
 python -m pip install -r "$ROOT_DIR/requirements.txt" pyinstaller
+
+echo "==> Verifying macOS hotkey dependencies"
+python - <<'PY'
+import importlib
+required_modules = ("Quartz", "HIServices", "ApplicationServices")
+missing = []
+for module_name in required_modules:
+    try:
+        importlib.import_module(module_name)
+    except Exception as exc:
+        missing.append(f"{module_name}: {exc}")
+
+if missing:
+    raise SystemExit(
+        "Missing macOS hotkey dependencies in build environment:\n- "
+        + "\n- ".join(missing)
+    )
+PY
 
 if [[ ! -f "$ICON_PNG" ]]; then
   echo "Error: icon source not found at $ICON_PNG"
@@ -71,10 +91,15 @@ pyinstaller \
   --windowed \
   --onedir \
   --name "$APP_NAME" \
+  --osx-bundle-identifier "$APP_BUNDLE_ID" \
   --icon "$ICON_ICNS" \
   --paths "$ROOT_DIR" \
   --collect-submodules src.addons \
   --collect-submodules tkinterweb \
+  --hidden-import Quartz \
+  --hidden-import HIServices \
+  --hidden-import ApplicationServices \
+  --hidden-import CoreFoundation \
   --hidden-import tkinterweb.bindings \
   --add-data "$ROOT_DIR/assets:assets" \
   --add-data "$ROOT_DIR/ias_disponibles.txt:." \

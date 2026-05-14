@@ -1,11 +1,26 @@
 # Build artifacts
 /build/
 /dist/
+dist/
 /.venv-build/
+.venv-build/
 /*.spec
 
 # Python cache
 __pycache__/
 **/__pycache__/
+pycache/
+src/**/__pycache__/
+src/**/pycache/
 *.py[cod]
 .pytest_cache/
+
+# macOS
+.DS_Store
+**/.DS_Store
+
+# Local memory snapshots
+memoria/
+
+# Local plugin/vendor folders
+caveman/

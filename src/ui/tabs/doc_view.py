@@ -146,7 +146,7 @@ class DocView(ttk.Frame):
         self.controller = None
         self.current_file_path = None
         self.highlight_timer = None   # For debounce
-        self.is_dark_mode = False     # Default to Light
+        self.is_dark_mode = True      # Default to Dark
         self.is_editor_mode = False   # Default to Viewer (False=Viewer, True=Editor)
         self.is_right_panel_visible = True
         self.is_code_panel_visible = False
@@ -185,7 +185,7 @@ class DocView(ttk.Frame):
         # Load settings if available
         if self.controller and hasattr(self.controller, 'config_manager'):
             settings = self.controller.config_manager.get_doc_view_settings()
-            self.is_dark_mode = settings.get("is_dark_mode", False)
+            self.is_dark_mode = settings.get("is_dark_mode", True)
             self.is_editor_mode = settings.get("is_editor_mode", False)
             self.code_sash_ratio = settings.get("code_sash_ratio", 0.7)
             self.is_fullscreen_mode = settings.get("is_fullscreen_mode", False)
@@ -1258,17 +1258,22 @@ class DocView(ttk.Frame):
             messagebox.showwarning("Aviso", "Primero carga una carpeta de documentación.")
             return
 
-        # Get current section name as suggestion
-        selected_indices = self.section_list.curselection()
-        if not selected_indices:
-            messagebox.showwarning("Aviso", "Selecciona una sección para crear el documento.")
+        selected_items = self.section_tree.selection()
+        if not selected_items:
+            messagebox.showwarning("Aviso", "Selecciona una carpeta o archivo para crear el documento.")
             return
-        section_name = self.section_list.get(selected_indices[0])
+
+        selected_path = selected_items[0]
+        if os.path.isdir(selected_path):
+            section_dir = selected_path
+        else:
+            section_dir = os.path.dirname(selected_path)
         suggestion = "documentacion.md"
 
         # Ask for filename
         filename = simpledialog.askstring("Nuevo Documento", "Nombre del archivo (.md):", initialvalue=suggestion)
-        if not filename: return
+        if not filename:
+            return
         filename = filename.strip()
         if not filename:
             messagebox.showwarning("Aviso", "El nombre del documento no puede estar vacío.")
@@ -1276,9 +1281,9 @@ class DocView(ttk.Frame):
         if self._has_path_separator(filename):
             messagebox.showwarning("Aviso", "El nombre del documento no puede contener separadores de ruta.")
             return
-        if not filename.endswith(".md"): filename += ".md"
+        if not filename.lower().endswith(".md"):
+            filename += ".md"
 
-        section_dir = os.path.join(doc_dir, section_name)
         os.makedirs(section_dir, exist_ok=True)
         file_path = os.path.join(section_dir, filename)
         if os.path.exists(file_path):
@@ -1288,10 +1293,9 @@ class DocView(ttk.Frame):
         try:
             with open(file_path, 'w', encoding='utf-8') as f:
                 f.write(f"# {filename[:-3]}\n\n")
-            
-            # Refresh current section view to find the new file
-            self._last_selected_section = section_name
-            self._find_markdown_files(section_name, selected_file_path=file_path)
+
+            self._refresh_sections(preferred_path=file_path)
+            self._display_file_content(file_path)
         except Exception as e:
             messagebox.showerror("Error", f"No se pudo crear: {e}")
 
@@ -1405,12 +1409,9 @@ class DocView(ttk.Frame):
         dialog.title("Prompt")
         dialog.transient(self.winfo_toplevel())
         dialog.grab_set()
-        dialog.geometry("980x820")
-        dialog.minsize(760, 520)
+        dialog.geometry("1040x780")
+        dialog.minsize(780, 560)
         dialog.configure(bg=Styles.COLOR_BG_MAIN)
-
-        wrapper = ttk.Frame(dialog, style="Main.TFrame")
-        wrapper.pack(fill="both", expand=True, padx=12, pady=12)
 
         prompt_configs = [
             {
@@ -1448,66 +1449,214 @@ class DocView(ttk.Frame):
         prompt_index = {"value": 0}
         prompt_title_var = tk.StringVar()
         input_label_var = tk.StringVar()
+        selector_count_var = tk.StringVar()
+        placeholder_hint_var = tk.StringVar()
+        prompt_metrics_var = tk.StringVar()
+        prompt_status_var = tk.StringVar()
         prompt_placeholder_active = {"value": False}
 
-        selector_row = ttk.Frame(wrapper, style="Main.TFrame")
-        selector_row.pack(fill="x", pady=(0, 12))
-        selector_row.columnconfigure(1, weight=1)
+        wrapper = tk.Frame(dialog, bg=Styles.COLOR_BG_MAIN, bd=0)
+        wrapper.pack(fill="both", expand=True, padx=18, pady=18)
 
-        btn_prev = ttk.Button(
-            selector_row,
-            text="←",
-            width=3,
-            style="Nav.TButton",
-            command=lambda: switch_prompt(-1)
+        prompt_style = ttk.Style(dialog)
+        prompt_style.configure(
+            "PromptNav.TButton",
+            background=Styles.COLOR_BUTTON_BG,
+            foreground=Styles.COLOR_BUTTON_FG,
+            font=Styles.scale_font(Styles.ui_font(26, "bold")),
+            borderwidth=Styles.SOFT_EDGE_BORDER,
+            bordercolor=Styles.COLOR_BUTTON_BORDER,
+            lightcolor=Styles.COLOR_BUTTON_BORDER,
+            darkcolor=Styles.COLOR_BUTTON_BORDER,
+            focuscolor=Styles.COLOR_BUTTON_BG,
+            padding=Styles.scale_padding((14, 8)),
+            relief="flat",
+            anchor="center"
         )
-        btn_prev.grid(row=0, column=0, sticky="ew")
+        prompt_style.map(
+            "PromptNav.TButton",
+            background=[
+                ("active", Styles.COLOR_BUTTON_HOVER),
+                ("disabled", Styles.COLOR_BUTTON_BG),
+                ("pressed", Styles.COLOR_BUTTON_ACTIVE)
+            ],
+            foreground=[
+                ("active", Styles.COLOR_BUTTON_FG_ACTIVE),
+                ("disabled", Styles.COLOR_ACCENT),
+                ("pressed", Styles.COLOR_BUTTON_FG_ACTIVE)
+            ]
+        )
+
+        def make_surface(parent, bg=Styles.COLOR_BG_SIDEBAR, border=Styles.COLOR_PANE_DIVIDER):
+            return tk.Frame(
+                parent,
+                bg=bg,
+                bd=0,
+                highlightthickness=1,
+                highlightbackground=border,
+                highlightcolor=border
+            )
+
+        def make_icon_button(parent, text, command):
+            return ttk.Button(
+                parent,
+                text=text,
+                command=command,
+                style="PromptNav.TButton",
+                width=3,
+            )
+
+        header = make_surface(wrapper, bg=Styles.COLOR_BG_SIDEBAR)
+        header.pack(fill="x", pady=(0, 14))
+        header.columnconfigure(1, weight=1)
+
+        btn_prev = make_icon_button(header, "←", lambda: switch_prompt(-1))
+        btn_prev.grid(row=0, column=0, sticky="nsw", padx=(14, 8), pady=14)
         attach_tooltip(btn_prev, "Prompt previo")
 
-        ttk.Frame(selector_row, style="Main.TFrame").grid(row=0, column=1, sticky="ew", padx=10)
+        title_stack = tk.Frame(header, bg=Styles.COLOR_BG_SIDEBAR, bd=0)
+        title_stack.grid(row=0, column=1, sticky="ew", pady=14)
+        tk.Label(
+            title_stack,
+            textvariable=prompt_title_var,
+            bg=Styles.COLOR_BG_SIDEBAR,
+            fg=Styles.COLOR_FG_TEXT,
+            font=Styles.scale_font(Styles.ui_font(20, "bold")),
+            anchor="w"
+        ).pack(anchor="w")
+        tk.Label(
+            title_stack,
+            text="Plantillas listas para copiar desde Documentación",
+            bg=Styles.COLOR_BG_SIDEBAR,
+            fg=Styles.COLOR_DIM,
+            font=Styles.scale_font(Styles.ui_font(11)),
+            anchor="w"
+        ).pack(anchor="w", pady=(3, 0))
 
-        btn_next = ttk.Button(
-            selector_row,
-            text="→",
-            width=3,
-            style="Nav.TButton",
-            command=lambda: switch_prompt(1)
+        counter_pill = tk.Label(
+            header,
+            textvariable=selector_count_var,
+            bg=Styles.COLOR_INPUT_BG,
+            fg=Styles.COLOR_ACCENT_HOVER,
+            font=Styles.scale_font(Styles.ui_font(12, "bold")),
+            padx=12,
+            pady=6
         )
-        btn_next.grid(row=0, column=2, sticky="ew")
-        attach_tooltip(btn_next, "Prompt siguiente")
+        counter_pill.grid(row=0, column=2, sticky="e", padx=(8, 8), pady=14)
 
-        ttk.Label(wrapper, textvariable=input_label_var, style="Header.TLabel").pack(fill="x")
+        btn_next = make_icon_button(header, "→", lambda: switch_prompt(1))
+        btn_next.grid(row=0, column=3, sticky="nse", padx=(0, 14), pady=14)
+        attach_tooltip(btn_next, "Prompt siguiente")
 
         functionality_var = tk.StringVar()
 
+        input_card = make_surface(wrapper, bg=Styles.COLOR_SIDEBAR_CARD_BG)
+        input_card.pack(fill="x", pady=(0, 14))
+        input_card.columnconfigure(0, weight=1)
+
+        input_header = tk.Frame(input_card, bg=Styles.COLOR_SIDEBAR_CARD_BG, bd=0)
+        input_header.grid(row=0, column=0, sticky="ew", padx=16, pady=(14, 8))
+        input_header.columnconfigure(0, weight=1)
+        tk.Label(
+            input_header,
+            textvariable=input_label_var,
+            bg=Styles.COLOR_SIDEBAR_CARD_BG,
+            fg=Styles.COLOR_FG_TEXT,
+            font=Styles.scale_font(Styles.ui_font(14, "bold")),
+            anchor="w"
+        ).grid(row=0, column=0, sticky="w")
+        tk.Label(
+            input_header,
+            textvariable=placeholder_hint_var,
+            bg=Styles.COLOR_SIDEBAR_CARD_BG,
+            fg=Styles.COLOR_DIM,
+            font=Styles.scale_font(Styles.ui_font(11)),
+            anchor="e"
+        ).grid(row=0, column=1, sticky="e")
+
+        entry_shell = tk.Frame(
+            input_card,
+            bg=Styles.COLOR_INPUT_BG,
+            bd=0,
+            highlightthickness=1,
+            highlightbackground=Styles.COLOR_SELECTION_BG,
+            highlightcolor=Styles.COLOR_ACCENT
+        )
+        entry_shell.grid(row=1, column=0, sticky="ew", padx=16, pady=(0, 16))
         entry = tk.Entry(
-            wrapper,
+            entry_shell,
             textvariable=functionality_var,
-            font=(Styles.FONT_FAMILY, 16),
+            font=Styles.scale_font(Styles.ui_font(14)),
             bg=Styles.COLOR_INPUT_BG,
             fg=Styles.COLOR_FG_TEXT,
             insertbackground=Styles.COLOR_FG_TEXT,
-            relief="flat"
+            selectbackground=Styles.COLOR_SELECTION_BG,
+            selectforeground="#ffffff",
+            relief="flat",
+            bd=0,
+            highlightthickness=0
         )
-        entry.pack(fill="x", pady=(10, 12), ipady=10)
+        entry.pack(fill="x", padx=12, pady=10)
 
-        ttk.Label(wrapper, text="Plantilla del prompt", style="TLabel").pack(anchor="w")
+        prompt_card = make_surface(wrapper, bg=Styles.COLOR_SIDEBAR_CARD_BG)
+        prompt_card.pack(fill="both", expand=True, pady=(0, 14))
+        prompt_card.rowconfigure(1, weight=1)
+        prompt_card.columnconfigure(0, weight=1)
+
+        prompt_header = tk.Frame(prompt_card, bg=Styles.COLOR_SIDEBAR_CARD_BG, bd=0)
+        prompt_header.grid(row=0, column=0, sticky="ew", padx=16, pady=(14, 10))
+        prompt_header.columnconfigure(0, weight=1)
+        tk.Label(
+            prompt_header,
+            text="Plantilla del prompt",
+            bg=Styles.COLOR_SIDEBAR_CARD_BG,
+            fg=Styles.COLOR_FG_TEXT,
+            font=Styles.scale_font(Styles.ui_font(14, "bold")),
+            anchor="w"
+        ).grid(row=0, column=0, sticky="w")
+        tk.Label(
+            prompt_header,
+            textvariable=prompt_metrics_var,
+            bg=Styles.COLOR_SIDEBAR_CARD_BG,
+            fg=Styles.COLOR_DIM,
+            font=Styles.scale_font(Styles.ui_font(11)),
+            anchor="e"
+        ).grid(row=0, column=1, sticky="e")
+
+        prompt_text_shell = tk.Frame(
+            prompt_card,
+            bg=Styles.COLOR_INPUT_BG,
+            bd=0,
+            highlightthickness=1,
+            highlightbackground=Styles.COLOR_PANE_DIVIDER,
+            highlightcolor=Styles.COLOR_ACCENT
+        )
+        prompt_text_shell.grid(row=1, column=0, sticky="nsew", padx=16, pady=(0, 16))
+        prompt_text_shell.rowconfigure(0, weight=1)
+        prompt_text_shell.columnconfigure(0, weight=1)
 
         prompt_text = tk.Text(
-            wrapper,
-            font=("Consolas", 13),
+            prompt_text_shell,
+            font=Styles.scale_font(("Consolas", 13)),
             bg=Styles.COLOR_INPUT_BG,
             fg=Styles.COLOR_FG_TEXT,
             insertbackground=Styles.COLOR_FG_TEXT,
+            selectbackground=Styles.COLOR_SELECTION_BG,
+            selectforeground="#ffffff",
             relief="flat",
+            bd=0,
+            highlightthickness=0,
             wrap="word",
-            padx=12,
-            pady=12
+            padx=16,
+            pady=16,
+            spacing1=2,
+            spacing3=4,
+            undo=True
         )
-        prompt_text.pack(fill="both", expand=True, pady=(8, 12))
+        prompt_text.grid(row=0, column=0, sticky="nsew")
 
-        prompt_scroll = ttk.Scrollbar(wrapper, orient="vertical", command=prompt_text.yview)
-        prompt_scroll.place(relx=1.0, rely=0.23, relheight=0.66, anchor="ne")
+        prompt_scroll = ttk.Scrollbar(prompt_text_shell, orient="vertical", command=prompt_text.yview, style="Vertical.TScrollbar")
+        prompt_scroll.grid(row=0, column=1, sticky="ns")
         prompt_text.configure(yscrollcommand=prompt_scroll.set)
 
         def build_prompt_content():
@@ -1526,7 +1675,7 @@ class DocView(ttk.Frame):
                 return
             prompt_placeholder_active["value"] = True
             entry.configure(fg=Styles.COLOR_DIM)
-            functionality_var.set(prompt_title_var.get())
+            functionality_var.set("Escribe aquí el contexto que sustituirá el marcador de la plantilla")
 
         def hide_prompt_placeholder():
             if not prompt_placeholder_active["value"]:
@@ -1535,14 +1684,23 @@ class DocView(ttk.Frame):
             entry.configure(fg=Styles.COLOR_FG_TEXT)
             functionality_var.set("")
 
+        def update_prompt_metrics():
+            content = prompt_text.get("1.0", "end-1c")
+            line_count = int(prompt_text.index("end-1c").split(".")[0]) if content else 0
+            prompt_metrics_var.set(f"{line_count} líneas · {len(content)} caracteres")
+
         def refresh_prompt(event=None):
             prompt_text.delete("1.0", tk.END)
             prompt_text.insert("1.0", build_prompt_content())
+            update_prompt_metrics()
 
         def sync_prompt_selector():
             config = prompt_configs[prompt_index["value"]]
             prompt_title_var.set(f"Prompt: {config['name']}")
             input_label_var.set(config["input_label"])
+            selector_count_var.set(f"{prompt_index['value'] + 1}/{len(prompt_configs)}")
+            placeholder_hint_var.set(f"Marcador: {config['placeholder']}")
+            prompt_status_var.set("Lista para copiar")
             dialog.title(prompt_title_var.get())
             if prompt_placeholder_active["value"] or not functionality_var.get().strip():
                 functionality_var.set("")
@@ -1587,11 +1745,21 @@ class DocView(ttk.Frame):
             except Exception as e:
                 messagebox.showerror("Error", f"No se pudo copiar el prompt: {e}")
 
-        button_row = ttk.Frame(wrapper, style="Main.TFrame")
+        button_row = tk.Frame(wrapper, bg=Styles.COLOR_BG_MAIN, bd=0)
         button_row.pack(fill="x")
+        button_row.columnconfigure(0, weight=1)
+
+        tk.Label(
+            button_row,
+            textvariable=prompt_status_var,
+            bg=Styles.COLOR_BG_MAIN,
+            fg=Styles.COLOR_DIM,
+            font=Styles.scale_font(Styles.ui_font(11)),
+            anchor="w"
+        ).grid(row=0, column=0, sticky="w")
 
         button_group = ttk.Frame(button_row, style="Main.TFrame")
-        button_group.pack(side="right")
+        button_group.grid(row=0, column=1, sticky="e")
         button_group.columnconfigure(0, weight=1, uniform="prompt_actions")
         button_group.columnconfigure(1, minsize=8)
         button_group.columnconfigure(2, weight=1, uniform="prompt_actions")
@@ -1623,6 +1791,7 @@ class DocView(ttk.Frame):
         button_group.columnconfigure(2, minsize=max_button_width)
 
         functionality_var.trace_add("write", lambda *_: refresh_prompt())
+        prompt_text.bind("<KeyRelease>", lambda event: update_prompt_metrics())
         entry.bind("<FocusIn>", on_entry_focus_in)
         entry.bind("<FocusOut>", on_entry_focus_out)
         dialog.bind("<Escape>", lambda event: dialog.destroy())
@@ -1632,6 +1801,7 @@ class DocView(ttk.Frame):
         dialog.bind("<Command-Right>", on_next_prompt)
         sync_prompt_selector()
         refresh_prompt()
+        entry.focus_set()
 
     def _display_message(self, message):
 

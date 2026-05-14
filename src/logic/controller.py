@@ -7,6 +7,8 @@ from src.logic.editor_launcher import open_file_in_running_editor, reveal_file_i
 from src.logic.global_hotkeys import GlobalHotkeyListener
 from src.logic.prompt_rules import get_file_path_comment_inline_instruction
 from src.ui.styles import Styles
+from src.logic.app_paths import project_root
+from datetime import datetime
 import os
 import pyperclip
 import importlib
@@ -27,6 +29,9 @@ class Controller:
         "[MODIFICACIÓN]."
     )
     DYNAMIC_PASTE_ADVANCE_DELAY_MS = 180
+    CODE_MEMORY_DIR_NAME = "memoria"
+    CODE_MEMORY_BACKUP_PREFIX = "copia-"
+    CODE_MEMORY_MAX_BACKUPS = 30
 
     def __init__(self, app):
         """
@@ -180,6 +185,43 @@ class Controller:
         new_idx = dirs.index(path)
         self.config_manager.set_current_project_index(new_idx)
         self.load_project_folder(path)
+
+    def remove_current_project_directory(self):
+        """Removes the currently selected project from the registered list."""
+        dirs = list(self.config_manager.get_project_directories())
+        if not dirs:
+            return False
+
+        current_idx = self.config_manager.get_current_project_index()
+        current_idx = current_idx % len(dirs)
+        dirs.pop(current_idx)
+        self.config_manager.set_project_directories(dirs)
+
+        if not dirs:
+            self.config_manager.set_current_project_index(0)
+            self.config_manager.set_last_project(None)
+            self.project_manager.current_project_path = None
+            self.project_manager.files = []
+            self.app.root.title("Programita 2")
+            if hasattr(self.app.layout, "code_view"):
+                self.app.layout.code_view.refresh_file_list()
+                self.app.layout.code_view._update_project_label()
+            return True
+
+        new_idx = min(current_idx, len(dirs) - 1)
+        self.config_manager.set_current_project_index(new_idx)
+        next_path = dirs[new_idx]
+        if os.path.isdir(next_path):
+            self.load_project_folder(next_path)
+        else:
+            self.config_manager.set_last_project(None)
+            self.project_manager.current_project_path = None
+            self.project_manager.files = []
+            self.app.root.title("Programita 2")
+            if hasattr(self.app.layout, "code_view"):
+                self.app.layout.code_view.refresh_file_list()
+                self.app.layout.code_view._update_project_label()
+        return True
 
     def generate_prompt(
         self,
@@ -731,6 +773,237 @@ class Controller:
             return True, folder_path
         except Exception as e:
             return False, str(e)
+
+    def create_code_memory_backup(self, files_data):
+        """Copies the listed Code-view files into a timestamped local memory backup."""
+        try:
+            files_to_copy = self._normalize_code_memory_files(files_data)
+            if not files_to_copy:
+                return True, None
+
+            memory_root = self._get_code_memory_root()
+            os.makedirs(memory_root, exist_ok=True)
+
+            backup_dir = self._build_unique_code_memory_backup_dir(memory_root)
+            os.makedirs(backup_dir, exist_ok=False)
+
+            used_targets = set()
+            for file_info in files_to_copy:
+                rel_path = self._get_code_memory_rel_path(file_info)
+                target_path = self._build_safe_code_memory_target(backup_dir, rel_path, used_targets)
+                os.makedirs(os.path.dirname(target_path), exist_ok=True)
+
+                source_path = file_info.get("path")
+                if source_path and os.path.isfile(source_path):
+                    shutil.copy2(source_path, target_path)
+                else:
+                    with open(target_path, "w", encoding="utf-8") as f:
+                        f.write(file_info.get("content", "") or "")
+
+            self._prune_code_memory_backups(memory_root)
+            return True, backup_dir
+        except Exception as e:
+            return False, str(e)
+
+    def list_code_memory_backups(self):
+        """Returns available memory backups newest first."""
+        memory_root = self._get_code_memory_root()
+        if not os.path.isdir(memory_root):
+            return []
+
+        backups = []
+        try:
+            entries = os.listdir(memory_root)
+        except OSError:
+            return []
+
+        for name in entries:
+            if not name.startswith(self.CODE_MEMORY_BACKUP_PREFIX):
+                continue
+            path = os.path.join(memory_root, name)
+            if not os.path.isdir(path):
+                continue
+
+            try:
+                created_at = os.path.getmtime(path)
+            except OSError:
+                created_at = 0
+
+            backups.append({
+                "name": name,
+                "path": path,
+                "created_at": created_at,
+                "file_count": self._count_files_in_code_memory_backup(path),
+            })
+
+        backups.sort(key=lambda item: (item["created_at"], item["name"]), reverse=True)
+        return backups
+
+    def restore_code_memory_backup(self, backup_path):
+        """Restores all files from a memory backup into the current project."""
+        project_path = getattr(self.project_manager, "current_project_path", None)
+        if not project_path or not os.path.isdir(project_path):
+            return False, "No hay ningún proyecto cargado.", 0
+
+        backup_path = os.path.abspath(os.path.expanduser(str(backup_path or "")))
+        if not self._is_valid_code_memory_backup_path(backup_path):
+            return False, "La memoria seleccionada no es válida.", 0
+
+        restored_count = 0
+        errors = []
+        project_abs = os.path.abspath(project_path)
+
+        for root, _dirs, filenames in os.walk(backup_path):
+            for filename in filenames:
+                source_path = os.path.abspath(os.path.join(root, filename))
+                try:
+                    if os.path.commonpath([backup_path, source_path]) != backup_path:
+                        continue
+                    rel_path = os.path.relpath(source_path, backup_path)
+                    target_path = os.path.abspath(os.path.join(project_abs, rel_path))
+                    if os.path.commonpath([project_abs, target_path]) != project_abs:
+                        continue
+
+                    os.makedirs(os.path.dirname(target_path), exist_ok=True)
+                    shutil.copy2(source_path, target_path)
+                    restored_count += 1
+                except Exception as exc:
+                    errors.append(f"{filename}: {exc}")
+
+        if errors:
+            return False, "\n".join(errors[:10]), restored_count
+
+        try:
+            self.project_manager.load_project(project_path)
+        except Exception as exc:
+            return False, f"Los ficheros se restauraron, pero no se pudo recargar el proyecto: {exc}", restored_count
+
+        return True, backup_path, restored_count
+
+    def _get_code_memory_root(self):
+        """Returns the program-local memory directory used for code backups."""
+        return os.path.join(str(project_root()), self.CODE_MEMORY_DIR_NAME)
+
+    def _is_valid_code_memory_backup_path(self, backup_path):
+        memory_root = os.path.abspath(self._get_code_memory_root())
+        try:
+            if os.path.commonpath([memory_root, backup_path]) != memory_root:
+                return False
+        except ValueError:
+            return False
+
+        return (
+            os.path.isdir(backup_path)
+            and os.path.basename(backup_path).startswith(self.CODE_MEMORY_BACKUP_PREFIX)
+        )
+
+    def _count_files_in_code_memory_backup(self, backup_path):
+        total = 0
+        try:
+            for _root, _dirs, filenames in os.walk(backup_path):
+                total += len(filenames)
+        except OSError:
+            return 0
+        return total
+
+    def _build_unique_code_memory_backup_dir(self, memory_root):
+        timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+        base_name = f"{self.CODE_MEMORY_BACKUP_PREFIX}{timestamp}"
+        candidate = os.path.join(memory_root, base_name)
+        counter = 2
+        while os.path.exists(candidate):
+            candidate = os.path.join(memory_root, f"{base_name}_{counter}")
+            counter += 1
+        return candidate
+
+    def _normalize_code_memory_files(self, files_data):
+        normalized_files = []
+        seen = set()
+
+        for file_info in files_data or []:
+            if not isinstance(file_info, dict):
+                continue
+
+            source_path = file_info.get("path")
+            abs_source = os.path.abspath(source_path) if source_path else ""
+            rel_path = str(file_info.get("rel_path") or "").strip()
+            key = abs_source or rel_path
+            if not key or key in seen:
+                continue
+
+            if abs_source and not os.path.isfile(abs_source) and "content" not in file_info:
+                continue
+
+            seen.add(key)
+            normalized_files.append(file_info)
+
+        return normalized_files
+
+    def _get_code_memory_rel_path(self, file_info):
+        rel_path = str(file_info.get("rel_path") or "").strip()
+        source_path = file_info.get("path")
+
+        if rel_path and not os.path.isabs(rel_path):
+            return rel_path
+
+        project_path = getattr(self.project_manager, "current_project_path", None)
+        if source_path and project_path:
+            try:
+                abs_source = os.path.abspath(source_path)
+                abs_project = os.path.abspath(project_path)
+                if os.path.commonpath([abs_project, abs_source]) == abs_project:
+                    return os.path.relpath(abs_source, abs_project)
+            except Exception:
+                pass
+
+        if source_path:
+            return os.path.basename(source_path)
+        return os.path.basename(rel_path) or "archivo.txt"
+
+    def _build_safe_code_memory_target(self, backup_dir, rel_path, used_targets):
+        clean_parts = []
+        for part in str(rel_path or "").replace("\\", "/").split("/"):
+            part = part.strip()
+            if not part or part in {".", ".."}:
+                continue
+            clean_parts.append(part)
+
+        if not clean_parts:
+            clean_parts = ["archivo.txt"]
+
+        candidate = os.path.abspath(os.path.join(backup_dir, *clean_parts))
+        backup_abs = os.path.abspath(backup_dir)
+        if os.path.commonpath([backup_abs, candidate]) != backup_abs:
+            candidate = os.path.join(backup_abs, os.path.basename(candidate) or "archivo.txt")
+
+        base_candidate = candidate
+        base, ext = os.path.splitext(base_candidate)
+        counter = 2
+        while candidate in used_targets:
+            candidate = f"{base}__{counter}{ext}"
+            counter += 1
+
+        used_targets.add(candidate)
+        return candidate
+
+    def _prune_code_memory_backups(self, memory_root):
+        backups = []
+        for name in os.listdir(memory_root):
+            if not name.startswith(self.CODE_MEMORY_BACKUP_PREFIX):
+                continue
+            path = os.path.join(memory_root, name)
+            if not os.path.isdir(path):
+                continue
+            try:
+                created_at = os.path.getmtime(path)
+            except OSError:
+                created_at = 0
+            backups.append((created_at, name, path))
+
+        backups.sort(key=lambda item: (item[0], item[1]))
+        excess_count = len(backups) - self.CODE_MEMORY_MAX_BACKUPS
+        for _created_at, _name, path in backups[:max(0, excess_count)]:
+            shutil.rmtree(path)
 
     def _get_flat_export_filename(self, rel_path, used_names):
         """Returns a safe filename for flat exports, avoiding collisions."""

@@ -1,6 +1,8 @@
 Pillow>=10.0.0
 pyperclip>=1.8.2
 pynput>=1.7.7
+pyobjc-framework-Quartz>=10.3; sys_platform == "darwin"
+pyobjc-framework-ApplicationServices>=10.3; sys_platform == "darwin"
 pywebview>=5.3.2
 markdown-it-py>=3.0.0
 tkinterweb>=4.3.1

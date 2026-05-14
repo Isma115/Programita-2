@@ -13,7 +13,7 @@ class ProjectManager:
     """
     IGNORED_DIRECTORIES = {
         '.git', '__pycache__', 'node_modules', 'venv', 'env',
-        '.idea', '.vscode', '.next', 'dist', 'build'
+        '.idea', '.vscode', '.next', 'dist', 'build', 'memoria'
     }
     
     # Supported code extensions

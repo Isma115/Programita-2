@@ -1,5 +1,6 @@
 import tkinter as tk
 from tkinter import messagebox, simpledialog
+from datetime import datetime
 import os
 from src.ui.styles import Styles
 from src.ui.layout import MainLayout
@@ -168,6 +169,11 @@ class Application:
             label="Recordar última vista (Código/Documentación)",
             variable=self.remember_last_main_view_var,
             command=self._on_toggle_remember_last_main_view
+        )
+        self.options_menu.add_separator()
+        self.options_menu.add_command(
+            label="Volver a memoria",
+            command=self._on_open_memory_restore_popup
         )
         self.options_menu.add_separator()
         self.options_menu.add_command(
@@ -405,6 +411,161 @@ class Application:
             return
 
         config.set_arbitrary_search_max_chars(new_max)
+
+    def _on_open_memory_restore_popup(self):
+        """Shows a popup with available memory backups to restore."""
+        backups = self.controller.list_code_memory_backups()
+
+        if not backups:
+            messagebox.showinfo("Volver a memoria", "No hay memorias disponibles.")
+            return
+
+        dialog = tk.Toplevel(self.root)
+        dialog.title("Volver a memoria")
+        dialog.transient(self.root)
+        dialog.grab_set()
+        dialog.configure(bg=Styles.COLOR_BG_MAIN)
+        dialog.minsize(560, 360)
+
+        width = 720
+        height = 420
+        self.root.update_idletasks()
+        pos_x = self.root.winfo_rootx() + max((self.root.winfo_width() - width) // 2, 0)
+        pos_y = self.root.winfo_rooty() + max((self.root.winfo_height() - height) // 3, 0)
+        dialog.geometry(f"{width}x{height}+{pos_x}+{pos_y}")
+
+        header = tk.Label(
+            dialog,
+            text="Selecciona la memoria a la que quieres volver:",
+            bg=Styles.COLOR_BG_MAIN,
+            fg=Styles.COLOR_FG_TEXT,
+            font=Styles.ui_font(13, "bold"),
+            anchor="w"
+        )
+        header.pack(fill="x", padx=16, pady=(16, 8))
+
+        list_frame = tk.Frame(dialog, bg=Styles.COLOR_BG_MAIN)
+        list_frame.pack(fill="both", expand=True, padx=16, pady=(0, 12))
+
+        scrollbar = tk.Scrollbar(list_frame, orient="vertical")
+        memory_list = tk.Listbox(
+            list_frame,
+            activestyle="dotbox",
+            bg=Styles.COLOR_INPUT_BG,
+            fg=Styles.COLOR_INPUT_FG,
+            selectbackground=Styles.COLOR_ACCENT,
+            selectforeground="#ffffff",
+            highlightthickness=1,
+            highlightbackground=Styles.COLOR_BORDER,
+            relief="flat",
+            font=Styles.ui_font(12),
+            yscrollcommand=scrollbar.set
+        )
+        scrollbar.config(command=memory_list.yview)
+        memory_list.pack(side="left", fill="both", expand=True)
+        scrollbar.pack(side="right", fill="y")
+
+        for backup in backups:
+            memory_list.insert(tk.END, self._format_memory_menu_label(backup))
+        memory_list.selection_set(0)
+        memory_list.activate(0)
+        memory_list.focus_set()
+
+        button_row = tk.Frame(dialog, bg=Styles.COLOR_BG_MAIN)
+        button_row.pack(fill="x", padx=16, pady=(0, 16))
+
+        def restore_selected(event=None):
+            selection = memory_list.curselection()
+            if not selection:
+                messagebox.showwarning("Volver a memoria", "Selecciona una memoria primero.")
+                return "break"
+
+            selected_backup = backups[int(selection[0])]
+            dialog.destroy()
+            self._on_restore_memory_backup(selected_backup)
+            return "break"
+
+        btn_cancel = tk.Button(
+            button_row,
+            text="Cancelar",
+            command=dialog.destroy,
+            bg=Styles.COLOR_BUTTON_BG,
+            fg=Styles.COLOR_FG_TEXT,
+            activebackground=Styles.COLOR_BUTTON_HOVER,
+            activeforeground=Styles.COLOR_FG_TEXT,
+            relief="flat",
+            padx=16,
+            pady=8
+        )
+        btn_cancel.pack(side="right", padx=(8, 0))
+
+        btn_restore = tk.Button(
+            button_row,
+            text="Volver",
+            command=restore_selected,
+            bg=Styles.COLOR_ACCENT,
+            fg="#ffffff",
+            activebackground=Styles.COLOR_ACCENT_HOVER,
+            activeforeground="#ffffff",
+            relief="flat",
+            padx=18,
+            pady=8
+        )
+        btn_restore.pack(side="right")
+
+        memory_list.bind("<Double-Button-1>", restore_selected)
+        dialog.bind("<Return>", restore_selected)
+        dialog.bind("<Escape>", lambda event: dialog.destroy())
+
+    def _format_memory_menu_label(self, backup):
+        """Formats a backup entry for display."""
+        name = backup.get("name") or "memoria"
+        file_count = int(backup.get("file_count") or 0)
+        created_at = backup.get("created_at") or 0
+
+        if created_at:
+            try:
+                date_label = datetime.fromtimestamp(created_at).strftime("%Y-%m-%d %H:%M:%S")
+                return f"{name} · {date_label} · {file_count} fichero(s)"
+            except Exception:
+                pass
+
+        return f"{name} · {file_count} fichero(s)"
+
+    def _on_restore_memory_backup(self, backup):
+        """Confirms and restores a selected memory backup into the loaded project."""
+        project_path = getattr(self.controller.project_manager, "current_project_path", None)
+        if not project_path:
+            messagebox.showwarning("Volver a memoria", "No hay ningún proyecto cargado.")
+            return
+
+        backup_name = backup.get("name") or "memoria seleccionada"
+        file_count = int(backup.get("file_count") or 0)
+        confirmed = messagebox.askyesno(
+            "Volver a memoria",
+            f"Vas a volver a la memoria:\n\n{backup_name}\n\n"
+            f"Se sustituirán en el proyecto cargado los {file_count} fichero(s) guardados en esa memoria.\n"
+            "Esta acción sobrescribe el código actual de esos ficheros.\n\n"
+            "¿Quieres continuar?"
+        )
+        if not confirmed:
+            return
+
+        success, result, restored_count = self.controller.restore_code_memory_backup(backup.get("path"))
+        if hasattr(self.layout, "code_view"):
+            self.layout.code_view.refresh_file_list()
+
+        if not success:
+            messagebox.showerror(
+                "Volver a memoria",
+                f"No se pudo completar la restauración.\n\nFicheros restaurados: {restored_count}\n\n{result}"
+            )
+            return
+
+        messagebox.showinfo(
+            "Volver a memoria",
+            f"Memoria restaurada correctamente.\n\nFicheros restaurados: {restored_count}"
+        )
 
     def _on_remove_modification_comments(self):
         """Removes all comments containing [MODIFICACIÓN] from the loaded project."""

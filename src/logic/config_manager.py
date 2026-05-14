@@ -160,12 +160,14 @@ class ConfigManager:
 
     def set_last_project(self, path):
         """Sets the last opened project path and saves config."""
-        self.config["last_project"] = path
-        # Also register in project_directories if not already present
-        dirs = self.get_project_directories()
-        if path not in dirs:
-            dirs.append(path)
-            self.config["project_directories"] = dirs
+        normalized = self._normalize_path(path)
+        self.config["last_project"] = normalized
+        if normalized:
+            # Also register in project_directories if not already present
+            dirs = self.get_project_directories()
+            if normalized not in dirs:
+                dirs.append(normalized)
+                self.config["project_directories"] = dirs
         self.save_config()
 
     def get_project_directories(self):
@@ -464,7 +466,7 @@ class ConfigManager:
     def get_doc_view_settings(self):
         """Returns the saved DocView settings or default values."""
         return self.config.get("doc_view_settings", {
-            "is_dark_mode": False,
+            "is_dark_mode": True,
             "is_editor_mode": False,
             "code_sash_ratio": 0.7,
             "is_fullscreen_mode": False,

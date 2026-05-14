@@ -614,6 +614,16 @@ class CodeView(ttk.Frame):
         self.btn_add_project.pack(side="left", padx=(6, 0))
         attach_tooltip(self.btn_add_project, "Añadir proyecto")
 
+        self.btn_remove_project = ttk.Button(
+            self.project_bar,
+            text="-",
+            style="AddProject.TButton",
+            width=2,
+            command=self._on_remove_project
+        )
+        self.btn_remove_project.pack(side="left", padx=(6, 0))
+        attach_tooltip(self.btn_remove_project, "Descargar proyecto")
+
         self.btn_change_sections_dir = ttk.Button(
             self.project_bar,
             text="",
@@ -3186,9 +3196,25 @@ class CodeView(ttk.Frame):
         if path:
             self.controller.add_project_directory(path)
 
+    def _on_remove_project(self):
+        """Removes the current project from the switcher list."""
+        dirs = self.controller.get_project_directories()
+        if not dirs:
+            messagebox.showwarning("Aviso", "No hay ningún proyecto para descargar.")
+            return
+        self.controller.remove_current_project_directory()
+
     def _update_project_label(self):
         """Updates the project name label and arrow button states."""
         dirs = self.controller.get_project_directories()
+        has_multiple = len(dirs) > 1
+        if hasattr(self, "btn_prev_project"):
+            self.btn_prev_project.config(state="normal" if has_multiple else "disabled")
+        if hasattr(self, "btn_next_project"):
+            self.btn_next_project.config(state="normal" if has_multiple else "disabled")
+        if hasattr(self, "btn_remove_project"):
+            self.btn_remove_project.config(state="normal" if dirs else "disabled")
+
         if not dirs:
             self.lbl_project_name.config(text="Sin proyecto")
             return
@@ -4862,6 +4888,9 @@ class CodeView(ttk.Frame):
                 f"Código de Contexto:\n{segment_code}"
             )
 
+            if not self._create_memory_backup_for_current_code_list():
+                return
+
             try:
                 self.clipboard_clear()
                 self.clipboard_append(clipboard_content)
@@ -4898,6 +4927,9 @@ class CodeView(ttk.Frame):
                 return_chunks,
                 return_regions
             )
+            if not self._create_memory_backup_for_current_code_list():
+                return
+
             try:
                 self.clipboard_clear()
                 self.clipboard_append(clipboard_content)
@@ -4921,6 +4953,9 @@ class CodeView(ttk.Frame):
 
         selected_files_data = self._get_files_for_prompt()
         selected_file_paths = [f['path'] for f in selected_files_data]
+
+        if not self._create_memory_backup_for_current_code_list():
+            return
 
         # Resolve AI selection (auto mode or manual)
         selected_ai = self.cmb_ai.get()
@@ -5009,6 +5044,81 @@ class CodeView(ttk.Frame):
                 selected_files_data.append(files_map[file_path])
 
         return selected_files_data
+
+    def _create_memory_backup_for_current_code_list(self):
+        """Creates a safety copy of every file currently listed in the Code view."""
+        files_to_backup = self._get_listed_file_infos_for_memory_backup()
+        if not files_to_backup:
+            return True
+
+        if not hasattr(self.controller, "create_code_memory_backup"):
+            messagebox.showerror("Error", "No está disponible la copia de seguridad de memoria.")
+            return False
+
+        success, result = self.controller.create_code_memory_backup(files_to_backup)
+        if not success:
+            messagebox.showerror(
+                "Error",
+                f"No se pudo crear la copia de seguridad en memoria:\n{result}"
+            )
+            return False
+
+        if result:
+            print(f"Memoria: copia creada en {result} con {len(files_to_backup)} fichero(s).")
+        return True
+
+    def _get_listed_file_infos_for_memory_backup(self):
+        """Returns de-duplicated file payloads for all visible rows in the Code list."""
+        if not hasattr(self, "tree"):
+            return []
+
+        project_manager = getattr(self.controller, "project_manager", None)
+        all_files = list(project_manager.get_files()) if project_manager else []
+        files_by_path = {
+            os.path.abspath(file_info.get("path")): file_info
+            for file_info in all_files
+            if file_info.get("path")
+        }
+
+        project_root = getattr(project_manager, "current_project_path", None) if project_manager else None
+        listed_files = []
+        seen_paths = set()
+
+        for item_id in self.tree.get_children():
+            region = self._get_region_row_item(item_id)
+            file_path = region.get("file_path") if region else self._get_tree_item_path(item_id)
+            if not file_path:
+                continue
+
+            abs_path = os.path.abspath(file_path)
+            if abs_path in seen_paths:
+                continue
+
+            file_info = files_by_path.get(abs_path)
+            if file_info is None and os.path.isfile(abs_path):
+                file_info = {
+                    "path": abs_path,
+                    "rel_path": self._get_backup_rel_path_for_untracked_file(abs_path, project_root),
+                }
+
+            if file_info is None:
+                continue
+
+            seen_paths.add(abs_path)
+            listed_files.append(file_info)
+
+        return listed_files
+
+    def _get_backup_rel_path_for_untracked_file(self, file_path, project_root):
+        if project_root:
+            try:
+                abs_project = os.path.abspath(project_root)
+                abs_file = os.path.abspath(file_path)
+                if os.path.commonpath([abs_project, abs_file]) == abs_project:
+                    return os.path.relpath(abs_file, abs_project)
+            except Exception:
+                pass
+        return os.path.basename(file_path)
 
     def _get_regions_for_prompt(self):
         """Returns selected detected regions or, if none selected, all visible region rows."""
