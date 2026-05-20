@@ -3452,7 +3452,7 @@ class CodeView(ttk.Frame):
                 continue
             region_copy = dict(region)
             region_copy["_prompt_highlight_tokens"] = self._find_region_prompt_highlight_tokens(
-                query_keywords,
+                query_tokens,
                 region_copy.get("header") or region_copy.get("name") or ""
             )
             if not normalized_query:
@@ -3528,15 +3528,15 @@ class CodeView(ttk.Frame):
             ),
         )
 
-    def _find_region_prompt_highlight_tokens(self, query_keywords, region_header):
-        """Returns normalized header words that also appear in the prompt, excluding stop-words."""
-        if not query_keywords:
+    def _find_region_prompt_highlight_tokens(self, query_tokens, region_header):
+        """Returns normalized header words that also appear in the prompt, including stop-words."""
+        if not query_tokens:
             return ()
 
         header_tokens = []
         seen_tokens = set()
-        for token in tokenize_region_match_text(region_header, exclude_stop_words=True):
-            if token in query_keywords and token not in seen_tokens:
+        for token in tokenize_region_match_text(region_header):
+            if token in query_tokens and token not in seen_tokens:
                 seen_tokens.add(token)
                 header_tokens.append(token)
         return tuple(header_tokens)

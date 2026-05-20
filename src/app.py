@@ -119,6 +119,9 @@ class Application:
         self.remember_last_main_view_var = tk.BooleanVar(
             value=self.controller.config_manager.get_remember_last_main_view()
         )
+        self.clever_injection_var = tk.BooleanVar(
+            value=self.controller.config_manager.get_clever_injection_enabled()
+        )
 
         self.menu_bar = tk.Menu(self.root)
         self.output_menu = tk.Menu(self.menu_bar, tearoff=0)
@@ -169,6 +172,11 @@ class Application:
             label="Recordar última vista (Código/Documentación)",
             variable=self.remember_last_main_view_var,
             command=self._on_toggle_remember_last_main_view
+        )
+        self.options_menu.add_checkbutton(
+            label="Inyección inteligente",
+            variable=self.clever_injection_var,
+            command=self._on_toggle_clever_injection
         )
         self.options_menu.add_separator()
         self.options_menu.add_command(
@@ -265,6 +273,12 @@ class Application:
         if should_remember and hasattr(self, "layout"):
             active_view = self.layout.get_active_main_view()
             self.controller.config_manager.set_last_main_view(active_view)
+
+    def _on_toggle_clever_injection(self):
+        """Persists whether Clever SUS should run before Arbitrary SUS."""
+        self.controller.config_manager.set_clever_injection_enabled(
+            self.clever_injection_var.get()
+        )
 
     def _set_code_file_limits(self, min_limit=None, max_limit=None, preferred="min", refresh=True):
         """Updates Code View min/max file limits, even if the view is not available yet."""

@@ -114,6 +114,9 @@ class ConfigManager:
         if "last_main_view" not in self.config:
             self.config["last_main_view"] = "docs"
             migrated = True
+        if "clever_injection_enabled" not in self.config:
+            self.config["clever_injection_enabled"] = False
+            migrated = True
 
         for legacy_key in ("return_structures",):
             if legacy_key in self.config:
@@ -360,6 +363,15 @@ class ConfigManager:
         self.config["export_prompts_as_folder"] = bool(value)
         self.save_config()
 
+    def get_clever_injection_enabled(self):
+        """Returns whether Clever SUS should run before Arbitrary SUS."""
+        return bool(self.config.get("clever_injection_enabled", False))
+
+    def set_clever_injection_enabled(self, value):
+        """Sets whether Clever SUS should run before Arbitrary SUS."""
+        self.config["clever_injection_enabled"] = bool(value)
+        self.save_config()
+
     def get_return_files(self):
         """Returns whether prompts should ask for complete modified files."""
         return bool(self.config.get("return_files", False))
@@ -470,7 +482,8 @@ class ConfigManager:
             "is_editor_mode": False,
             "code_sash_ratio": 0.7,
             "is_fullscreen_mode": False,
-            "markdown_preview_zoom": 1.2
+            "markdown_preview_zoom": 1.2,
+            "markdown_editor_font_size": 12
         })
 
     def set_doc_view_settings(
@@ -479,7 +492,8 @@ class ConfigManager:
         is_editor_mode,
         code_sash_ratio=None,
         is_fullscreen_mode=None,
-        markdown_preview_zoom=None
+        markdown_preview_zoom=None,
+        markdown_editor_font_size=None
     ):
         """Sets the DocView settings and saves config."""
         settings = {
@@ -511,6 +525,17 @@ class ConfigManager:
                 settings["markdown_preview_zoom"] = float(prev.get("markdown_preview_zoom", 1.2))
             except Exception:
                 settings["markdown_preview_zoom"] = 1.2
+        if markdown_editor_font_size is not None:
+            try:
+                settings["markdown_editor_font_size"] = int(markdown_editor_font_size)
+            except Exception:
+                settings["markdown_editor_font_size"] = 12
+        else:
+            prev = self.config.get("doc_view_settings", {})
+            try:
+                settings["markdown_editor_font_size"] = int(prev.get("markdown_editor_font_size", 12))
+            except Exception:
+                settings["markdown_editor_font_size"] = 12
         self.config["doc_view_settings"] = settings
         self.save_config()
 

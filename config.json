@@ -1,9 +1,11 @@
 {
-    "last_project": "/Users/ismaelmoraledalopez/Desktop/pruebas/InstaTicket",
+    "last_project": "/Users/ismaelmoraledalopez/Desktop/pruebas/Porfofo",
     "file_limit": 50,
     "return_files": false,
-    "doc_path": "",
-    "doc_path_history": [],
+    "doc_path": "/Users/ismaelmoraledalopez/Documents/Documentacion Irrigation",
+    "doc_path_history": [
+        "/Users/ismaelmoraledalopez/Documents/Documentacion Irrigation"
+    ],
     "theme_colors": {
         "COLOR_ACCENT": "#1E90FF",
         "COLOR_ACCENT_HOVER": "#1873cc"
@@ -18,7 +20,7 @@
         "/Users/ismaelmoraledalopez/Desktop/pruebas/InstaTicket",
         "/Users/ismaelmoraledalopez/Desktop/pruebas/Porfofo"
     ],
-    "current_project_index": 5,
+    "current_project_index": 6,
     "db_config": {
         "host": "hidralab-server.mysql.database.azure.com",
         "port": "3306",
@@ -28,15 +30,16 @@
     },
     "doc_view_settings": {
         "is_dark_mode": true,
-        "is_editor_mode": false,
+        "is_editor_mode": true,
         "code_sash_ratio": 0.525503355704698,
         "is_fullscreen_mode": false,
-        "markdown_preview_zoom": 1.0
+        "markdown_preview_zoom": 1.0,
+        "markdown_editor_font_size": 12
     },
     "last_doc_section": "Gestor de Equipos",
     "last_code_section": "Asignar Volumen",
     "implementation_mode": false,
-    "last_doc_file": "",
+    "last_doc_file": "/Users/ismaelmoraledalopez/Documents/Documentacion Irrigation/Catastro.md",
     "sections_path": "/Users/ismaelmoraledalopez/Desktop/pruebas/Porfofo",
     "code_extensions_filter": "",
     "include_project_tree": false,
@@ -49,9 +52,10 @@
     "max_file_limit": 50,
     "max_file_limit_slider_max": 50,
     "region_list_limit": 9,
-    "region_list_auto_enabled": true,
+    "region_list_auto_enabled": false,
     "last_code_view_mode": "regions",
     "return_regions": false,
     "remember_last_main_view": true,
-    "last_main_view": "docs"
+    "last_main_view": "docs",
+    "clever_injection_enabled": true
 }

@@ -9,12 +9,17 @@ PYTHON_BIN="${PYTHON_BIN:-python3}"
 ICON_PNG="$ROOT_DIR/assets/icons/app_icon.png"
 ICON_ICNS="$ROOT_DIR/assets/icons/app_icon.icns"
 ICON_CONTENT_SCALE="${ICON_CONTENT_SCALE:-0.82}"
+PIP_CACHE_DIR="$ROOT_DIR/.pip-cache"
+PYINSTALLER_CONFIG_DIR="$ROOT_DIR/.pyinstaller"
 
 echo "==> Root: $ROOT_DIR"
 echo "==> Bundle ID: $APP_BUNDLE_ID"
 echo "==> Creating build venv at: $VENV_DIR"
 "$PYTHON_BIN" -m venv "$VENV_DIR"
 source "$VENV_DIR/bin/activate"
+mkdir -p "$PIP_CACHE_DIR" "$PYINSTALLER_CONFIG_DIR"
+export PIP_CACHE_DIR
+export PYINSTALLER_CONFIG_DIR
 
 echo "==> Installing dependencies"
 python -m pip install --upgrade pip setuptools wheel
@@ -44,11 +49,7 @@ if [[ ! -f "$ICON_PNG" ]]; then
 fi
 
 echo "==> Preparing app icon (.icns) from app_icon.png"
-ICON_TMP_DIR="$(mktemp -d)"
-ICONSET_DIR="$ICON_TMP_DIR/app_icon.iconset"
-ICON_PNG_PADDED="$ICON_TMP_DIR/app_icon_padded.png"
-mkdir -p "$ICONSET_DIR"
-python - "$ICON_PNG" "$ICON_PNG_PADDED" "$ICON_CONTENT_SCALE" <<'PY'
+python - "$ICON_PNG" "$ICON_ICNS" "$ICON_CONTENT_SCALE" <<'PY'
 from PIL import Image
 import sys
 
@@ -65,21 +66,12 @@ content = canvas.resize((content_side, content_side), Image.Resampling.LANCZOS)
 
 out = Image.new("RGBA", (side, side), (0, 0, 0, 0))
 out.alpha_composite(content, ((side - content_side) // 2, (side - content_side) // 2))
-out.save(dst)
+out.save(
+    dst,
+    format="ICNS",
+    sizes=[(16, 16), (32, 32), (64, 64), (128, 128), (256, 256), (512, 512), (1024, 1024)],
+)
 PY
-
-sips -z 16 16     "$ICON_PNG_PADDED" --out "$ICONSET_DIR/icon_16x16.png" >/dev/null
-sips -z 32 32     "$ICON_PNG_PADDED" --out "$ICONSET_DIR/icon_16x16@2x.png" >/dev/null
-sips -z 32 32     "$ICON_PNG_PADDED" --out "$ICONSET_DIR/icon_32x32.png" >/dev/null
-sips -z 64 64     "$ICON_PNG_PADDED" --out "$ICONSET_DIR/icon_32x32@2x.png" >/dev/null
-sips -z 128 128   "$ICON_PNG_PADDED" --out "$ICONSET_DIR/icon_128x128.png" >/dev/null
-sips -z 256 256   "$ICON_PNG_PADDED" --out "$ICONSET_DIR/icon_128x128@2x.png" >/dev/null
-sips -z 256 256   "$ICON_PNG_PADDED" --out "$ICONSET_DIR/icon_256x256.png" >/dev/null
-sips -z 512 512   "$ICON_PNG_PADDED" --out "$ICONSET_DIR/icon_256x256@2x.png" >/dev/null
-sips -z 512 512   "$ICON_PNG_PADDED" --out "$ICONSET_DIR/icon_512x512.png" >/dev/null
-sips -z 1024 1024 "$ICON_PNG_PADDED" --out "$ICONSET_DIR/icon_512x512@2x.png" >/dev/null
-iconutil -c icns "$ICONSET_DIR" -o "$ICON_ICNS"
-rm -rf "$ICON_TMP_DIR"
 
 echo "==> Cleaning previous artifacts"
 rm -rf "$ROOT_DIR/build" "$ROOT_DIR/dist"

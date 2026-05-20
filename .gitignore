@@ -4,6 +4,8 @@
 dist/
 /.venv-build/
 .venv-build/
+/.pip-cache/
+/.pyinstaller/
 /*.spec
 
 # Python cache

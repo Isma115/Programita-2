@@ -8,6 +8,7 @@ import logging
 import re
 import time
 import shutil
+from difflib import SequenceMatcher
 from urllib.parse import quote, unquote
 from html import escape as html_escape
 from src.logic.prompt_rules import ensure_file_path_comment_instruction
@@ -114,6 +115,10 @@ class DocView(ttk.Frame):
     MARKDOWN_PREVIEW_ZOOM_STEP = 0.1
     MARKDOWN_PREVIEW_ZOOM_MIN = 0.8
     MARKDOWN_PREVIEW_ZOOM_MAX = 2.2
+    MARKDOWN_EDITOR_FONT_SIZE_DEFAULT = 12
+    MARKDOWN_EDITOR_FONT_SIZE_STEP = 1
+    MARKDOWN_EDITOR_FONT_SIZE_MIN = 9
+    MARKDOWN_EDITOR_FONT_SIZE_MAX = 32
     DEFAULT_SECTIONS_PANEL_WIDTH = 340
     FULLSCREEN_ENTER_SVG = """
     <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="#f2f3f5" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round">
@@ -163,6 +168,7 @@ class DocView(ttk.Frame):
         self.doc_path_options = {}
         self.markdown_preview_zoom = self.MARKDOWN_PREVIEW_ZOOM
         self.markdown_preview_fontscale = self.MARKDOWN_PREVIEW_FONTSCALE
+        self.markdown_editor_font_size = self.MARKDOWN_EDITOR_FONT_SIZE_DEFAULT
         self.code_font_family = self._resolve_code_font_family()
         self.doc_sidebar_font_family = self._resolve_doc_sidebar_font_family()
         self.code_font_size = ARB_FONT_CODE[1] if ARB_FONT_CODE else 14
@@ -171,6 +177,9 @@ class DocView(ttk.Frame):
         self._doc_tree_drag_start = None
         self._doc_tree_drag_active = False
         self._doc_tree_drop_target = None
+        self.advanced_doc_search_var = tk.BooleanVar(value=False)
+        self._doc_search_content_cache = {}
+        self._doc_search_placeholder_active = False
 
         try:
             self.controller = parent.master.controller
@@ -190,9 +199,14 @@ class DocView(ttk.Frame):
             self.code_sash_ratio = settings.get("code_sash_ratio", 0.7)
             self.is_fullscreen_mode = settings.get("is_fullscreen_mode", False)
             self.markdown_preview_zoom = settings.get("markdown_preview_zoom", self.MARKDOWN_PREVIEW_ZOOM)
+            self.markdown_editor_font_size = settings.get(
+                "markdown_editor_font_size",
+                self.MARKDOWN_EDITOR_FONT_SIZE_DEFAULT
+            )
         else:
             self.code_sash_ratio = 0.7
             self.markdown_preview_zoom = self.MARKDOWN_PREVIEW_ZOOM
+            self.markdown_editor_font_size = self.MARKDOWN_EDITOR_FONT_SIZE_DEFAULT
         try:
             self.code_sash_ratio = float(self.code_sash_ratio)
         except Exception:
@@ -207,6 +221,14 @@ class DocView(ttk.Frame):
             min(self.markdown_preview_zoom, self.MARKDOWN_PREVIEW_ZOOM_MAX)
         )
         self.markdown_preview_fontscale = self._compute_markdown_preview_fontscale(self.markdown_preview_zoom)
+        try:
+            self.markdown_editor_font_size = int(self.markdown_editor_font_size)
+        except Exception:
+            self.markdown_editor_font_size = self.MARKDOWN_EDITOR_FONT_SIZE_DEFAULT
+        self.markdown_editor_font_size = max(
+            self.MARKDOWN_EDITOR_FONT_SIZE_MIN,
+            min(self.markdown_editor_font_size, self.MARKDOWN_EDITOR_FONT_SIZE_MAX)
+        )
 
         self._load_icons()
         self._create_layout()
@@ -511,7 +533,7 @@ class DocView(ttk.Frame):
 
         self.txt_content = tk.Text(
             self.editor_frame,
-            font=("Consolas", 12),
+            font=(self.code_font_family, self.markdown_editor_font_size),
             bg=Styles.COLOR_INPUT_BG,
             fg=Styles.COLOR_FG_TEXT,
             insertbackground="white",
@@ -529,6 +551,7 @@ class DocView(ttk.Frame):
         self.txt_content.bind("<Command-s>", self._on_save_doc_shortcut)
         self.txt_content.bind("<Command-z>", self._on_undo_markdown_shortcut)
         self.txt_content.bind("<Command-y>", self._on_redo_markdown_shortcut)
+        self._bind_markdown_editor_zoom_controls()
 
         # 2. Previewer (Visible by default)
         self.preview_frame = ttk.Frame(self.left_content_frame, style="Main.TFrame")
@@ -658,18 +681,14 @@ class DocView(ttk.Frame):
         )
         self.section_search_shell.pack(fill="x", padx=8, pady=(4, 6))
 
-        self.section_search_label = tk.Label(
+        self.section_search_input_row = tk.Frame(
             self.section_search_shell,
-            text="Buscar...",
-            bg=Styles.COLOR_BG_SIDEBAR,
-            fg=Styles.COLOR_DIM,
-            font=(self.doc_sidebar_font_family, 13, "bold"),
-            anchor="w"
+            bg=Styles.COLOR_BG_SIDEBAR
         )
-        self.section_search_label.pack(fill="x", padx=10, pady=(8, 0))
+        self.section_search_input_row.pack(fill="x", padx=10, pady=(10, 10))
 
         self.section_search_entry = tk.Entry(
-            self.section_search_shell,
+            self.section_search_input_row,
             font=(self.doc_sidebar_font_family, 15),
             bg=Styles.COLOR_INPUT_BG,
             fg=Styles.COLOR_INPUT_FG,
@@ -678,8 +697,34 @@ class DocView(ttk.Frame):
             bd=0,
             highlightthickness=0
         )
-        self.section_search_entry.pack(fill="x", padx=10, pady=(6, 10), ipady=8)
+        self.section_search_entry.pack(side="left", fill="x", expand=True, padx=(0, 8), ipady=8)
         self.section_search_entry.bind("<KeyRelease>", self._on_section_search_change)
+        self.section_search_entry.bind("<FocusIn>", self._on_doc_search_focus_in)
+        self.section_search_entry.bind("<FocusOut>", self._on_doc_search_focus_out)
+
+        self.advanced_search_toggle = tk.Label(
+            self.section_search_input_row,
+            text="",
+            width=2,
+            font=(self.doc_sidebar_font_family, 11, "bold"),
+            bg=Styles.COLOR_BG_SIDEBAR,
+            fg=Styles.COLOR_DIM,
+            highlightthickness=1,
+            highlightbackground=Styles.COLOR_BORDER,
+            highlightcolor=Styles.COLOR_ACCENT,
+            bd=0,
+            padx=8,
+            pady=8,
+            cursor="hand2"
+        )
+        self.advanced_search_toggle.pack(side="right")
+        self.advanced_search_toggle.bind("<Button-1>", lambda _e: self._toggle_advanced_doc_search())
+        attach_tooltip(
+            self.advanced_search_toggle,
+            "Búsqueda avanzada: por similitud en todos los documentos"
+        )
+        self._show_doc_search_placeholder()
+        self._update_advanced_doc_search_toggle()
 
         # Section Tree (replaces Listbox for hierarchical support)
         self.section_tree = ttk.Treeview(
@@ -712,6 +757,7 @@ class DocView(ttk.Frame):
         # Context Menu for Sections (same as CodeView)
         self.context_menu = tk.Menu(self, tearoff=0)
         self.context_menu.add_command(label="Nueva Sección", command=self._on_add_section)
+        self.context_menu.add_command(label="Crear documento nuevo", command=self._on_new_doc)
         self.context_menu.add_separator()
         self.context_menu.add_command(label="Editar", command=self._on_edit_section)
         self.context_menu.add_command(label="Eliminar", command=self._on_delete_section)
@@ -871,6 +917,72 @@ class DocView(ttk.Frame):
             or self._is_descendant_widget(focus_widget, html_widget)
         )
 
+    def _is_markdown_editor_active(self):
+        if not self.is_editor_mode or not self.editor_frame.winfo_ismapped():
+            return False
+
+        focus_widget = self._safe_focus_get()
+        return (
+            self._is_descendant_widget(focus_widget, self.editor_frame)
+            or self._is_descendant_widget(focus_widget, self.txt_content)
+        )
+
+    def _bind_markdown_editor_zoom_controls(self):
+        bindings = [
+            ("<Control-plus>", self._zoom_in_markdown_editor),
+            ("<Control-equal>", self._zoom_in_markdown_editor),
+            ("<Control-KP_Add>", self._zoom_in_markdown_editor),
+            ("<Command-plus>", self._zoom_in_markdown_editor),
+            ("<Command-equal>", self._zoom_in_markdown_editor),
+            ("<Command-KP_Add>", self._zoom_in_markdown_editor),
+            ("<Control-minus>", self._zoom_out_markdown_editor),
+            ("<Control-KP_Subtract>", self._zoom_out_markdown_editor),
+            ("<Command-minus>", self._zoom_out_markdown_editor),
+            ("<Command-KP_Subtract>", self._zoom_out_markdown_editor),
+            ("<Control-0>", self._reset_markdown_editor_zoom),
+            ("<Control-KP_0>", self._reset_markdown_editor_zoom),
+            ("<Command-0>", self._reset_markdown_editor_zoom),
+            ("<Command-KP_0>", self._reset_markdown_editor_zoom),
+        ]
+        for sequence, handler in bindings:
+            try:
+                self.txt_content.bind(sequence, handler, add="+")
+            except Exception:
+                pass
+
+    def _apply_markdown_editor_font_size(self):
+        self.markdown_editor_font_size = max(
+            self.MARKDOWN_EDITOR_FONT_SIZE_MIN,
+            min(self.markdown_editor_font_size, self.MARKDOWN_EDITOR_FONT_SIZE_MAX)
+        )
+        try:
+            self.txt_content.configure(font=(self.code_font_family, self.markdown_editor_font_size))
+        except Exception:
+            return
+        self._configure_markdown_tags()
+        self._save_settings()
+
+    def _zoom_in_markdown_editor(self, event=None):
+        if not self._is_markdown_editor_active():
+            return None
+        self.markdown_editor_font_size += self.MARKDOWN_EDITOR_FONT_SIZE_STEP
+        self._apply_markdown_editor_font_size()
+        return "break"
+
+    def _zoom_out_markdown_editor(self, event=None):
+        if not self._is_markdown_editor_active():
+            return None
+        self.markdown_editor_font_size -= self.MARKDOWN_EDITOR_FONT_SIZE_STEP
+        self._apply_markdown_editor_font_size()
+        return "break"
+
+    def _reset_markdown_editor_zoom(self, event=None):
+        if not self._is_markdown_editor_active():
+            return None
+        self.markdown_editor_font_size = self.MARKDOWN_EDITOR_FONT_SIZE_DEFAULT
+        self._apply_markdown_editor_font_size()
+        return "break"
+
     def _compute_markdown_preview_fontscale(self, zoom_value):
         return 1.0 + ((zoom_value - 1.0) * 0.4)
 
@@ -916,6 +1028,141 @@ class DocView(ttk.Frame):
         if selected:
             preferred_path = selected[0]
         self._refresh_sections(preferred_path=preferred_path)
+
+    def _toggle_advanced_doc_search(self):
+        self.advanced_doc_search_var.set(not self.advanced_doc_search_var.get())
+        if self._doc_search_placeholder_active or not self.section_search_entry.get().strip():
+            self._show_doc_search_placeholder(force=True)
+        self._update_advanced_doc_search_toggle()
+        preferred_path = None
+        selected = self.section_tree.selection() if hasattr(self, "section_tree") else ()
+        if selected:
+            preferred_path = selected[0]
+        self._refresh_sections(preferred_path=preferred_path)
+
+    def _update_advanced_doc_search_toggle(self):
+        enabled = bool(self.advanced_doc_search_var.get())
+        bg_color = "#2f4057" if not enabled else "#1f6feb"
+        border_color = "#49648a" if not enabled else "#3b82f6"
+        fg_color = "#d9e2ef" if not enabled else "#ffffff"
+        self.advanced_search_toggle.configure(
+            text="✓" if enabled else "",
+            fg=fg_color,
+            bg=bg_color,
+            highlightbackground=border_color
+        )
+
+    def _get_doc_search_placeholder_text(self):
+        if self.advanced_doc_search_var.get():
+            return "Búsqueda avanzada..."
+        return "Buscar..."
+
+    def _show_doc_search_placeholder(self, force=False):
+        if not hasattr(self, "section_search_entry"):
+            return
+        if not force and self.section_search_entry.get().strip() and not self._doc_search_placeholder_active:
+            return
+        self.section_search_entry.delete(0, tk.END)
+        self.section_search_entry.insert(0, self._get_doc_search_placeholder_text())
+        self.section_search_entry.configure(fg=Styles.COLOR_DIM)
+        self._doc_search_placeholder_active = True
+
+    def _hide_doc_search_placeholder(self):
+        if not hasattr(self, "section_search_entry") or not self._doc_search_placeholder_active:
+            return
+        self.section_search_entry.delete(0, tk.END)
+        self.section_search_entry.configure(fg=Styles.COLOR_INPUT_FG)
+        self._doc_search_placeholder_active = False
+
+    def _on_doc_search_focus_in(self, event=None):
+        self._hide_doc_search_placeholder()
+
+    def _on_doc_search_focus_out(self, event=None):
+        if not hasattr(self, "section_search_entry"):
+            return
+        if not self.section_search_entry.get().strip():
+            self._show_doc_search_placeholder()
+
+    def _get_doc_search_query(self):
+        if not hasattr(self, "section_search_entry") or self._doc_search_placeholder_active:
+            return ""
+        return self._normalize_doc_search_text(self.section_search_entry.get())
+
+    def _normalize_doc_search_text(self, value):
+        value = (value or "").strip().lower()
+        return re.sub(r"\s+", " ", value)
+
+    def _read_text_document_for_search(self, full_path):
+        try:
+            stat = os.stat(full_path)
+        except Exception:
+            return ""
+
+        cache_key = (full_path, stat.st_mtime, stat.st_size)
+        cached = self._doc_search_content_cache.get(full_path)
+        if cached and cached.get("key") == cache_key:
+            return cached.get("content", "")
+
+        raw_content = ""
+        for encoding in ("utf-8", "latin-1"):
+            try:
+                with open(full_path, "r", encoding=encoding, errors="ignore") as f:
+                    raw_content = f.read()
+                break
+            except Exception:
+                continue
+
+        normalized = self._normalize_doc_search_text(raw_content)
+        self._doc_search_content_cache[full_path] = {"key": cache_key, "content": normalized}
+        return normalized
+
+    def _matches_advanced_doc_query(self, full_path, name, ext, query):
+        if not query:
+            return True
+
+        name_norm = self._normalize_doc_search_text(name)
+        if query in name_norm:
+            return True
+
+        tokens = [token for token in query.split(" ") if token]
+        if not tokens:
+            return True
+
+        name_hits = sum(1 for token in tokens if token in name_norm)
+        if name_hits / len(tokens) >= 0.7:
+            return True
+        if SequenceMatcher(None, query, name_norm).ratio() >= 0.72:
+            return True
+
+        text_search_exts = {".md", ".txt"}
+        if ext not in text_search_exts:
+            return False
+
+        content = self._read_text_document_for_search(full_path)
+        if not content:
+            return False
+        if query in content:
+            return True
+
+        content_hits = sum(1 for token in tokens if token in content)
+        if content_hits / len(tokens) >= 0.7:
+            return True
+
+        candidate_lines = []
+        for line in content.splitlines():
+            line = line.strip()
+            if not line:
+                continue
+            if any(token in line for token in tokens):
+                candidate_lines.append(line[:260])
+            if len(candidate_lines) >= 120:
+                break
+
+        for line in candidate_lines:
+            if SequenceMatcher(None, query, line).ratio() >= 0.78:
+                return True
+
+        return False
 
     def _on_doc_path_selected(self, event=None):
         selected_label = self.cmb_doc_paths.get().strip()
@@ -1404,6 +1651,18 @@ class DocView(ttk.Frame):
             "- Sin nada antes ni después de la lista."
         )
 
+    def _build_code_regions_prompt(self, target_name):
+        target_name = (target_name or "").strip()
+
+        return (
+            "Cada componente de este software tiene que estar delimitado por comentarios de regiones, "
+            "para tener cada componente separado (tanto código de componente, como estilos, como "
+            "funcionalidad, como backend, en caso de que tenga). Las descripciones de las regiones "
+            "tienen que dejar claro el componente exacto que se está delimitando y qué parte de código "
+            "(si es componente, estilo, backend o funcionalidad), así que aplica esto a la parte de "
+            f"{target_name}."
+        )
+
     def _open_prompt_builder(self):
         dialog = tk.Toplevel(self)
         dialog.title("Prompt")
@@ -1444,6 +1703,12 @@ class DocView(ttk.Frame):
                 "placeholder": "[PARTE_CODIGO]",
                 "builder": self._build_relevant_files_list_prompt,
                 "include_file_path_instruction": False,
+            },
+            {
+                "name": "Dividir en regiones",
+                "input_label": "Zona del código",
+                "placeholder": "[ZONA_CODIGO]",
+                "builder": self._build_code_regions_prompt,
             },
         ]
         prompt_index = {"value": 0}
@@ -2854,7 +3119,8 @@ class DocView(ttk.Frame):
             # Sort items: directories first, then files
             items.sort(key=lambda x: (not os.path.isdir(os.path.join(root_path, x)), x.lower()))
             
-            query = self.section_search_entry.get().strip().lower() if hasattr(self, "section_search_entry") else ""
+            query = self._get_doc_search_query()
+            advanced_search_enabled = bool(self.advanced_doc_search_var.get())
 
             for name in items:
                 if name.startswith('.'): continue
@@ -2875,12 +3141,22 @@ class DocView(ttk.Frame):
                     self.section_tree.insert(parent_id, "end", iid=node_id, text=f"{name}", tags=("folder",), open=bool(query))
                     self._build_tree(full_path, node_id)
                     
-                    # If query is active and this folder has no children after recursion, and doesn't match itself, remove it
-                    if query and query not in name.lower() and not self.section_tree.get_children(node_id):
-                        self.section_tree.delete(node_id)
+                    if query:
+                        if advanced_search_enabled:
+                            if not self.section_tree.get_children(node_id):
+                                self.section_tree.delete(node_id)
+                        elif query not in name.lower() and not self.section_tree.get_children(node_id):
+                            self.section_tree.delete(node_id)
                 else:
-                    if not query or query in name.lower():
+                    include_file = False
+                    if not query:
+                        include_file = True
+                    elif advanced_search_enabled:
+                        include_file = self._matches_advanced_doc_query(full_path, name, ext, query)
+                    else:
+                        include_file = query in name.lower()
 
+                    if include_file:
                         tag = "md" if ext == ".md" else "document"
                         self.section_tree.insert(parent_id, "end", iid=full_path, text=f"{name}", tags=(tag,))
         except Exception as e:
@@ -3100,7 +3376,8 @@ class DocView(ttk.Frame):
                 self.is_editor_mode,
                 self.code_sash_ratio,
                 self.is_fullscreen_mode,
-                self.markdown_preview_zoom
+                self.markdown_preview_zoom,
+                self.markdown_editor_font_size
             )
 
     # --- Markdown Highlighting & Rendering Logic ---
@@ -3108,17 +3385,23 @@ class DocView(ttk.Frame):
     def _configure_markdown_tags(self):
         """Configures Tkinter tags for Markdown syntax highlighting in the EDITOR."""
         w = self.txt_content
+        base_size = max(self.MARKDOWN_EDITOR_FONT_SIZE_MIN, int(self.markdown_editor_font_size))
         # Headers
-        w.tag_configure("MD_H1", foreground="#569cd6", font=(Styles.FONT_FAMILY, 16, "bold"))
-        w.tag_configure("MD_H2", foreground="#569cd6", font=(Styles.FONT_FAMILY, 14, "bold"))
-        w.tag_configure("MD_H3", foreground="#569cd6", font=(Styles.FONT_FAMILY, 13, "bold"))
+        w.tag_configure("MD_H1", foreground="#569cd6", font=(self.code_font_family, base_size + 4, "bold"))
+        w.tag_configure("MD_H2", foreground="#569cd6", font=(self.code_font_family, base_size + 2, "bold"))
+        w.tag_configure("MD_H3", foreground="#569cd6", font=(self.code_font_family, base_size + 1, "bold"))
         
         # Formatting
-        w.tag_configure("MD_BOLD", font=(Styles.FONT_FAMILY, 12, "bold"), foreground="#ce9178")
-        w.tag_configure("MD_ITALIC", font=(Styles.FONT_FAMILY, 12, "italic"))
+        w.tag_configure("MD_BOLD", font=(self.code_font_family, base_size, "bold"), foreground="#ce9178")
+        w.tag_configure("MD_ITALIC", font=(self.code_font_family, base_size, "italic"))
         
         # Structure
-        w.tag_configure("MD_CODE", font=(self.code_font_family, 11), foreground="#dcdcaa", background="#2d2d2d")
+        w.tag_configure(
+            "MD_CODE",
+            font=(self.code_font_family, max(self.MARKDOWN_EDITOR_FONT_SIZE_MIN, base_size - 1)),
+            foreground="#dcdcaa",
+            background="#2d2d2d"
+        )
         w.tag_configure("MD_SYMBOL", foreground="#606060")
 
     def _on_content_change(self, event=None):

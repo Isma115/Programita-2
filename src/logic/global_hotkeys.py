@@ -193,7 +193,7 @@ class GlobalHotkeyListener:
                 self._dispatch_trigger_async()
 
     def handle_trigger(self):
-        from src.addons import Arbitrary_sus, chunk_sus, file_sus, structure_header_replace
+        from src.addons import Arbitrary_sus, chunk_sus, clever_sus, file_sus
         try:
             print("GlobalHotkeyListener: Shift + Left Click triggered. Running structure-aware smart paste.")
             # Schedule on main thread to be safe with UI
@@ -202,21 +202,24 @@ class GlobalHotkeyListener:
                     def _log_arbitrary_skip(reason):
                         print(f"GlobalHotkeyListener: Arbitrary_sus no se disparó porque {reason}.")
 
-                    handled = structure_header_replace.process_structure_header_replace(self.controller.app)
-                    if handled:
-                        _log_arbitrary_skip("structure_header_replace manejó el evento")
+                    handled = False
+                    if chunk_sus._is_chunk_replace_enabled(self.controller.app):
+                        handled = chunk_sus.process_chunk_replacements(self.controller.app)
+                        if handled:
+                            _log_arbitrary_skip("chunk_sus manejó el evento")
+                    elif file_sus._is_file_replace_enabled(self.controller.app):
+                        handled = file_sus.process_file_replacements(self.controller.app)
+                        if handled:
+                            _log_arbitrary_skip("file_sus manejó el evento")
                     if not handled:
-                        if chunk_sus._is_chunk_replace_enabled(self.controller.app):
-                            handled = chunk_sus.process_chunk_replacements(self.controller.app)
+                        if clever_sus.is_clever_injection_enabled(self.controller.app):
+                            print("GlobalHotkeyListener: Inyección inteligente activa. Lanzando clever_sus.")
+                            handled = clever_sus.process_smart_paste(self.controller.app)
                             if handled:
-                                _log_arbitrary_skip("chunk_sus manejó el evento")
-                        elif file_sus._is_file_replace_enabled(self.controller.app):
-                            handled = file_sus.process_file_replacements(self.controller.app)
-                            if handled:
-                                _log_arbitrary_skip("file_sus manejó el evento")
-                    if not handled:
-                        print("GlobalHotkeyListener: Ningún manejador previo resolvió el evento. Lanzando Arbitrary_sus.")
-                        Arbitrary_sus.process_smart_paste(self.controller.app)
+                                _log_arbitrary_skip("clever_sus manejó el evento")
+                        if not handled:
+                            print("GlobalHotkeyListener: Ningún manejador previo resolvió el evento. Lanzando Arbitrary_sus.")
+                            Arbitrary_sus.process_smart_paste(self.controller.app)
 
                 self.controller.app.root.after(0, _dispatch)
         except Exception as e:
