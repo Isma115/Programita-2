@@ -117,6 +117,9 @@ class ConfigManager:
         if "clever_injection_enabled" not in self.config:
             self.config["clever_injection_enabled"] = False
             migrated = True
+        if "doc_autosave_enabled" not in self.config:
+            self.config["doc_autosave_enabled"] = True
+            migrated = True
 
         for legacy_key in ("return_structures",):
             if legacy_key in self.config:
@@ -205,6 +208,15 @@ class ConfigManager:
                 history.remove(normalized)
             history.insert(0, normalized)
             self.config["doc_path_history"] = history
+        self.save_config()
+
+    def get_doc_autosave_enabled(self):
+        """Returns whether markdown documents should auto-save while typing."""
+        return bool(self.config.get("doc_autosave_enabled", True))
+
+    def set_doc_autosave_enabled(self, value):
+        """Sets whether markdown documents auto-save while typing."""
+        self.config["doc_autosave_enabled"] = bool(value)
         self.save_config()
 
     def get_doc_path_history(self):

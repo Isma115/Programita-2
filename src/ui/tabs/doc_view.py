@@ -120,6 +120,7 @@ class DocView(ttk.Frame):
     MARKDOWN_EDITOR_FONT_SIZE_MIN = 9
     MARKDOWN_EDITOR_FONT_SIZE_MAX = 32
     DEFAULT_SECTIONS_PANEL_WIDTH = 340
+    AUTOSAVE_DELAY_MS = 3000
     FULLSCREEN_ENTER_SVG = """
     <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="#f2f3f5" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round">
       <path d="M9 9L4 4"/>
@@ -151,6 +152,8 @@ class DocView(ttk.Frame):
         self.controller = None
         self.current_file_path = None
         self.highlight_timer = None   # For debounce
+        self.autosave_timer = None
+        self.autosave_enabled = False
         self.is_dark_mode = True      # Default to Dark
         self.is_editor_mode = False   # Default to Viewer (False=Viewer, True=Editor)
         self.is_right_panel_visible = True
@@ -203,6 +206,7 @@ class DocView(ttk.Frame):
                 "markdown_editor_font_size",
                 self.MARKDOWN_EDITOR_FONT_SIZE_DEFAULT
             )
+            self.autosave_enabled = bool(self.controller.config_manager.get_doc_autosave_enabled())
         else:
             self.code_sash_ratio = 0.7
             self.markdown_preview_zoom = self.MARKDOWN_PREVIEW_ZOOM
@@ -1422,6 +1426,7 @@ class DocView(ttk.Frame):
 
     def _display_file_content(self, file_path):
         try:
+            self._cancel_autosave_timer()
             with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
                 content = f.read()
             
@@ -1461,23 +1466,54 @@ class DocView(ttk.Frame):
         except Exception:
             pass
 
-    def _on_save_doc(self):
+    def _save_current_document(self, show_errors=False):
+        """Saves the active markdown document to disk."""
         if not self.current_file_path:
-            messagebox.showwarning("Aviso", "No hay ningún documento abierto para guardar.")
-            return
+            if show_errors:
+                messagebox.showwarning("Aviso", "No hay ningún documento abierto para guardar.")
+            return False
 
         try:
             content = self.txt_content.get("1.0", "end-1c")
             with open(self.current_file_path, 'w', encoding='utf-8') as f:
                 f.write(content)
             logging.info(f"DocView: Guardado {self.current_file_path}")
-            # Optional: visual feedback
+            return True
         except Exception as e:
-            messagebox.showerror("Error", f"Error al guardar: {e}")
+            logging.error(f"DocView: Error al guardar {self.current_file_path}: {e}")
+            if show_errors:
+                messagebox.showerror("Error", f"Error al guardar: {e}")
+            return False
+
+    def _on_save_doc(self):
+        self._save_current_document(show_errors=True)
 
     def _on_save_doc_shortcut(self, event=None):
         self._on_save_doc()
         return "break"
+
+    def set_autosave_enabled(self, enabled):
+        """Enables/disables markdown auto-save for editor typing events."""
+        self.autosave_enabled = bool(enabled)
+        if not self.autosave_enabled:
+            self._cancel_autosave_timer()
+
+    def _cancel_autosave_timer(self):
+        if self.autosave_timer:
+            try:
+                self.after_cancel(self.autosave_timer)
+            except Exception:
+                pass
+            self.autosave_timer = None
+
+    def _schedule_autosave(self):
+        self._cancel_autosave_timer()
+        self.autosave_timer = self.after(self.AUTOSAVE_DELAY_MS, self._on_autosave_timer)
+
+    def _on_autosave_timer(self):
+        self.autosave_timer = None
+        if self.autosave_enabled:
+            self._save_current_document(show_errors=False)
 
     def _on_undo_markdown_shortcut(self, event=None):
         if str(self.txt_content.cget("state")) != "normal":
@@ -3409,6 +3445,8 @@ class DocView(ttk.Frame):
         if self.highlight_timer:
             self.after_cancel(self.highlight_timer)
         self.highlight_timer = self.after(300, self._apply_markdown_rendering)
+        if self.autosave_enabled:
+            self._schedule_autosave()
 
     def _render_markdown_code_block(self, code_text, language_hint, is_dark_mode):
         """Renders fenced Markdown code blocks with VS Code-like syntax colors."""

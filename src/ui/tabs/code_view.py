@@ -14,6 +14,7 @@ from src.addons.structure_header_replace import detect_code_structure
 from src.addons.Arbitrary_sus import create_styled_text_widget as arb_create_styled_text_widget
 from src.addons.Arbitrary_sus import highlight_syntax as arb_highlight_syntax
 from src.logic.region_outline import (
+    REGION_START_RE,
     extract_regions_for_files,
     get_region_match_keywords,
     normalize_region_match_text,
@@ -6044,14 +6045,100 @@ class CodeView(ttk.Frame):
         self._reveal_file_in_explorer(target_path)
 
     def _show_file_context_menu(self, event):
-        """Shows the context menu on right click for files."""
-        # Select item under cursor
+        """Shows the context menu on right click for files or region rows."""
         iid = self.tree.identify_row(event.y)
-        if iid:
-            self.tree.selection_set(iid)
-            self.file_context_menu.tk_popup(event.x_root, event.y_root)
-        else:
+        if not iid:
             self.tree.selection_remove(self.tree.selection())
+            return
+
+        self.tree.selection_set(iid)
+
+        if iid.startswith("REGIONROW:"):
+            menu = tk.Menu(self, tearoff=0)
+            menu.add_command(label="Renombrar Región", command=self._on_rename_region_from_list)
+            menu.add_separator()
+            menu.add_command(label="Ir a archivo", command=self._on_go_to_file_from_file_list)
+            menu.add_separator()
+            menu.add_command(label="Copiar al Portapapeles", command=self._on_file_copy)
+            menu.add_command(label="Concatenar al Portapapeles", command=self._on_file_concat_clipboard)
+            menu.add_separator()
+            menu.add_command(label="Guardar en codigo.txt", command=self._on_file_save_txt)
+            menu.add_command(label="Concatenar en codigo.txt", command=self._on_file_concat_txt)
+            try:
+                menu.tk_popup(event.x_root, event.y_root)
+            finally:
+                menu.grab_release()
+        else:
+            self.file_context_menu.tk_popup(event.x_root, event.y_root)
+
+    def _on_rename_region_from_list(self):
+        """Renames a detected #region block by editing the source file on disk."""
+        selected = self.tree.selection()
+        if not selected:
+            return
+        iid = selected[0]
+        if not iid.startswith("REGIONROW:"):
+            return
+
+        region_item = self._get_region_row_item(iid)
+        if not region_item:
+            return
+
+        file_path = region_item.get("file_path")
+        start_line = region_item.get("start_line")
+        old_name = (region_item.get("header") or region_item.get("name") or "").strip()
+
+        if not file_path or not start_line or not os.path.isfile(file_path):
+            messagebox.showerror("Error", "No se pudo localizar el archivo de la región.")
+            return
+
+        new_name = simpledialog.askstring(
+            "Renombrar Región",
+            "Nueva descripción para la región:",
+            initialvalue=old_name,
+            parent=self,
+        )
+        if not new_name:
+            return
+        new_name = new_name.strip()
+        if not new_name or new_name == old_name:
+            return
+
+        try:
+            with open(file_path, "r", encoding="utf-8") as fh:
+                lines = fh.readlines()
+
+            line_index = int(start_line) - 1
+            if line_index < 0 or line_index >= len(lines):
+                messagebox.showerror("Error", "La línea de la región está fuera de rango.")
+                return
+
+            original_line = lines[line_index]
+            line_text = original_line.rstrip("\n\r")
+            match = REGION_START_RE.match(line_text)
+            if not match:
+                messagebox.showerror("Error", "No se pudo interpretar la línea de inicio de la región.")
+                return
+
+            prefix = line_text[:match.start("rest")].rstrip()
+            suffix = line_text[match.end("rest"):].strip()
+            new_line = prefix + " " + new_name
+            if suffix:
+                new_line += " " + suffix
+            new_line += "\n"
+
+            lines[line_index] = new_line
+
+            updated_content = "".join(lines)
+            with open(file_path, "w", encoding="utf-8") as fh:
+                fh.write(updated_content)
+
+            if hasattr(self.controller, "refresh_cached_file_content"):
+                self.controller.refresh_cached_file_content(file_path, updated_content)
+
+            self._refresh_project_region_list()
+        except Exception as exc:
+            messagebox.showerror("Error", f"No se pudo renombrar la región:\n{exc}")
 
     def _get_selected_file_content(self):
         """Helper to get content and metadata of selected file in tree."""

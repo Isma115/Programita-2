@@ -1368,6 +1368,47 @@ class Controller:
             print(f"Controller: Error copying to clipboard: {e}")
             return False
 
+    def regionize_clipboard_code(self):
+        """
+        Reads code from clipboard, wraps it in a regioning prompt, and writes it back.
+        """
+        try:
+            clipboard_text = pyperclip.paste()
+        except Exception as e:
+            print(f"Controller: Error reading clipboard: {e}")
+            return False, "No se pudo leer el portapapeles."
+
+        code_text = str(clipboard_text or "")
+        if not code_text.strip():
+            return False, "El portapapeles está vacío o no contiene código."
+
+        prompt_text = self._build_regionize_prompt(code_text)
+        if not self.copy_to_clipboard(prompt_text):
+            return False, "No se pudo copiar el prompt al portapapeles."
+
+        return True, "Prompt de regionado copiado al portapapeles."
+
+    def _build_regionize_prompt(self, code_text):
+        """Builds the prompt that asks an AI to split code into non-nested regions."""
+        normalized_code = str(code_text).rstrip("\n")
+        return (
+            "Actua como un agente senior de refactorizacion.\n"
+            "Tu tarea es dividir el siguiente codigo en regiones y devolver el codigo completo.\n\n"
+            "Reglas obligatorias:\n"
+            "1. Devuelve el codigo completo, sin omitir ninguna linea.\n"
+            "2. Solo puedes anadir marcadores de region (#region y #endregion).\n"
+            "3. No modifiques la logica, nombres, orden, indentacion ni comentarios existentes.\n"
+            "4. No puede haber regiones dentro de otras regiones (prohibido anidar).\n"
+            "5. Cada #region debe cerrarse con su #endregion antes de abrir otra region.\n"
+            "6. Usa nombres de region claros y cortos segun el bloque de codigo.\n"
+            "7. Responde solo en Markdown, dentro de un unico bloque de codigo triple backticks.\n"
+            "8. No anadas texto fuera del bloque de codigo Markdown.\n\n"
+            "CODIGO A REGIONAR:\n"
+            "```text\n"
+            f"{normalized_code}\n"
+            "```"
+        )
+
     def start_dynamic_paste(self, files_data, user_text):
         """Starts a file-by-file dynamic clipboard session."""
         normalized_user_text = str(user_text or "").strip()
