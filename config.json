@@ -40,7 +40,7 @@
     "last_doc_section": "Gestor de Equipos",
     "last_code_section": "Asignar Volumen",
     "implementation_mode": false,
-    "last_doc_file": "/Users/ismaelmoraledalopez/Documents/Documentacion Irrigation/Catastro.md",
+    "last_doc_file": "/Users/ismaelmoraledalopez/Documents/Documentacion Irrigation/Catastro_carga_inicial.md",
     "sections_path": "/Users/ismaelmoraledalopez/Desktop/pruebas/Porfofo",
     "code_extensions_filter": "",
     "include_project_tree": false,
@@ -57,7 +57,7 @@
     "last_code_view_mode": "regions",
     "return_regions": false,
     "remember_last_main_view": true,
-    "last_main_view": "code",
+    "last_main_view": "docs",
     "clever_injection_enabled": true,
     "doc_autosave_enabled": true
 }

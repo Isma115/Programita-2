@@ -14,6 +14,7 @@ import pyperclip
 import importlib
 import re
 import shutil
+import time
 
 class Controller:
     """
@@ -32,6 +33,7 @@ class Controller:
     CODE_MEMORY_DIR_NAME = "memoria"
     CODE_MEMORY_BACKUP_PREFIX = "copia-"
     CODE_MEMORY_MAX_BACKUPS = 30
+    REGION_HEADER_TEMPLATE = "Componente | tipo | descripcion"
 
     def __init__(self, app):
         """
@@ -1368,6 +1370,70 @@ class Controller:
             print(f"Controller: Error copying to clipboard: {e}")
             return False
 
+    def wrap_clipboard_with_region_markers(self, region_name=None):
+        """
+        Wraps the current clipboard code with #region / #endregion and writes it back.
+        """
+        try:
+            clipboard_text = pyperclip.paste()
+        except Exception as e:
+            print(f"Controller: Error reading clipboard: {e}")
+            return False, "No se pudo leer el portapapeles."
+
+        code_text = str(clipboard_text or "")
+        if not code_text.strip():
+            return False, "El portapapeles está vacío o no contiene código."
+
+        if self._is_text_already_region_wrapped(code_text):
+            return True, "El código ya estaba envuelto en #region/#endregion."
+
+        normalized_code = code_text.rstrip("\n")
+        clean_region_name = str(region_name or "").strip()
+        if not clean_region_name:
+            clean_region_name = self.REGION_HEADER_TEMPLATE
+        region_header = "#region"
+        if clean_region_name:
+            region_header = f"#region {clean_region_name}"
+
+        wrapped_code = f"{region_header}\n{normalized_code}\n#endregion"
+        # On macOS the clipboard backend can lag briefly; retry and verify to avoid
+        # auto-pasting stale pre-regionized content.
+        copied_ok = False
+        for _ in range(4):
+            if not self.copy_to_clipboard(wrapped_code):
+                continue
+            try:
+                current_text = str(pyperclip.paste() or "")
+            except Exception:
+                current_text = ""
+            if current_text == wrapped_code:
+                copied_ok = True
+                break
+            time.sleep(0.03)
+
+        if not copied_ok:
+            return False, "No se pudo copiar el código regionado al portapapeles."
+
+        return True, "Código regionado en portapapeles."
+
+    def _is_text_already_region_wrapped(self, text):
+        """Returns True when text is already wrapped by a top-level #region / #endregion block."""
+        raw = str(text or "")
+        if not raw.strip():
+            return False
+
+        lines = [line for line in raw.strip().splitlines() if line is not None]
+        if len(lines) < 2:
+            return False
+
+        first = lines[0].strip().lower()
+        last = lines[-1].strip().lower()
+        if not first.startswith("#region"):
+            return False
+        if last != "#endregion":
+            return False
+        return True
+
     def regionize_clipboard_code(self):
         """
         Reads code from clipboard, wraps it in a regioning prompt, and writes it back.
@@ -1392,17 +1458,12 @@ class Controller:
         """Builds the prompt that asks an AI to split code into non-nested regions."""
         normalized_code = str(code_text).rstrip("\n")
         return (
-            "Actua como un agente senior de refactorizacion.\n"
-            "Tu tarea es dividir el siguiente codigo en regiones y devolver el codigo completo.\n\n"
-            "Reglas obligatorias:\n"
-            "1. Devuelve el codigo completo, sin omitir ninguna linea.\n"
-            "2. Solo puedes anadir marcadores de region (#region y #endregion).\n"
-            "3. No modifiques la logica, nombres, orden, indentacion ni comentarios existentes.\n"
-            "4. No puede haber regiones dentro de otras regiones (prohibido anidar).\n"
-            "5. Cada #region debe cerrarse con su #endregion antes de abrir otra region.\n"
-            "6. Usa nombres de region claros y cortos segun el bloque de codigo.\n"
-            "7. Responde solo en Markdown, dentro de un unico bloque de codigo triple backticks.\n"
-            "8. No anadas texto fuera del bloque de codigo Markdown.\n\n"
+            "Divide el siguiente codigo en regiones.\n"
+            "Formato de cabecera obligatorio:\n"
+            "#region Nombre de Componente | Estilo/Funcionalidad/Vista/Backend | Descripcion\n"
+            f"Plantilla base: #region {self.REGION_HEADER_TEMPLATE}\n"
+            "Regla obligatoria: no puede haber regiones dentro de otras regiones.\n"
+            "Devuelve solo el codigo resultante.\n\n"
             "CODIGO A REGIONAR:\n"
             "```text\n"
             f"{normalized_code}\n"

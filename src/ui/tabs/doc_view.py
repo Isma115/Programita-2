@@ -743,6 +743,7 @@ class DocView(ttk.Frame):
         self.section_tree.bind("<ButtonPress-1>", self._on_section_tree_press, add="+")
         self.section_tree.bind("<B1-Motion>", self._on_section_tree_drag_motion, add="+")
         self.section_tree.bind("<ButtonRelease-1>", self._on_section_tree_release, add="+")
+        self.section_tree.bind("<BackSpace>", self._on_delete_section_shortcut)
         
         # Tags for different file types and folders
         self.section_tree.tag_configure("folder", font=(self.doc_sidebar_font_family, 16, "bold"), foreground=Styles.COLOR_ACCENT)
@@ -1691,12 +1692,14 @@ class DocView(ttk.Frame):
         target_name = (target_name or "").strip()
 
         return (
-            "Cada componente de este software tiene que estar delimitado por comentarios de regiones, "
-            "para tener cada componente separado (tanto código de componente, como estilos, como "
-            "funcionalidad, como backend, en caso de que tenga). Las descripciones de las regiones "
-            "tienen que dejar claro el componente exacto que se está delimitando y qué parte de código "
-            "(si es componente, estilo, backend o funcionalidad), así que aplica esto a la parte de "
-            f"{target_name}."
+            "Divide este código en regiones usando este formato de cabecera:\n"
+            "#region Nombre de Componente | Estilo/Funcionalidad/Vista/Backend | Descripcion\n"
+            "Plantilla base:\n"
+            "#region Componente | tipo | descripcion\n\n"
+            "Regla obligatoria: no puede haber regiones dentro de otras regiones.\n"
+            "Aplica esto a la parte: "
+            f"{target_name}.\n"
+            "Devuelve solo el código resultante."
         )
 
     def _open_prompt_builder(self):
@@ -3117,6 +3120,13 @@ class DocView(ttk.Frame):
             self._refresh_sections()
         except Exception as e:
             messagebox.showerror("Error", f"No se pudo eliminar: {e}")
+
+    def _on_delete_section_shortcut(self, event=None):
+        selected = self.section_tree.selection()
+        if not selected:
+            return "break"
+        self._on_delete_section()
+        return "break"
 
     def _refresh_sections(self, preferred_path=None):
         self._refresh_doc_path_history()
