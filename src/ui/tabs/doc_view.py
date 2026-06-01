@@ -1692,14 +1692,14 @@ class DocView(ttk.Frame):
         target_name = (target_name or "").strip()
 
         return (
-            "Divide este código en regiones usando este formato de cabecera:\n"
+            "Realiza una división del código en regiones (region y endregion) usando este formato de cabecera:\n"
             "#region Nombre de Componente | Estilo/Funcionalidad/Vista/Backend | Descripcion\n"
             "Plantilla base:\n"
-            "#region Componente | tipo | descripcion\n\n"
+            "#region Componente | tipo | descripcion\n"
+            "Componente se refiere a bloques pequeños no atómicos (por ejemplo: ventanas modales, tablas, sidebars, formularios, secciones, etc)\n"
             "Regla obligatoria: no puede haber regiones dentro de otras regiones.\n"
             "Aplica esto a la parte: "
             f"{target_name}.\n"
-            "Devuelve solo el código resultante."
         )
 
     def _open_prompt_builder(self):
@@ -1748,6 +1748,7 @@ class DocView(ttk.Frame):
                 "input_label": "Zona del código",
                 "placeholder": "[ZONA_CODIGO]",
                 "builder": self._build_code_regions_prompt,
+                "include_file_path_instruction": False,
             },
         ]
         prompt_index = {"value": 0}
@@ -3169,7 +3170,6 @@ class DocView(ttk.Frame):
             advanced_search_enabled = bool(self.advanced_doc_search_var.get())
 
             for name in items:
-                if name.startswith('.'): continue
                 full_path = os.path.join(root_path, name)
                 is_dir = os.path.isdir(full_path)
                 

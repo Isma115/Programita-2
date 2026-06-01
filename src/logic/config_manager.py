@@ -120,6 +120,9 @@ class ConfigManager:
         if "doc_autosave_enabled" not in self.config:
             self.config["doc_autosave_enabled"] = True
             migrated = True
+        if "auto_region_sections_enabled" not in self.config:
+            self.config["auto_region_sections_enabled"] = True
+            migrated = True
 
         for legacy_key in ("return_structures",):
             if legacy_key in self.config:
@@ -357,6 +360,15 @@ class ConfigManager:
         self.config["region_list_auto_enabled"] = bool(value)
         self.save_config()
 
+    def get_auto_region_sections_enabled(self):
+        """Returns whether automatic region-group sections are enabled."""
+        return bool(self.config.get("auto_region_sections_enabled", True))
+
+    def set_auto_region_sections_enabled(self, value):
+        """Sets whether automatic region-group sections are enabled."""
+        self.config["auto_region_sections_enabled"] = bool(value)
+        self.save_config()
+
     def get_include_project_tree(self):
         """Returns whether prompts should include the project tree."""
         return bool(self.config.get("include_project_tree", False))
@@ -580,13 +592,15 @@ class ConfigManager:
         self.save_config()
 
     def get_last_main_view(self):
-        """Returns the last selected main view key ('code' or 'docs')."""
+        """Returns the last selected main view key ('code', 'docs' or 'database')."""
         view = self.config.get("last_main_view", "docs")
-        return "code" if view == "code" else "docs"
+        if view in {"code", "docs", "database"}:
+            return view
+        return "docs"
 
     def set_last_main_view(self, view):
-        """Sets the last selected main view key ('code' or 'docs')."""
-        self.config["last_main_view"] = "code" if view == "code" else "docs"
+        """Sets the last selected main view key ('code', 'docs' or 'database')."""
+        self.config["last_main_view"] = view if view in {"code", "docs", "database"} else "docs"
         self.save_config()
 
     def get_last_doc_section(self):

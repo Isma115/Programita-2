@@ -49,13 +49,19 @@ class MainLayout(ttk.Frame):
         self.nav_buttons_frame = tk.Frame(self.navbar, bg=Styles.COLOR_DOC_TOOLBAR_BG, bd=0, highlightthickness=0)
         self.nav_buttons_frame.pack(side="left", fill="x", expand=True, padx=12, pady=10)
 
+        nav_items = [
+            ("docs", "Documentación", self.controller.show_docs_view),
+            ("code", "Código", self.controller.show_code_view),
+            ("database", "Base de datos", self.controller.show_database_view),
+        ]
+
         # Configure columns to distribute space equally
-        self.nav_buttons_frame.columnconfigure(0, weight=1)
-        self.nav_buttons_frame.columnconfigure(1, weight=1)
+        for idx in range(len(nav_items)):
+            self.nav_buttons_frame.columnconfigure(idx, weight=1)
 
         self.nav_tabs = {}
-        self._create_nav_tab(0, "docs", "Documentación", self.controller.show_docs_view)
-        self._create_nav_tab(1, "code", "Código", self.controller.show_code_view)
+        for idx, (key, text, command) in enumerate(nav_items):
+            self._create_nav_tab(idx, key, text, command)
 
     def _create_nav_tab(self, column, key, text, command):
         tab_frame = tk.Frame(
@@ -159,8 +165,12 @@ class MainLayout(ttk.Frame):
     def _show_initial_tab(self):
         config = getattr(self.controller, "config_manager", None)
         if config and config.get_remember_last_main_view():
-            if config.get_last_main_view() == "code":
+            last_view = config.get_last_main_view()
+            if last_view == "code":
                 self.show_code_tab()
+                return
+            if last_view == "database":
+                self.show_database_tab()
                 return
         self.show_docs_tab()
 
@@ -217,6 +227,6 @@ class MainLayout(ttk.Frame):
     def get_active_main_view(self):
         """Returns the currently active top-level view key."""
         active = getattr(self, "_active_nav_tab", None)
-        if active in {"code", "docs"}:
+        if active in {"code", "docs", "database"}:
             return active
         return "docs"

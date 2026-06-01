@@ -1,5 +1,5 @@
 {
-    "last_project": "/Users/ismaelmoraledalopez/Documents/Proyecto Pensador",
+    "last_project": "/Users/ismaelmoraledalopez/Desktop/pruebas/InstaTicket",
     "file_limit": 50,
     "return_files": false,
     "doc_path": "/Users/ismaelmoraledalopez/Documents/Documentacion Irrigation",
@@ -21,7 +21,7 @@
         "/Users/ismaelmoraledalopez/Desktop/pruebas/Porfofo",
         "/Users/ismaelmoraledalopez/Documents/Proyecto Pensador"
     ],
-    "current_project_index": 7,
+    "current_project_index": 5,
     "db_config": {
         "host": "hidralab-server.mysql.database.azure.com",
         "port": "3306",
@@ -40,7 +40,7 @@
     "last_doc_section": "Gestor de Equipos",
     "last_code_section": "Asignar Volumen",
     "implementation_mode": false,
-    "last_doc_file": "/Users/ismaelmoraledalopez/Documents/Documentacion Irrigation/Catastro_carga_inicial.md",
+    "last_doc_file": "/Users/ismaelmoraledalopez/Documents/Documentacion Irrigation/env/.env prueba.md",
     "sections_path": "/Users/ismaelmoraledalopez/Desktop/pruebas/Porfofo",
     "code_extensions_filter": "",
     "include_project_tree": false,
@@ -55,9 +55,10 @@
     "region_list_limit": 9,
     "region_list_auto_enabled": false,
     "last_code_view_mode": "regions",
-    "return_regions": false,
+    "return_regions": true,
     "remember_last_main_view": true,
-    "last_main_view": "docs",
+    "last_main_view": "database",
     "clever_injection_enabled": true,
-    "doc_autosave_enabled": true
+    "doc_autosave_enabled": true,
+    "auto_region_sections_enabled": true
 }

@@ -217,6 +217,8 @@ class CodeView(ttk.Frame):
         self._last_relevant_files = None
         self._last_region_list_items = []
         self._region_rows_by_iid = {}
+        self._region_group_rows_by_iid = {}
+        self._auto_region_groups_tree_by_iid = {}
         self._discarded_file_paths = set()
         self.file_type_icons = {}
         self.toolbar_icons = {}
@@ -1959,7 +1961,10 @@ class CodeView(ttk.Frame):
         """Returns the detected project region payload for a left-list row."""
         if not item_id:
             return None
-        return self._region_rows_by_iid.get(item_id)
+        row = self._region_rows_by_iid.get(item_id)
+        if row:
+            return row
+        return self._region_group_rows_by_iid.get(item_id)
 
     def _normalize_existing_file_paths(self, file_paths):
         """Returns de-duplicated absolute file paths that exist on disk."""
@@ -1993,6 +1998,17 @@ class CodeView(ttk.Frame):
             region_payload = self.controller.region_segment_manager.get_region_segment(leaf_name) or {}
             seen_paths = set()
             for item in region_payload.get("items", []):
+                if not isinstance(item, dict):
+                    continue
+                file_path = item.get("file_path")
+                if not file_path or file_path in seen_paths:
+                    continue
+                seen_paths.add(file_path)
+                file_paths.append(file_path)
+        elif scope_kind == "auto_region_group" and leaf_name:
+            auto_group_payload = self._auto_region_groups_tree_by_iid.get(self._build_auto_region_group_iid(leaf_name)) or {}
+            seen_paths = set()
+            for item in auto_group_payload.get("_group_regions") or []:
                 if not isinstance(item, dict):
                     continue
                 file_path = item.get("file_path")
@@ -3340,7 +3356,7 @@ class CodeView(ttk.Frame):
         if not self._is_regions_view_active():
             return False
         scope_kind, _section_name, _subsection_name, _leaf_name = self._get_selected_tree_item_info()
-        return scope_kind != "region_segment"
+        return scope_kind not in {"region_segment", "auto_region_group"}
 
     def _schedule_region_list_refresh(self):
         """Debounces project-region list refreshes driven by prompt text or slider changes."""
@@ -3363,6 +3379,7 @@ class CodeView(ttk.Frame):
             self.tree.delete(item)
 
         self._region_rows_by_iid = {}
+        self._region_group_rows_by_iid = {}
         self._last_relevant_files = []
 
         extension = self.ext_var.get() if hasattr(self, "ext_var") else ""
@@ -3387,19 +3404,28 @@ class CodeView(ttk.Frame):
             visible_regions, auto_total_bytes = self._get_auto_limited_region_list(ranked_regions)
         else:
             visible_regions = ranked_regions[:self._get_region_list_limit()]
+        rows_to_render = list(visible_regions)
         self._last_region_list_items = visible_regions
         self._update_region_list_limit_label(
             listed_count=len(visible_regions),
             total_bytes=auto_total_bytes
         )
 
-        for index, region in enumerate(visible_regions):
-            iid = f"REGIONROW:{index}"
+        for index, region in enumerate(rows_to_render):
+            is_group_row = bool(region.get("_is_region_group"))
+            iid = f"REGIONGROUP:{index}" if is_group_row else f"REGIONROW:{index}"
             row_tag = "row_even" if index % 2 == 0 else "row_odd"
             rel_path = region.get("file_rel_path") or os.path.basename(region.get("file_path") or "")
-            line_span = f"L{region.get('start_line', '?')}-L{region.get('end_line', '?')}"
+            if is_group_row:
+                grouped_count = len(region.get("_group_regions") or [])
+                line_span = f"{grouped_count} regiones"
+            else:
+                line_span = f"L{region.get('start_line', '?')}-L{region.get('end_line', '?')}"
             display_name = self._build_region_name_display(region)
-            self._region_rows_by_iid[iid] = region
+            if is_group_row:
+                self._region_group_rows_by_iid[iid] = region
+            else:
+                self._region_rows_by_iid[iid] = region
             self.tree.insert(
                 "",
                 "end",
@@ -3412,7 +3438,7 @@ class CodeView(ttk.Frame):
                     line_span,
                     "Ver",
                     region.get("file_path") or "",
-                    self._build_file_folder_display(rel_path) if rel_path else "raiz",
+                    "Junta automática" if is_group_row else (self._build_file_folder_display(rel_path) if rel_path else "raiz"),
                 ),
                 tags=(row_tag,),
             )
@@ -3558,11 +3584,93 @@ class CodeView(ttk.Frame):
 
     def _build_region_name_display(self, region):
         """Builds the name column label for a project region row."""
+        if bool((region or {}).get("_is_region_group")):
+            group_label = str(region.get("_group_label") or "Componente").strip()
+            grouped_count = len(region.get("_group_regions") or [])
+            return f"   Junta: {group_label} · {grouped_count} regiones"
         name = (region.get("header") or region.get("name") or "Región").strip()
         rel_path = region.get("file_rel_path") or os.path.basename(region.get("file_path") or "")
         if rel_path:
             return f"   {name} · {os.path.basename(rel_path)}"
         return f"   {name}"
+
+    def _parse_region_group_key(self, region):
+        """Returns (normalized_key, display_label) using only the first header part."""
+        if not isinstance(region, dict):
+            return None, None
+        raw_header = str(region.get("header") or region.get("name") or "").strip()
+        if "|" not in raw_header:
+            return None, None
+
+        # Split tolerating arbitrary spaces around the separator.
+        parts = [part.strip() for part in re.split(r"\s*\|\s*", raw_header)]
+        if len(parts) < 1:
+            return None, None
+
+        component = parts[0]
+        if not component:
+            return None, None
+
+        # Normalize aggressively so grouping ignores extra spaces and casing.
+        normalized_component = normalize_region_match_text(component).casefold()
+        if not normalized_component:
+            return None, None
+
+        return normalized_component, component
+
+    def _build_auto_region_groups(self, regions):
+        """Creates synthetic rows when multiple regions share the same component."""
+        grouped = {}
+        group_order = []
+
+        for region in regions or []:
+            group_key, group_label = self._parse_region_group_key(region)
+            if not group_key:
+                continue
+            if group_key not in grouped:
+                grouped[group_key] = {"label": group_label, "regions": []}
+                group_order.append(group_key)
+            grouped[group_key]["regions"].append(region)
+
+        auto_groups = []
+        for group_key in group_order:
+            payload = grouped.get(group_key) or {}
+            member_regions = list(payload.get("regions") or [])
+            if len(member_regions) < 2:
+                continue
+
+            first_region = member_regions[0]
+            joined_content_parts = []
+            for member in member_regions:
+                member_name = member.get("header") or member.get("name") or "Región"
+                member_path = member.get("file_rel_path") or os.path.basename(member.get("file_path") or "archivo")
+                member_content = str(member.get("content", "") or "").rstrip()
+                joined_content_parts.append(
+                    f"--- Región: {member_name} | Archivo: {member_path} ---\n{member_content}"
+                )
+
+            prompt_tokens = set()
+            for member in member_regions:
+                prompt_tokens.update(member.get("_prompt_highlight_tokens") or ())
+
+            auto_groups.append(
+                {
+                    "_is_region_group": True,
+                    "_group_key": group_key,
+                    "_group_label": payload.get("label") or "Componente",
+                    "_group_regions": member_regions,
+                    "_prompt_highlight_tokens": tuple(sorted(prompt_tokens)),
+                    "header": f"Junta: {payload.get('label') or 'Componente'}",
+                    "name": f"Junta: {payload.get('label') or 'Componente'}",
+                    "file_path": first_region.get("file_path"),
+                    "file_rel_path": first_region.get("file_rel_path"),
+                    "start_line": "?",
+                    "end_line": "?",
+                    "content": "\n\n".join(joined_content_parts),
+                }
+            )
+
+        return auto_groups
 
     def _schedule_file_list_refresh(self, event=None):
         """Schedules a debounced refresh of the file list using scope filters only."""
@@ -3693,6 +3801,8 @@ class CodeView(ttk.Frame):
         if not selected:
             return None, None, None, None
         iid = selected[0]
+        if iid.startswith("AGRP:"):
+            return "auto_region_group", None, None, iid[5:]
         if iid.startswith("RSEG:"):
             return "region_segment", None, None, iid[5:]
         if iid.startswith("SEG:"):
@@ -3763,6 +3873,7 @@ class CodeView(ttk.Frame):
         scope_kind, section_name, subsection_name, leaf_name = self._get_selected_tree_item_info()
         segment_name = leaf_name if scope_kind == "segment" else None
         region_name = leaf_name if scope_kind == "region_segment" else None
+        auto_group_key = leaf_name if scope_kind == "auto_region_group" else None
         self._update_section_action_buttons(section_name, subsection_name, leaf_name)
         
         # Only reload if the selection has actually changed
@@ -3787,6 +3898,8 @@ class CodeView(ttk.Frame):
             self._load_selected_segment_preview(section_name, subsection_name, segment_name)
         elif region_name:
             self._load_selected_region_preview(region_name)
+        elif auto_group_key:
+            self._load_selected_auto_region_group_preview(auto_group_key)
         else:
             self._show_file_list_view()
             self._schedule_file_list_refresh()
@@ -3849,6 +3962,13 @@ class CodeView(ttk.Frame):
 
     def _is_region_list_auto_enabled(self):
         return bool(self.region_list_auto_var.get()) if hasattr(self, "region_list_auto_var") else False
+
+    def _is_auto_region_sections_enabled(self):
+        """Returns whether automatic region grouping rows should be rendered."""
+        config_manager = getattr(getattr(self, "controller", None), "config_manager", None)
+        if config_manager and hasattr(config_manager, "get_auto_region_sections_enabled"):
+            return bool(config_manager.get_auto_region_sections_enabled())
+        return True
 
     def _apply_region_list_limit_control_state(self):
         if hasattr(self, "region_list_limit_slider"):
@@ -4000,6 +4120,43 @@ class CodeView(ttk.Frame):
             code_text,
             title_text=title_text,
             file_hint=file_hint,
+            preview_mode="region"
+        )
+
+    def _build_auto_region_groups_for_tree(self):
+        """Builds auto-group payloads for the right-side Regions tree."""
+        if not self._is_auto_region_sections_enabled():
+            return []
+        project_manager = getattr(self.controller, "project_manager", None)
+        file_infos = list(project_manager.get_files()) if project_manager else []
+        if not file_infos:
+            return []
+        region_items = extract_regions_for_files(file_infos)
+        return self._build_auto_region_groups(region_items)
+
+    def _build_auto_region_group_iid(self, group_key):
+        if not group_key:
+            return None
+        return f"AGRP:{group_key}"
+
+    def _load_selected_auto_region_group_preview(self, group_key):
+        """Loads the auto-group preview from the right-side Regions tree selection."""
+        group_payload = self._auto_region_groups_tree_by_iid.get(self._build_auto_region_group_iid(group_key))
+        if not group_payload:
+            self._show_segment_code_view(
+                "",
+                title_text="Junta de regiones no disponible",
+                file_hint=None,
+                preview_mode="region"
+            )
+            return
+
+        group_label = group_payload.get("_group_label") or "Componente"
+        grouped_count = len(group_payload.get("_group_regions") or [])
+        self._show_segment_code_view(
+            group_payload.get("content", ""),
+            title_text=f"Junta de regiones: {group_label} ({grouped_count} regiones)",
+            file_hint=group_payload.get("file_path"),
             preview_mode="region"
         )
 
@@ -4915,8 +5072,16 @@ class CodeView(ttk.Frame):
                 messagebox.showerror("Error", f"No se pudo guardar el fichero:\n{e}")
             return
 
-        if self._should_show_project_regions_in_file_list():
+        selected_regions = None
+        if scope_kind == "auto_region_group" and leaf_name:
+            auto_group_payload = self._auto_region_groups_tree_by_iid.get(
+                self._build_auto_region_group_iid(leaf_name)
+            ) or {}
+            selected_regions = list(auto_group_payload.get("_group_regions") or [])
+        elif self._should_show_project_regions_in_file_list():
             selected_regions = self._get_regions_for_prompt()
+
+        if selected_regions is not None:
             if not selected_regions:
                 messagebox.showwarning("Aviso", "No hay regiones visibles o seleccionadas para procesar.")
                 return
@@ -5125,10 +5290,25 @@ class CodeView(ttk.Frame):
         """Returns selected detected regions or, if none selected, all visible region rows."""
         items_to_process = self.tree.selection() or self.tree.get_children()
         regions = []
+        seen_region_keys = set()
         for item_id in items_to_process:
             region = self._get_region_row_item(item_id)
             if region:
-                regions.append(region)
+                if region.get("_is_region_group"):
+                    for member_region in region.get("_group_regions") or []:
+                        member_key = member_region.get("key")
+                        if member_key and member_key in seen_region_keys:
+                            continue
+                        if member_key:
+                            seen_region_keys.add(member_key)
+                        regions.append(member_region)
+                else:
+                    region_key = region.get("key")
+                    if region_key and region_key in seen_region_keys:
+                        continue
+                    if region_key:
+                        seen_region_keys.add(region_key)
+                    regions.append(region)
         return regions
 
     def _build_project_regions_prompt(self, user_text, regions, return_files=False, return_chunks=False, return_regions=False):
@@ -5756,9 +5936,33 @@ class CodeView(ttk.Frame):
             self.section_tree.delete(item)
 
         self._visible_section_ids = []
+        self._auto_region_groups_tree_by_iid = {}
         query = self._get_section_search_query()
 
         if self._is_regions_view_active():
+            auto_group_entries = self._build_auto_region_groups_for_tree()
+            for group_entry in auto_group_entries:
+                group_label = str(group_entry.get("_group_label") or "Componente").strip()
+                grouped_regions = list(group_entry.get("_group_regions") or [])
+                if len(grouped_regions) < 2:
+                    continue
+                if query and query not in group_label.lower():
+                    continue
+
+                auto_group_iid = self._build_auto_region_group_iid(group_entry.get("_group_key"))
+                if not auto_group_iid:
+                    continue
+                group_size = len(group_entry.get("content", "") or "")
+                self._auto_region_groups_tree_by_iid[auto_group_iid] = group_entry
+                self.section_tree.insert(
+                    "",
+                    "end",
+                    iid=auto_group_iid,
+                    text=self._format_section_tree_label(f"Junta: {group_label}", group_size),
+                    tags=("segment", self._get_section_size_tag(group_size))
+                )
+                self._visible_section_ids.append(auto_group_iid)
+
             region_names = self.controller.region_segment_manager.get_region_segments()
             visible_regions = [name for name in region_names if not query or query in name.lower()]
 
@@ -5977,10 +6181,12 @@ class CodeView(ttk.Frame):
         if region_item:
             self.tree.delete(item_id)
             self._region_rows_by_iid.pop(item_id, None)
-            self._last_region_list_items = [
-                item for item in self._last_region_list_items
-                if item is not region_item
-            ]
+            self._region_group_rows_by_iid.pop(item_id, None)
+            if not region_item.get("_is_region_group"):
+                self._last_region_list_items = [
+                    item for item in self._last_region_list_items
+                    if item is not region_item
+                ]
             self._schedule_folder_chip_refresh()
             return
 
@@ -6013,6 +6219,7 @@ class CodeView(ttk.Frame):
             "subsection": "subsección",
             "segment": "segmento",
             "region_segment": "región",
+            "auto_region_group": "junta de regiones",
         }.get(scope_kind, "elemento")
 
         file_paths = self._get_selected_scope_file_paths()
@@ -6032,8 +6239,15 @@ class CodeView(ttk.Frame):
         item_id = selected[0]
         region_item = self._get_region_row_item(item_id)
         if region_item:
-            file_paths = self._normalize_existing_file_paths([region_item.get("file_path")])
-            scope_label = "región"
+            if region_item.get("_is_region_group"):
+                group_file_paths = []
+                for member_region in region_item.get("_group_regions") or []:
+                    group_file_paths.append(member_region.get("file_path"))
+                file_paths = self._normalize_existing_file_paths(group_file_paths)
+                scope_label = "junta de regiones"
+            else:
+                file_paths = self._normalize_existing_file_paths([region_item.get("file_path")])
+                scope_label = "región"
         else:
             file_paths = self._normalize_existing_file_paths([self._get_tree_item_path(item_id)])
             scope_label = "fichero"
@@ -6053,10 +6267,12 @@ class CodeView(ttk.Frame):
 
         self.tree.selection_set(iid)
 
-        if iid.startswith("REGIONROW:"):
+        if iid.startswith("REGIONROW:") or iid.startswith("REGIONGROUP:"):
             menu = tk.Menu(self, tearoff=0)
-            menu.add_command(label="Renombrar Región", command=self._on_rename_region_from_list)
-            menu.add_separator()
+            if iid.startswith("REGIONROW:"):
+                menu.add_command(label="Renombrar Región", command=self._on_rename_region_from_list)
+                menu.add_command(label="Eliminar regionamiento", command=self._on_unwrap_region_from_list)
+                menu.add_separator()
             menu.add_command(label="Ir a archivo", command=self._on_go_to_file_from_file_list)
             menu.add_separator()
             menu.add_command(label="Copiar al Portapapeles", command=self._on_file_copy)
@@ -6140,14 +6356,95 @@ class CodeView(ttk.Frame):
         except Exception as exc:
             messagebox.showerror("Error", f"No se pudo renombrar la región:\n{exc}")
 
+    def _on_unwrap_region_from_list(self):
+        """Removes only the #region/#endregion wrapper for the selected detected region."""
+        selected = self.tree.selection()
+        if not selected:
+            return
+        iid = selected[0]
+        if not iid.startswith("REGIONROW:"):
+            return
+
+        region_item = self._get_region_row_item(iid)
+        if not region_item:
+            return
+
+        file_path = region_item.get("file_path")
+        start_line = region_item.get("start_line")
+        end_line = region_item.get("end_line")
+        region_name = (region_item.get("header") or region_item.get("name") or "").strip()
+
+        if not file_path or not start_line or not end_line or not os.path.isfile(file_path):
+            messagebox.showerror("Error", "No se pudo localizar el archivo de la región.")
+            return
+
+        if not messagebox.askyesno(
+            "Eliminar regionamiento",
+            f"Se eliminarán solo #region y #endregion de:\n\n{region_name or 'la región seleccionada'}\n\n¿Continuar?"
+        ):
+            return
+
+        try:
+            with open(file_path, "r", encoding="utf-8") as fh:
+                lines = fh.readlines()
+
+            start_index = int(start_line) - 1
+            end_index = int(end_line) - 1
+            if start_index < 0 or end_index < 0 or start_index >= len(lines) or end_index >= len(lines):
+                messagebox.showerror("Error", "Las líneas de la región están fuera de rango.")
+                return
+            if end_index <= start_index:
+                messagebox.showerror("Error", "No se pudo determinar un bloque de región válido.")
+                return
+
+            start_text = lines[start_index].rstrip("\n\r")
+            end_text = lines[end_index].rstrip("\n\r")
+            if not REGION_START_RE.match(start_text):
+                messagebox.showerror("Error", "La línea inicial ya no contiene una cabecera de región válida.")
+                return
+            if not REGION_END_RE.match(end_text):
+                messagebox.showerror("Error", "La línea final ya no contiene un cierre de región válido.")
+                return
+
+            # Remove closing marker first so start index remains stable.
+            del lines[end_index]
+            del lines[start_index]
+
+            updated_content = "".join(lines)
+            with open(file_path, "w", encoding="utf-8") as fh:
+                fh.write(updated_content)
+
+            if hasattr(self.controller, "refresh_cached_file_content"):
+                self.controller.refresh_cached_file_content(file_path, updated_content)
+
+            self._refresh_project_region_list()
+        except Exception as exc:
+            messagebox.showerror("Error", f"No se pudo eliminar el regionamiento:\n{exc}")
+
     def _get_selected_file_content(self):
         """Helper to get content and metadata of selected file in tree."""
         selected = self.tree.selection()
         if not selected:
             messagebox.showwarning("Aviso", "Selecciona un fichero primero.")
             return None
-        
-        full_path = self._get_tree_item_path(selected[0])
+
+        item_id = selected[0]
+        region_item = self._get_region_row_item(item_id)
+        if region_item:
+            if region_item.get("_is_region_group"):
+                rel_path = f"JUNTA::{region_item.get('_group_label') or 'Componente'}"
+            else:
+                rel_path = (
+                    region_item.get("file_rel_path")
+                    or os.path.basename(region_item.get("file_path") or "")
+                    or "region"
+                )
+            return {
+                "rel_path": rel_path,
+                "content": str(region_item.get("content", "") or ""),
+            }
+
+        full_path = self._get_tree_item_path(item_id)
         if not full_path:
             return None
 
@@ -6164,10 +6461,15 @@ class CodeView(ttk.Frame):
         self._select_file_tree_item(item_id)
         region_item = self._get_region_row_item(item_id)
         if region_item:
-            title = (
-                f"Región: {region_item.get('header') or region_item.get('name') or 'Sin nombre'} "
-                f"({region_item.get('file_rel_path') or os.path.basename(region_item.get('file_path') or '')})"
-            )
+            if region_item.get("_is_region_group"):
+                group_label = region_item.get("_group_label") or "Componente"
+                grouped_count = len(region_item.get("_group_regions") or [])
+                title = f"Junta de regiones: {group_label} ({grouped_count} regiones)"
+            else:
+                title = (
+                    f"Región: {region_item.get('header') or region_item.get('name') or 'Sin nombre'} "
+                    f"({region_item.get('file_rel_path') or os.path.basename(region_item.get('file_path') or '')})"
+                )
             self._show_segment_code_view(
                 region_item.get("content", ""),
                 title_text=title,

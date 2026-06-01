@@ -388,20 +388,40 @@ class Controller:
             # Fetch samples
             results = []
             cursor = connection.cursor()
+
+            def _parse_table_ref(table_ref):
+                table_text = str(table_ref or "").strip()
+                if "." in table_text:
+                    schema_name, table_name = table_text.split(".", 1)
+                    return schema_name.strip(), table_name.strip()
+                return None, table_text
+
+            def _escape_identifier(identifier):
+                return str(identifier).replace("`", "``")
             
             for table in table_names:
+                schema_name, table_name = _parse_table_ref(table)
+                display_name = f"{schema_name}.{table_name}" if schema_name else table_name
                 results.append(f"\n{'='*60}")
-                results.append(f"TABLA: {table}")
+                results.append(f"TABLA: {display_name}")
                 results.append(f"{'='*60}\n")
                 
                 try:
+                    if schema_name:
+                        safe_schema = _escape_identifier(schema_name)
+                        safe_table = _escape_identifier(table_name)
+                        qualified = f"`{safe_schema}`.`{safe_table}`"
+                    else:
+                        safe_table = _escape_identifier(table_name)
+                        qualified = f"`{safe_table}`"
+
                     # Get columns
-                    cursor.execute(f"DESCRIBE `{table}`")
+                    cursor.execute(f"DESCRIBE {qualified}")
                     columns = [col[0] for col in cursor.fetchall()]
                     results.append(",".join(columns))
                     
                     # Get sample data
-                    cursor.execute(f"SELECT * FROM `{table}` LIMIT {limit}")
+                    cursor.execute(f"SELECT * FROM {qualified} LIMIT {limit}")
                     rows = cursor.fetchall()
                     
                     if rows:
@@ -512,6 +532,8 @@ class Controller:
         """
         print("Logic: Switching to Database View")
         self.app.layout.show_database_tab()
+        self.config_manager.set_last_main_view("database")
+
     def replace_region_from_clipboard(self, region_name, content):
         """
         Temporalmente desactivado para impedir sustituciones automáticas por región.
@@ -1462,6 +1484,8 @@ class Controller:
             "Formato de cabecera obligatorio:\n"
             "#region Nombre de Componente | Estilo/Funcionalidad/Vista/Backend | Descripcion\n"
             f"Plantilla base: #region {self.REGION_HEADER_TEMPLATE}\n"
+            "Componente se refiere a bloques pequeños no atómicos (por ejemplo: ventanas modales, tablas, sidebars, formularios o secciones), "
+            "no a nivel de botones, combobox, inputs individuales o iconos.\n"
             "Regla obligatoria: no puede haber regiones dentro de otras regiones.\n"
             "Devuelve solo el codigo resultante.\n\n"
             "CODIGO A REGIONAR:\n"

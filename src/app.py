@@ -125,6 +125,9 @@ class Application:
         self.doc_autosave_var = tk.BooleanVar(
             value=self.controller.config_manager.get_doc_autosave_enabled()
         )
+        self.auto_region_sections_var = tk.BooleanVar(
+            value=self.controller.config_manager.get_auto_region_sections_enabled()
+        )
 
         self.menu_bar = tk.Menu(self.root)
         self.output_menu = tk.Menu(self.menu_bar, tearoff=0)
@@ -172,7 +175,7 @@ class Application:
             command=self._on_toggle_export_prompts_as_folder
         )
         self.options_menu.add_checkbutton(
-            label="Recordar última vista (Código/Documentación)",
+            label="Recordar última vista (Código/Documentación/Base de datos)",
             variable=self.remember_last_main_view_var,
             command=self._on_toggle_remember_last_main_view
         )
@@ -185,6 +188,11 @@ class Application:
             label="Autoguardado",
             variable=self.doc_autosave_var,
             command=self._on_toggle_doc_autosave
+        )
+        self.options_menu.add_checkbutton(
+            label="Secciones automáticas",
+            variable=self.auto_region_sections_var,
+            command=self._on_toggle_auto_region_sections
         )
         self.options_menu.add_separator()
         self.options_menu.add_command(
@@ -301,6 +309,16 @@ class Application:
         doc_view = getattr(getattr(self, "layout", None), "doc_view", None)
         if doc_view is not None and hasattr(doc_view, "set_autosave_enabled"):
             doc_view.set_autosave_enabled(is_enabled)
+
+    def _on_toggle_auto_region_sections(self):
+        """Persists and applies automatic grouping sections for detected regions."""
+        is_enabled = bool(self.auto_region_sections_var.get())
+        self.controller.config_manager.set_auto_region_sections_enabled(is_enabled)
+
+        code_view = getattr(getattr(self, "layout", None), "code_view", None)
+        if code_view is not None and hasattr(code_view, "_should_show_project_regions_in_file_list"):
+            if code_view._should_show_project_regions_in_file_list():
+                code_view._schedule_region_list_refresh()
 
     def _set_code_file_limits(self, min_limit=None, max_limit=None, preferred="min", refresh=True):
         """Updates Code View min/max file limits, even if the view is not available yet."""
