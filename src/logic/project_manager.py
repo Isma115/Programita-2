@@ -242,31 +242,35 @@ class ProjectManager:
         Searches for a region by name across all loaded files and replaces it.
         Supports multiple comment styles:
         - // #region "name" ... // #endregion (JS/TS/C++/Java)
+        - Wrapped line comments like {// #region "name" ... {// #endregion
         - # #region "name" ... # #endregion (Python/Shell)
         - -- #region "name" ... -- #endregion (SQL/Lua)
         - /* #region "name" */ ... /* #endregion */ (CSS/C)
         - <!-- #region "name" --> ... <!-- #endregion --> (HTML/XML)
+        - Any of the above wrapped in braces, parentheses or brackets when embedded in markup/template expressions.
         """
         found = False
         escaped_name = re.escape(region_name)
+        wrapped_open = r'(?:[\{\(\[]+\s*)*'
+        wrapped_close = r'(?:\s*[\}\)\]]+)*'
         
         # Pattern that matches region blocks with various comment styles
         # Supports:
-        # - Line comments: //, #, -- followed by optional #region or just region
+        # - Line comments: //, #, -- followed by #region/#endregion
         # - Block comments: /* */ and <!-- -->
-        # The endregion can also use #endregion or just endregion
+        # - Optional wrapping braces, parentheses or brackets around the comment line
         regex_pattern = (
             rf'([ \t]*'
             rf'(?:'
             # Line comment styles: //, #, --
-            rf'(?://|#|--)[ \t]*#?region[ \t]+["\']?{escaped_name}["\']?.*?'
-            rf'(?://|#|--)[ \t]*#?endregion'
+            rf'{wrapped_open}(?://|#|--)[ \t]*#?region[ \t]+["\']?{escaped_name}["\']?.*?{wrapped_close}'
+            rf'{wrapped_open}(?://|#|--)[ \t]*#?endregion{wrapped_close}'
             rf'|'
             # Block comment style: /* */
-            rf'/\*[ \t]*#?region[ \t]+["\']?{escaped_name}["\']?.*?#?endregion[ \t]*\*/'
+            rf'{wrapped_open}/\*[ \t]*#?region[ \t]+["\']?{escaped_name}["\']?.*?#?endregion[ \t]*\*/{wrapped_close}'
             rf'|'
             # HTML comment style: <!-- -->
-            rf'<!--[ \t]*#?region[ \t]+["\']?{escaped_name}["\']?.*?#?endregion[ \t]*-->'
+            rf'{wrapped_open}<!--[ \t]*#?region[ \t]+["\']?{escaped_name}["\']?.*?#?endregion[ \t]*-->{wrapped_close}'
             rf')'
             rf')'
         )

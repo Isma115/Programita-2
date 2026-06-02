@@ -129,6 +129,12 @@ class ConfigManager:
                 self.config.pop(legacy_key, None)
                 migrated = True
 
+        if "db_config" in self.config:
+            normalized_db_config = self._normalize_db_config(self.config.get("db_config"))
+            if normalized_db_config != self.config.get("db_config"):
+                self.config["db_config"] = normalized_db_config
+                migrated = True
+
         if migrated:
             self.save_config()
 
@@ -492,12 +498,37 @@ class ConfigManager:
 
     def get_db_config(self):
         """Returns the saved database configuration or an empty dict."""
-        return self.config.get("db_config", {})
+        return self._normalize_db_config(self.config.get("db_config"))
 
     def set_db_config(self, db_config):
         """Sets the database configuration and saves config."""
-        self.config["db_config"] = db_config
+        self.config["db_config"] = self._normalize_db_config(db_config)
         self.save_config()
+
+    def _normalize_db_config(self, db_config):
+        """Returns a stable db_config dict with defaults and normalized paths."""
+        defaults = {
+            "host": "localhost",
+            "port": "3306",
+            "user": "",
+            "password": "",
+            "database": "",
+            "pem_file": "",
+        }
+
+        normalized = dict(db_config) if isinstance(db_config, dict) else {}
+        for key, value in defaults.items():
+            if key not in normalized or normalized[key] is None:
+                normalized[key] = value
+
+        normalized["host"] = str(normalized.get("host", "")).strip()
+        normalized["port"] = str(normalized.get("port", "3306")).strip() or "3306"
+        normalized["user"] = str(normalized.get("user", "")).strip()
+        normalized["password"] = "" if normalized.get("password") is None else str(normalized.get("password"))
+        normalized["database"] = str(normalized.get("database", "")).strip()
+        normalized["pem_file"] = self._normalize_path(normalized.get("pem_file")) or ""
+
+        return normalized
 
     def get_doc_view_settings(self):
         """Returns the saved DocView settings or default values."""

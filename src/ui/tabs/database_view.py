@@ -21,6 +21,7 @@ class DatabaseView(ttk.Frame):
             pass
 
         self.connection = None
+        self.pem_browse_button = None
 
         # Expuesto para otros módulos (controller/search popup)
         # Clave: "schema.table"
@@ -99,6 +100,7 @@ class DatabaseView(ttk.Frame):
             ("Usuario:", "user", db_config.get("user", "")),
             ("Contraseña:", "password", db_config.get("password", "")),
             ("Base inicial (opcional):", "database", db_config.get("database", "")),
+            ("Fichero PEM (opcional):", "pem_file", db_config.get("pem_file", "")),
         ]
 
         self.conn_entries = {}
@@ -113,7 +115,33 @@ class DatabaseView(ttk.Frame):
             )
             lbl.grid(row=i, column=0, sticky="w", padx=(0, 10), pady=5)
 
-            if key == "password":
+            if key == "pem_file":
+                input_frame = tk.Frame(form_frame, bg=Styles.COLOR_SIDEBAR_CARD_BG, bd=0, highlightthickness=0)
+                input_frame.grid(row=i, column=1, sticky="ew", pady=5)
+                input_frame.columnconfigure(0, weight=1)
+
+                entry = tk.Entry(
+                    input_frame,
+                    font=Styles.scale_font(Styles.ui_font(12)),
+                    bg=Styles.COLOR_INPUT_BG,
+                    fg=Styles.COLOR_INPUT_FG,
+                    insertbackground=Styles.COLOR_INPUT_FG,
+                )
+                Styles.style_sidebar_entry(entry)
+                entry.insert(0, default)
+                entry.grid(row=0, column=0, sticky="ew")
+                self.conn_entries[key] = entry
+
+                self.pem_browse_button = ttk.Button(
+                    input_frame,
+                    text="Examinar",
+                    style="Secondary.TButton",
+                    command=lambda entry=entry: self._browse_pem_file(entry),
+                )
+                self.pem_browse_button.grid(row=0, column=1, padx=(8, 0))
+                attach_tooltip(self.pem_browse_button, "Seleccionar el fichero PEM de la conexión")
+                continue
+            elif key == "password":
                 entry = tk.Entry(
                     form_frame,
                     font=Styles.scale_font(Styles.ui_font(12)),
@@ -194,6 +222,75 @@ class DatabaseView(ttk.Frame):
             justify="left",
             wraplength=Styles.scale_size(360),
         )
+
+    def _browse_pem_file(self, entry):
+        selected_path = filedialog.askopenfilename(
+            title="Selecciona el fichero PEM",
+            filetypes=[
+                ("Ficheros PEM", "*.pem"),
+                ("Todos los archivos", "*.*"),
+            ],
+        )
+        if not selected_path:
+            return
+
+        try:
+            normalized_path = os.path.normpath(os.path.abspath(selected_path))
+        except Exception:
+            normalized_path = selected_path
+
+        entry.delete(0, tk.END)
+        entry.insert(0, normalized_path)
+
+    def _get_connection_form_values(self):
+        return {
+            "host": self.conn_entries["host"].get().strip(),
+            "port": self.conn_entries["port"].get().strip(),
+            "user": self.conn_entries["user"].get().strip(),
+            "password": self.conn_entries["password"].get(),
+            "database": self.conn_entries["database"].get().strip(),
+            "pem_file": self.conn_entries["pem_file"].get().strip(),
+        }
+
+    @staticmethod
+    def _normalize_optional_path(path):
+        if not path:
+            return ""
+        try:
+            return os.path.normpath(os.path.abspath(path))
+        except Exception:
+            return path.strip()
+
+    def _build_connect_kwargs(self, form_values):
+        connect_kwargs = {
+            "host": form_values["host"],
+            "port": int(form_values["port"]) if form_values["port"] else 3306,
+            "user": form_values["user"],
+            "password": form_values["password"],
+        }
+        if form_values["database"]:
+            connect_kwargs["database"] = form_values["database"]
+
+        pem_file = self._normalize_optional_path(form_values["pem_file"])
+        if pem_file:
+            connect_kwargs["ssl_ca"] = pem_file
+
+        return connect_kwargs
+
+    def _set_connection_form_state(self, enabled):
+        state = "normal" if enabled else "disabled"
+        for entry in self.conn_entries.values():
+            entry.config(state=state)
+            if enabled:
+                Styles.style_sidebar_entry(entry)
+            else:
+                entry.config(
+                    disabledbackground=Styles.COLOR_INPUT_BG,
+                    disabledforeground=Styles.COLOR_DIM,
+                )
+
+        if self.pem_browse_button:
+            self.pem_browse_button.config(state=state)
 
     def _create_tables_frame(self):
         self.tables_frame = tk.Frame(
@@ -448,35 +545,25 @@ class DatabaseView(ttk.Frame):
             )
             return
 
-        host = self.conn_entries["host"].get().strip()
-        port = self.conn_entries["port"].get().strip()
-        user = self.conn_entries["user"].get().strip()
-        password = self.conn_entries["password"].get()
-        database = self.conn_entries["database"].get().strip()
+        form_values = self._get_connection_form_values()
 
-        if not host or not user:
+        if not form_values["host"] or not form_values["user"]:
             messagebox.showwarning("Aviso", "Rellena al menos host y usuario.")
             return
 
         if self.controller:
             self.controller.config_manager.set_db_config(
                 {
-                    "host": host,
-                    "port": port,
-                    "user": user,
-                    "password": password,
-                    "database": database,
+                    "host": form_values["host"],
+                    "port": form_values["port"],
+                    "user": form_values["user"],
+                    "password": form_values["password"],
+                    "database": form_values["database"],
+                    "pem_file": self._normalize_optional_path(form_values["pem_file"]),
                 }
             )
 
-        connect_kwargs = {
-            "host": host,
-            "port": int(port) if port else 3306,
-            "user": user,
-            "password": password,
-        }
-        if database:
-            connect_kwargs["database"] = database
+        connect_kwargs = self._build_connect_kwargs(form_values)
 
         try:
             self.connection = mysql.connector.connect(**connect_kwargs)
@@ -488,13 +575,7 @@ class DatabaseView(ttk.Frame):
             self._set_btn_state(self.btn_reconnect, True)
             self.btn_sample.config(state="normal")
             self.btn_export_sample.config(state="normal")
-
-            for entry in self.conn_entries.values():
-                entry.config(
-                    state="disabled",
-                    disabledbackground=Styles.COLOR_INPUT_BG,
-                    disabledforeground=Styles.COLOR_DIM,
-                )
+            self._set_connection_form_state(False)
 
             self._load_connection_tree()
 
@@ -517,10 +598,7 @@ class DatabaseView(ttk.Frame):
         self._set_btn_state(self.btn_reconnect, False)
         self.btn_sample.config(state="disabled")
         self.btn_export_sample.config(state="disabled")
-
-        for entry in self.conn_entries.values():
-            entry.config(state="normal")
-            Styles.style_sidebar_entry(entry)
+        self._set_connection_form_state(True)
 
         self._clear_tables()
 
@@ -548,25 +626,14 @@ class DatabaseView(ttk.Frame):
             self._set_connection_status("Error al reconectar", color="#ff8f8f")
             return
 
-        host = self.conn_entries["host"].get().strip()
-        port = self.conn_entries["port"].get().strip()
-        user = self.conn_entries["user"].get().strip()
-        password = self.conn_entries["password"].get()
-        database = self.conn_entries["database"].get().strip()
+        form_values = self._get_connection_form_values()
 
-        if not host or not user:
+        if not form_values["host"] or not form_values["user"]:
             messagebox.showwarning("Aviso", "Rellena al menos host y usuario.")
             self._set_connection_status("Error al reconectar", color="#ff8f8f")
             return
 
-        connect_kwargs = {
-            "host": host,
-            "port": int(port) if port else 3306,
-            "user": user,
-            "password": password,
-        }
-        if database:
-            connect_kwargs["database"] = database
+        connect_kwargs = self._build_connect_kwargs(form_values)
 
         try:
             self.connection = mysql.connector.connect(**connect_kwargs)
@@ -578,13 +645,7 @@ class DatabaseView(ttk.Frame):
             self._set_btn_state(self.btn_reconnect, True)
             self.btn_sample.config(state="normal")
             self.btn_export_sample.config(state="normal")
-
-            for entry in self.conn_entries.values():
-                entry.config(
-                    state="disabled",
-                    disabledbackground=Styles.COLOR_INPUT_BG,
-                    disabledforeground=Styles.COLOR_DIM,
-                )
+            self._set_connection_form_state(False)
 
             self._load_connection_tree()
             messagebox.showinfo("Éxito", "Conexión reiniciada correctamente.")
@@ -597,9 +658,7 @@ class DatabaseView(ttk.Frame):
             self._set_btn_state(self.btn_reconnect, False)
             self.btn_sample.config(state="disabled")
             self.btn_export_sample.config(state="disabled")
-            for entry in self.conn_entries.values():
-                entry.config(state="normal")
-                Styles.style_sidebar_entry(entry)
+            self._set_connection_form_state(True)
 
     def _on_table_filter_change(self, *_):
         if self._tree_filter_after:
@@ -1014,6 +1073,11 @@ class DatabaseView(ttk.Frame):
             messagebox.showwarning("Aviso", "No hay tablas disponibles para exportar.")
             return
 
+        tables_by_schema = {}
+        for table_key in table_keys:
+            schema_name, table_name = self._split_table_ref_key(table_key)
+            tables_by_schema.setdefault(schema_name, []).append((table_name, table_key))
+
         popup = tk.Toplevel(self)
         popup.title("Exportar muestra")
         popup.transient(self.winfo_toplevel())
@@ -1048,42 +1112,163 @@ class DatabaseView(ttk.Frame):
         Styles.style_sidebar_entry(ent_search)
         ent_search.pack(side="left", fill="x", expand=True)
 
-        list_frame = ttk.Frame(popup, style="Main.TFrame")
-        list_frame.pack(fill="both", expand=True, padx=14, pady=(0, 8))
-        listbox = tk.Listbox(
-            list_frame,
-            selectmode="multiple",
-            exportselection=False,
-            font=Styles.scale_font(Styles.ui_font(12)),
-            activestyle="none",
-        )
-        Styles.style_sidebar_listbox(listbox)
-        list_scroll = ttk.Scrollbar(list_frame, orient="vertical", command=listbox.yview, style="Vertical.TScrollbar")
-        listbox.configure(yscrollcommand=list_scroll.set)
-        listbox.pack(side="left", fill="both", expand=True)
-        list_scroll.pack(side="right", fill="y")
+        tree_frame = ttk.Frame(popup, style="Main.TFrame")
+        tree_frame.pack(fill="both", expand=True, padx=14, pady=(0, 8))
+        export_tree = ttk.Treeview(tree_frame, show="tree", selectmode="none", style="Treeview")
+        tree_scroll_y = ttk.Scrollbar(tree_frame, orient="vertical", command=export_tree.yview, style="Vertical.TScrollbar")
+        export_tree.configure(yscrollcommand=tree_scroll_y.set)
+        export_tree.pack(side="left", fill="both", expand=True)
+        tree_scroll_y.pack(side="right", fill="y")
 
-        visible_tables = []
+        export_tree.tag_configure("database", foreground=Styles.COLOR_ACCENT)
+        export_tree.tag_configure("table", foreground=Styles.COLOR_FG_TEXT)
+        export_tree.tag_configure("placeholder", foreground=Styles.COLOR_DIM)
 
-        def render_table_list():
+        selected_table_keys = set()
+        item_meta = {}
+        schema_table_keys = {}
+        schema_iids = {}
+        table_iids = {}
+        visible_table_keys = set()
+
+        def _schema_checkbox(schema_name):
+            keys = schema_table_keys.get(schema_name, [])
+            if not keys:
+                return "[ ]"
+            selected_count = sum(1 for key in keys if key in selected_table_keys)
+            if selected_count == 0:
+                return "[ ]"
+            if selected_count == len(keys):
+                return "[x]"
+            return "[-]"
+
+        def _table_checkbox(table_key):
+            return "[x]" if table_key in selected_table_keys else "[ ]"
+
+        def _refresh_schema_item(schema_name):
+            iid = schema_iids.get(schema_name)
+            if not iid:
+                return
+            export_tree.item(iid, text=f"{_schema_checkbox(schema_name)} {schema_name}")
+
+        def _refresh_table_item(table_key):
+            iid = table_iids.get(table_key)
+            if not iid:
+                return
+            meta = item_meta.get(iid, {})
+            table_name = meta.get("table_name", table_key)
+            export_tree.item(iid, text=f"{_table_checkbox(table_key)} {table_name}")
+
+        def render_table_tree():
             query = search_var.get().strip().lower()
-            listbox.delete(0, tk.END)
-            visible_tables.clear()
-            for key in table_keys:
-                if query and query not in key.lower():
+            export_tree.delete(*export_tree.get_children())
+            item_meta.clear()
+            schema_table_keys.clear()
+            schema_iids.clear()
+            table_iids.clear()
+            visible_table_keys.clear()
+
+            for schema_name in sorted(tables_by_schema.keys(), key=lambda x: x.lower()):
+                filtered_tables = []
+                for table_name, table_key in sorted(tables_by_schema[schema_name], key=lambda x: x[0].lower()):
+                    match = (
+                        not query
+                        or query in schema_name.lower()
+                        or query in table_name.lower()
+                        or query in table_key.lower()
+                    )
+                    if match:
+                        filtered_tables.append((table_name, table_key))
+
+                if not filtered_tables:
                     continue
-                visible_tables.append(key)
-                listbox.insert(tk.END, key)
+
+                schema_iid = export_tree.insert(
+                    "",
+                    "end",
+                    text=f"{_schema_checkbox(schema_name)} {schema_name}",
+                    open=False,
+                    tags=("database",),
+                )
+                item_meta[schema_iid] = {"kind": "schema", "schema": schema_name}
+                schema_iids[schema_name] = schema_iid
+                schema_table_keys[schema_name] = [table_key for _, table_key in filtered_tables]
+
+                for table_name, table_key in filtered_tables:
+                    table_iid = export_tree.insert(
+                        schema_iid,
+                        "end",
+                        text=f"{_table_checkbox(table_key)} {table_name}",
+                        tags=("table",),
+                    )
+                    item_meta[table_iid] = {
+                        "kind": "table",
+                        "schema": schema_name,
+                        "table_key": table_key,
+                        "table_name": table_name,
+                    }
+                    table_iids[table_key] = table_iid
+                    visible_table_keys.add(table_key)
+
+            if not schema_iids:
+                placeholder = export_tree.insert("", "end", text="Sin resultados para el filtro actual.", tags=("placeholder",))
+                item_meta[placeholder] = {"kind": "placeholder"}
 
         def select_all_visible():
-            listbox.selection_set(0, tk.END)
+            if not visible_table_keys:
+                return
+            selected_table_keys.update(visible_table_keys)
+            for table_key in visible_table_keys:
+                _refresh_table_item(table_key)
+            for schema_name in schema_table_keys.keys():
+                _refresh_schema_item(schema_name)
 
         def clear_selection():
-            listbox.selection_clear(0, tk.END)
+            if not visible_table_keys:
+                return
+            selected_table_keys.difference_update(visible_table_keys)
+            for table_key in visible_table_keys:
+                _refresh_table_item(table_key)
+            for schema_name in schema_table_keys.keys():
+                _refresh_schema_item(schema_name)
+
+        def on_tree_click(event):
+            item_id = export_tree.identify_row(event.y)
+            if not item_id:
+                return None
+            if export_tree.identify_element(event.x, event.y) == "Treeitem.indicator":
+                return None
+            meta = item_meta.get(item_id, {})
+            kind = meta.get("kind")
+            if kind == "table":
+                table_key = meta.get("table_key")
+                if table_key in selected_table_keys:
+                    selected_table_keys.discard(table_key)
+                else:
+                    selected_table_keys.add(table_key)
+                _refresh_table_item(table_key)
+                _refresh_schema_item(meta.get("schema"))
+                return "break"
+            if kind == "schema":
+                schema_name = meta.get("schema")
+                keys = schema_table_keys.get(schema_name, [])
+                if not keys:
+                    return "break"
+                mark_as_selected = not all(key in selected_table_keys for key in keys)
+                for key in keys:
+                    if mark_as_selected:
+                        selected_table_keys.add(key)
+                    else:
+                        selected_table_keys.discard(key)
+                    _refresh_table_item(key)
+                _refresh_schema_item(schema_name)
+                return "break"
+            return None
+
+        export_tree.bind("<Button-1>", on_tree_click)
 
         def do_export():
-            indices = listbox.curselection()
-            selected = [visible_tables[idx] for idx in indices]
+            selected = sorted(selected_table_keys, key=lambda x: x.lower())
             if not selected:
                 messagebox.showwarning("Aviso", "Selecciona al menos una tabla.", parent=popup)
                 return
@@ -1125,8 +1310,8 @@ class DatabaseView(ttk.Frame):
         ttk.Button(actions, text="Cancelar", style="Secondary.TButton", command=popup.destroy).pack(side="right")
         ttk.Button(actions, text="Exportar muestra", style="Action.TButton", command=do_export).pack(side="right", padx=8)
 
-        search_var.trace_add("write", lambda *_: render_table_list())
-        render_table_list()
+        search_var.trace_add("write", lambda *_: render_table_tree())
+        render_table_tree()
 
     def _on_get_samples(self):
         if not self.connection:

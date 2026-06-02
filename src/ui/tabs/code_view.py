@@ -15,6 +15,7 @@ from src.addons.Arbitrary_sus import create_styled_text_widget as arb_create_sty
 from src.addons.Arbitrary_sus import highlight_syntax as arb_highlight_syntax
 from src.logic.region_outline import (
     REGION_START_RE,
+    REGION_END_RE,
     extract_regions_for_files,
     get_region_match_keywords,
     normalize_region_match_text,

@@ -4,12 +4,17 @@ import re
 import unicodedata
 
 
+REGION_WRAP_PREFIX = r'(?:[\{\(\[]+\s*)*'
+REGION_WRAP_SUFFIX = r'(?:\s*[\}\)\]]+)*'
+REGION_COMMENT_OPEN = r'(?://|#|--|/\*|<!--)'
+REGION_COMMENT_CLOSE = r'(?:\*/|-->)?'
+
 REGION_START_RE = re.compile(
-    r'^\s*(?:(?://|#|--)|/\*|<!--)\s*#?region\b(?P<rest>.*?)(?:\*/|-->)?\s*$',
+    rf'^\s*{REGION_WRAP_PREFIX}{REGION_COMMENT_OPEN}\s*#?region\b(?P<rest>.*?){REGION_COMMENT_CLOSE}{REGION_WRAP_SUFFIX}\s*$',
     re.IGNORECASE,
 )
 REGION_END_RE = re.compile(
-    r'^\s*(?:(?://|#|--)|/\*|<!--)\s*#?endregion\b(?:.*?)(?:\*/|-->)?\s*$',
+    rf'^\s*{REGION_WRAP_PREFIX}{REGION_COMMENT_OPEN}\s*#?endregion\b(?:.*?){REGION_COMMENT_CLOSE}{REGION_WRAP_SUFFIX}\s*$',
     re.IGNORECASE,
 )
 REGION_MATCH_STOP_WORDS = {
@@ -97,7 +102,7 @@ def _clean_region_name(raw_text):
     if not text:
         return ""
 
-    for suffix in ("*/", "-->"):
+    for suffix in ("*/}", "*/", "-->"):
         if text.endswith(suffix):
             text = text[:-len(suffix)].rstrip()
 

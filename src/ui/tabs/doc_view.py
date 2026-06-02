@@ -1692,11 +1692,19 @@ class DocView(ttk.Frame):
         target_name = (target_name or "").strip()
 
         return (
-            "Realiza una división del código en regiones (region y endregion) usando este formato de cabecera:\n"
-            "#region Nombre de Componente | Estilo/Funcionalidad/Vista/Backend | Descripcion\n"
+            "Realiza una división del código en regiones usando la sintaxis de comentarios propia del lenguaje del archivo.\n"
+            "Los comentarios de apertura y cierre de cada región deben ser específicos del lenguaje de programación correspondiente, "
+            "no un formato genérico.\n"
+            "Ejemplos de sintaxis válida: JavaScript/TypeScript/C++/Java con `// #region` y `// #endregion`; "
+            "Python/Shell con `# #region` y `# #endregion`; SQL/Lua con `-- #region` y `-- #endregion`; "
+            "CSS/C con `/* #region */` y `/* #endregion */`; HTML/XML con `<!-- #region -->` y `<!-- #endregion -->`.\n"
+            "Usa este formato de cabecera:\n"
+            "#region Nombre del componente | Estilo/Funcionalidad/Vista/Backend | Descripcion\n"
             "Plantilla base:\n"
-            "#region Componente | tipo | descripcion\n"
-            "Componente se refiere a bloques pequeños no atómicos (por ejemplo: ventanas modales, tablas, sidebars, formularios, secciones, etc)\n"
+            "#region Tabla de usuarios | Vista | descripcion\n"
+            "La primera parte debe ser el nombre del componente concreto al que hace referencia la región, "
+            "normalmente un componente pequeño no atómico como tabla de usuarios, formulario de login, sección lateral izquierda, "
+            "ventana modal, sidebar, formulario, tabla, panel o sección.\n"
             "Regla obligatoria: no puede haber regiones dentro de otras regiones.\n"
             "Aplica esto a la parte: "
             f"{target_name}.\n"
