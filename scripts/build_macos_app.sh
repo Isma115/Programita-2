@@ -4,6 +4,7 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 APP_NAME="Programita 2"
 APP_BUNDLE_ID="${APP_BUNDLE_ID:-com.programita2.desktop}"
+CODESIGN_IDENTITY="${CODESIGN_IDENTITY:--}"
 VENV_DIR="$ROOT_DIR/.venv-build"
 PYTHON_BIN="${PYTHON_BIN:-python3}"
 ICON_PNG="$ROOT_DIR/assets/icons/app_icon.png"
@@ -100,6 +101,11 @@ pyinstaller \
   --add-data "$ROOT_DIR/src/logic/js_ast_structures.js:src/logic" \
   --add-data "$ROOT_DIR/src/ui/popups/diagram_editor.html:src/ui/popups" \
   "$ROOT_DIR/main.py"
+
+if command -v codesign >/dev/null 2>&1; then
+  echo "==> Signing app bundle"
+  codesign --force --deep --sign "$CODESIGN_IDENTITY" --timestamp=none "$ROOT_DIR/dist/$APP_NAME.app"
+fi
 
 echo "==> Creating distributable zip"
 ditto -c -k --sequesterRsrc --keepParent \

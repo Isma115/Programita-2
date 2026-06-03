@@ -1,5 +1,5 @@
 {
-    "last_project": "/Users/ismaelmoraledalopez/Documents/Azure-Irrigation-Web/HidraSmart-Irrigation-System",
+    "last_project": "/Users/ismaelmoraledalopez/Desktop/pruebas/EnTest",
     "file_limit": 50,
     "return_files": false,
     "doc_path": "/Users/ismaelmoraledalopez/Documents/Documentacion Irrigation",
@@ -19,9 +19,10 @@
         "/Users/ismaelmoraledalopez/Desktop/pruebas/AIExplorer",
         "/Users/ismaelmoraledalopez/Desktop/pruebas/InstaTicket",
         "/Users/ismaelmoraledalopez/Desktop/pruebas/Porfofo",
-        "/Users/ismaelmoraledalopez/Documents/Proyecto Pensador"
+        "/Users/ismaelmoraledalopez/Documents/Proyecto Pensador",
+        "/Users/ismaelmoraledalopez/Desktop/pruebas/EnTest"
     ],
-    "current_project_index": 0,
+    "current_project_index": 8,
     "db_config": {
         "host": "hidralab-server.mysql.database.azure.com",
         "port": "3306",
@@ -56,10 +57,10 @@
     "region_list_limit": 20,
     "region_list_auto_enabled": true,
     "last_code_view_mode": "regions",
-    "return_regions": true,
+    "return_regions": false,
     "remember_last_main_view": true,
     "last_main_view": "code",
-    "clever_injection_enabled": true,
+    "clever_injection_enabled": false,
     "doc_autosave_enabled": true,
     "auto_region_sections_enabled": true
 }

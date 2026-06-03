@@ -57,6 +57,8 @@ class Application:
         self.layout = MainLayout(self.root, self.controller)
         self._create_menu_bar()
         Styles.apply_soft_widget_chrome(self.root)
+        self._hotkey_warning_scheduled = False
+        self.root.after(250, self._show_hotkey_startup_warning_if_needed)
 
         # --- Global Hotkey: Ctrl+F / Cmd+F → Search Overlay ---
         self._search_overlay = None
@@ -80,6 +82,27 @@ class Application:
         # Ensure pynput listeners are stopped before Tk destroys its window
         # to prevent the GIL / PyEval_RestoreThread fatal crash on macOS.
         self.root.protocol("WM_DELETE_WINDOW", self._on_close)
+
+    def _show_hotkey_startup_warning_if_needed(self):
+        """Shows a visible warning when the global hotkey backend could not start cleanly."""
+        if getattr(self, "_hotkey_warning_scheduled", False):
+            return
+        self._hotkey_warning_scheduled = True
+
+        listener = getattr(getattr(self, "controller", None), "hotkey_listener", None)
+        if listener is None or not hasattr(listener, "has_startup_issues"):
+            return
+        if not listener.has_startup_issues():
+            return
+
+        issues = listener.get_startup_issue_summary()
+        message = (
+            "La captura global de hotkeys no arrancó del todo en esta build.\n\n"
+            f"{issues}\n\n"
+            "Si acabas de recompilar la app, vuelve a autorizar esta copia exacta en "
+            "Privacidad y seguridad > Accesibilidad y Monitorización de entrada."
+        )
+        messagebox.showwarning("Hotkeys globales", message)
 
     def _set_app_icon(self):
         """Sets the main app icon from assets/icons/app_icon.png when available."""

@@ -40,6 +40,8 @@ class GlobalHotkeyListener:
     """
     def __init__(self, controller):
         self.controller = controller
+        self.startup_issues = []
+        self._mac_permissions_checked = False
         
         # Check if hotkeys are enabled in config
         self.enabled = True
@@ -104,8 +106,19 @@ class GlobalHotkeyListener:
                 print("GlobalHotkeyListener: Initialized and listening (Shift+Click y Ctrl/Cmd+C+Ç)")
                 
         except Exception as e:
-            print(f"GlobalHotkeyListener: Failed to initialize listeners: {e}")
+            self._record_startup_issue(f"Failed to initialize listeners: {e}")
             print("TIP: On macOS, this usually requires 'Accessibility' and 'Input Monitoring' permissions.")
+
+    def _record_startup_issue(self, message):
+        self.startup_issues.append(message)
+
+    def has_startup_issues(self):
+        return bool(self.startup_issues)
+
+    def get_startup_issue_summary(self):
+        if not self.startup_issues:
+            return ""
+        return "\n".join(f"- {issue}" for issue in self.startup_issues)
 
     def _check_macos_trust_and_warn(self):
         """Checks macOS Accessibility trust and requests it when possible."""
@@ -113,6 +126,9 @@ class GlobalHotkeyListener:
             return
         if "HIServices" not in globals():
             print("GlobalHotkeyListener: HIServices no disponible para comprobar permisos de accesibilidad.")
+            self._record_startup_issue(
+                "No se pudo comprobar el permiso de Accesibilidad porque HIServices no está disponible."
+            )
             return
 
         trusted = False
@@ -129,6 +145,7 @@ class GlobalHotkeyListener:
                 print(f"GlobalHotkeyListener: No se pudo solicitar permiso de accesibilidad automáticamente: {exc}")
 
         if trusted:
+            self._mac_permissions_checked = True
             return
 
         print("GlobalHotkeyListener: La app no tiene permisos globales completos en macOS.")
@@ -137,6 +154,10 @@ class GlobalHotkeyListener:
         print("GlobalHotkeyListener: 1) Accesibilidad")
         print("GlobalHotkeyListener: 2) Monitorización de entrada")
         print("GlobalHotkeyListener: Reinicia la app después de conceder permisos.")
+        self._record_startup_issue(
+            "La app no tiene permisos globales completos en macOS. "
+            f"Ejecutable actual: {getattr(sys, 'executable', '(desconocido)')}"
+        )
 
     def on_press(self, key):
         try:
@@ -645,6 +666,9 @@ class GlobalHotkeyListener:
             if not self._mac_paste_tap:
                 print("GlobalHotkeyListener: No se pudo crear el event tap de teclado (Cmd/Ctrl+V y Ctrl/Cmd+C+Ç).")
                 print("GlobalHotkeyListener: Sin ese permiso, el nuevo atajo de teclado no puede funcionar globalmente.")
+                self._record_startup_issue(
+                    "No se pudo crear el event tap de teclado para Cmd/Ctrl+V y Ctrl/Cmd+C+Ç."
+                )
                 return
 
             runloop_source = Quartz.CFMachPortCreateRunLoopSource(None, self._mac_paste_tap, 0)
@@ -659,6 +683,7 @@ class GlobalHotkeyListener:
             self._cf_call("CFRunLoopRun")
         except Exception as e:
             print(f"GlobalHotkeyListener: Error iniciando listener de Cmd/Ctrl+V en macOS: {e}")
+            self._record_startup_issue(f"Error iniciando listener de Cmd/Ctrl+V en macOS: {e}")
 
     def _run_macos_shift_click_listener(self):
         """Runs a global Shift+LeftClick listener loop on macOS."""
@@ -691,6 +716,7 @@ class GlobalHotkeyListener:
 
             if not self._mac_shift_click_tap:
                 print("GlobalHotkeyListener: No se pudo crear el event tap de Shift+Click.")
+                self._record_startup_issue("No se pudo crear el event tap de Shift+Click.")
                 return
 
             runloop_source = Quartz.CFMachPortCreateRunLoopSource(None, self._mac_shift_click_tap, 0)
@@ -705,6 +731,7 @@ class GlobalHotkeyListener:
             self._cf_call("CFRunLoopRun")
         except Exception as e:
             print(f"GlobalHotkeyListener: Error iniciando listener de Shift+Click en macOS: {e}")
+            self._record_startup_issue(f"Error iniciando listener de Shift+Click en macOS: {e}")
 
     def _cf_symbol(self, symbol_name):
         """Resolves CoreFoundation symbols from Quartz first, then CoreFoundation."""
