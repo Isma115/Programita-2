@@ -16,6 +16,170 @@ import re
 import shutil
 import time
 
+
+def _consume_line_comment(text, start_idx):
+    end_idx = text.find("\n", start_idx)
+    if end_idx == -1:
+        end_idx = len(text)
+    return text[start_idx:end_idx], end_idx
+
+
+def _consume_block_comment(text, start_idx, end_marker):
+    end_idx = text.find(end_marker, start_idx + len(end_marker) - 1)
+    if end_idx == -1:
+        return text[start_idx:], len(text)
+    end_idx += len(end_marker)
+    return text[start_idx:end_idx], end_idx
+
+
+def _trim_current_line_whitespace(output):
+    idx = len(output) - 1
+    while idx >= 0 and output[idx] in (" ", "\t"):
+        idx -= 1
+    del output[idx + 1:]
+
+
+def _preserve_comment_newlines(comment_text):
+    return "".join(ch for ch in comment_text if ch in "\r\n")
+
+
+def _is_hash_comment_start(text, index):
+    if index < 0 or index >= len(text) or text[index] != "#":
+        return False
+    if index == 0:
+        return True
+    return text[index - 1].isspace()
+
+
+def _is_dash_dash_comment_start(text, index):
+    if not text.startswith("--", index):
+        return False
+
+    prev_ok = index == 0 or text[index - 1].isspace()
+    next_index = index + 2
+    next_ok = (
+        next_index >= len(text)
+        or text[next_index].isspace()
+        or text[next_index] == "["
+    )
+    return prev_ok and next_ok
+
+
+def strip_modification_comments(text):
+    """
+    Removes whole comments containing [MODIFICACIÓN] while preserving code and line structure.
+    Supports common single-line and block comment syntaxes.
+    Returns (cleaned_text, removed_count).
+    """
+    marker = "[modificación]"
+    output = []
+    removed_comments = 0
+    i = 0
+    text_len = len(text)
+    string_delim = None
+    triple_string_delim = None
+
+    while i < text_len:
+        if triple_string_delim is not None:
+            if text.startswith(triple_string_delim, i):
+                output.append(triple_string_delim)
+                i += 3
+                triple_string_delim = None
+                continue
+
+            if text[i] == "\\" and i + 1 < text_len:
+                output.append(text[i:i + 2])
+                i += 2
+                continue
+
+            output.append(text[i])
+            i += 1
+            continue
+
+        if string_delim is not None:
+            if text[i] == "\\" and i + 1 < text_len:
+                output.append(text[i:i + 2])
+                i += 2
+                continue
+
+            output.append(text[i])
+            if text[i] == string_delim:
+                string_delim = None
+            i += 1
+            continue
+
+        if text.startswith("'''", i) or text.startswith('"""', i):
+            triple_string_delim = text[i:i + 3]
+            output.append(triple_string_delim)
+            i += 3
+            continue
+
+        if text[i] in ("'", '"', "`"):
+            string_delim = text[i]
+            output.append(text[i])
+            i += 1
+            continue
+
+        if text.startswith("<!--", i):
+            comment_text, end_idx = _consume_block_comment(text, i, "-->")
+            if marker in comment_text.lower():
+                _trim_current_line_whitespace(output)
+                output.append(_preserve_comment_newlines(comment_text))
+                removed_comments += 1
+            else:
+                output.append(comment_text)
+            i = end_idx
+            continue
+
+        if text.startswith("/*", i):
+            comment_text, end_idx = _consume_block_comment(text, i, "*/")
+            if marker in comment_text.lower():
+                _trim_current_line_whitespace(output)
+                output.append(_preserve_comment_newlines(comment_text))
+                removed_comments += 1
+            else:
+                output.append(comment_text)
+            i = end_idx
+            continue
+
+        if text.startswith("//", i):
+            comment_text, end_idx = _consume_line_comment(text, i)
+            if marker in comment_text.lower():
+                _trim_current_line_whitespace(output)
+                output.append(_preserve_comment_newlines(comment_text))
+                removed_comments += 1
+            else:
+                output.append(comment_text)
+            i = end_idx
+            continue
+
+        if _is_dash_dash_comment_start(text, i):
+            comment_text, end_idx = _consume_line_comment(text, i)
+            if marker in comment_text.lower():
+                _trim_current_line_whitespace(output)
+                output.append(_preserve_comment_newlines(comment_text))
+                removed_comments += 1
+            else:
+                output.append(comment_text)
+            i = end_idx
+            continue
+
+        if _is_hash_comment_start(text, i):
+            comment_text, end_idx = _consume_line_comment(text, i)
+            if marker in comment_text.lower():
+                _trim_current_line_whitespace(output)
+                output.append(_preserve_comment_newlines(comment_text))
+                removed_comments += 1
+            else:
+                output.append(comment_text)
+            i = end_idx
+            continue
+
+        output.append(text[i])
+        i += 1
+
+    return "".join(output), removed_comments
+
 class Controller:
     """
     Manages the application state and logic separation.
@@ -603,157 +767,7 @@ class Controller:
         return changed_files, removed_comments, errors
 
     def _strip_modification_comments(self, text):
-        """
-        Removes whole comments containing [MODIFICACIÓN] while preserving code and line structure.
-        Supports common single-line and block comment syntaxes.
-        """
-        marker = "[modificación]"
-        output = []
-        removed_comments = 0
-        i = 0
-        text_len = len(text)
-        string_delim = None
-        triple_string_delim = None
-
-        while i < text_len:
-            if triple_string_delim is not None:
-                if text.startswith(triple_string_delim, i):
-                    output.append(triple_string_delim)
-                    i += 3
-                    triple_string_delim = None
-                    continue
-
-                if text[i] == "\\" and i + 1 < text_len:
-                    output.append(text[i:i + 2])
-                    i += 2
-                    continue
-
-                output.append(text[i])
-                i += 1
-                continue
-
-            if string_delim is not None:
-                if text[i] == "\\" and i + 1 < text_len:
-                    output.append(text[i:i + 2])
-                    i += 2
-                    continue
-
-                output.append(text[i])
-                if text[i] == string_delim:
-                    string_delim = None
-                i += 1
-                continue
-
-            if text.startswith("'''", i) or text.startswith('"""', i):
-                triple_string_delim = text[i:i + 3]
-                output.append(triple_string_delim)
-                i += 3
-                continue
-
-            if text[i] in ("'", '"', "`"):
-                string_delim = text[i]
-                output.append(text[i])
-                i += 1
-                continue
-
-            if text.startswith("<!--", i):
-                comment_text, end_idx = self._consume_block_comment(text, i, "-->")
-                if marker in comment_text.lower():
-                    self._trim_current_line_whitespace(output)
-                    output.append(self._preserve_comment_newlines(comment_text))
-                    removed_comments += 1
-                else:
-                    output.append(comment_text)
-                i = end_idx
-                continue
-
-            if text.startswith("/*", i):
-                comment_text, end_idx = self._consume_block_comment(text, i, "*/")
-                if marker in comment_text.lower():
-                    self._trim_current_line_whitespace(output)
-                    output.append(self._preserve_comment_newlines(comment_text))
-                    removed_comments += 1
-                else:
-                    output.append(comment_text)
-                i = end_idx
-                continue
-
-            if text.startswith("//", i):
-                comment_text, end_idx = self._consume_line_comment(text, i)
-                if marker in comment_text.lower():
-                    self._trim_current_line_whitespace(output)
-                    removed_comments += 1
-                else:
-                    output.append(comment_text)
-                i = end_idx
-                continue
-
-            if self._is_dash_dash_comment_start(text, i):
-                comment_text, end_idx = self._consume_line_comment(text, i)
-                if marker in comment_text.lower():
-                    self._trim_current_line_whitespace(output)
-                    removed_comments += 1
-                else:
-                    output.append(comment_text)
-                i = end_idx
-                continue
-
-            if self._is_hash_comment_start(text, i):
-                comment_text, end_idx = self._consume_line_comment(text, i)
-                if marker in comment_text.lower():
-                    self._trim_current_line_whitespace(output)
-                    removed_comments += 1
-                else:
-                    output.append(comment_text)
-                i = end_idx
-                continue
-
-            output.append(text[i])
-            i += 1
-
-        return "".join(output), removed_comments
-
-    def _consume_line_comment(self, text, start_idx):
-        end_idx = text.find("\n", start_idx)
-        if end_idx == -1:
-            end_idx = len(text)
-        return text[start_idx:end_idx], end_idx
-
-    def _consume_block_comment(self, text, start_idx, end_marker):
-        end_idx = text.find(end_marker, start_idx + len(end_marker) - 1)
-        if end_idx == -1:
-            return text[start_idx:], len(text)
-        end_idx += len(end_marker)
-        return text[start_idx:end_idx], end_idx
-
-    def _trim_current_line_whitespace(self, output):
-        idx = len(output) - 1
-        while idx >= 0 and output[idx] in (" ", "\t"):
-            idx -= 1
-        del output[idx + 1:]
-
-    def _preserve_comment_newlines(self, comment_text):
-        return "".join(ch for ch in comment_text if ch in "\r\n")
-
-    def _is_hash_comment_start(self, text, index):
-        if index < 0 or index >= len(text) or text[index] != "#":
-            return False
-        if index == 0:
-            return True
-        return text[index - 1].isspace()
-
-    def _is_dash_dash_comment_start(self, text, index):
-        if not text.startswith("--", index):
-            return False
-
-        prev_ok = index == 0 or text[index - 1].isspace()
-        next_index = index + 2
-        next_ok = (
-            next_index >= len(text)
-            or text[next_index].isspace()
-            or text[next_index] == "["
-        )
-        return prev_ok and next_ok
+        return strip_modification_comments(text)
 
     def save_content_to_codigo_txt(self, content, append=False, append_separator="\n\n"):
         """Saves or appends content to ~/Documents/codigo.txt."""

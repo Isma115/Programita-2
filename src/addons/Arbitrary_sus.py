@@ -11,6 +11,7 @@ import shlex
 import threading
 
 from src.logic.syntax_validator import validate_code_syntax
+from src.logic.controller import strip_modification_comments
 
 # --- PYGMENTS (Syntax Highlighting profesional) ---
 from pygments import lex
@@ -1772,8 +1773,16 @@ def run_arbitrary_search_with_text(
             logging.info("Arbitrary: Texto de búsqueda vacío.")
             return
 
+        search_text, _ = strip_modification_comments(search_text)
+        search_text = search_text.strip()
+        if not search_text:
+            logging.info("Arbitrary: Texto de búsqueda vacío tras limpiar comentarios [MODIFICACIÓN].")
+            return
+
         if display_clipboard_text is None:
             display_clipboard_text = search_text
+        else:
+            display_clipboard_text, _ = strip_modification_comments(display_clipboard_text)
 
         code_files = _get_code_files_for_arbitrary_search(app_instance)
         if not code_files:
@@ -1845,6 +1854,12 @@ def run_arbitrary_search(app_instance, prioritize_clipboard_file=False):
         logging.info("Arbitrary: Portapapeles vacío.")
         return
 
+    clipboard_text, _ = strip_modification_comments(clipboard_text)
+    clipboard_text = clipboard_text.strip()
+    if not clipboard_text:
+        logging.info("Arbitrary: Portapapeles vacío tras limpiar comentarios [MODIFICACIÓN].")
+        return
+
     run_arbitrary_search_with_text(
         app_instance,
         clipboard_text,
@@ -1867,6 +1882,12 @@ def process_smart_paste(app_instance):
         content = pyperclip.paste()
         if not content:
             _log_smart_paste_skip("el portapapeles está vacío")
+            return False
+
+        content, _ = strip_modification_comments(content)
+        content = content.strip()
+        if not content:
+            _log_smart_paste_skip("el portapapeles está vacío tras limpiar comentarios [MODIFICACIÓN]")
             return False
 
         # 0. Chequeo de Comando de Consola

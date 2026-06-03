@@ -15,6 +15,7 @@ from src.addons.Arbitrary_sus import (
     highlight_syntax,
 )
 from src.logic.syntax_validator import validate_code_syntax
+from src.logic.controller import strip_modification_comments
 from src.ui.styles import Styles
 
 _MIN_STRUCTURE_CHARS = 30
@@ -693,6 +694,12 @@ def process_smart_paste(app_instance):
     clipboard_text = pyperclip.paste()
     if not clipboard_text or not clipboard_text.strip():
         logging.info("Clever SUS: Portapapeles vacío.")
+        return False
+
+    clipboard_text, _ = strip_modification_comments(clipboard_text)
+    clipboard_text = clipboard_text.strip()
+    if not clipboard_text:
+        logging.info("Clever SUS: Portapapeles vacío tras limpiar comentarios [MODIFICACIÓN].")
         return False
 
     clipboard_structures = extract_code_structures(
