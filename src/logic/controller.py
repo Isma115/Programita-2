@@ -246,9 +246,13 @@ class Controller:
         self.config_manager.set_sections_path(resolved_path)
         return resolved_path
 
-    def get_code_output_prompt(self, return_files=False, return_chunks=False, return_regions=False):
+    def get_code_output_prompt(self, return_files=False, return_chunks=False, return_regions=False, anti_agent=False):
         """Returns the instruction block that defines how the AI should return code."""
         path_comment_instruction = get_file_path_comment_inline_instruction()
+
+        if anti_agent:
+            from src.addons.bridge_sus import build_anti_agent_output_instruction
+            return build_anti_agent_output_instruction()
 
         if return_files:
             return (
@@ -400,7 +404,8 @@ class Controller:
         include_file_headers=True,
         include_project_tree=False,
         min_files=10,
-        file_paths=None
+        file_paths=None,
+        anti_agent=False
     ):
         """
         Generates a prompt based on user text and selected files.
@@ -457,7 +462,7 @@ class Controller:
         
 
             
-        prompt += f"\n\n{self.get_code_output_prompt(return_files=return_files, return_chunks=return_chunks, return_regions=return_regions)}"
+        prompt += f"\n\n{self.get_code_output_prompt(return_files=return_files, return_chunks=return_chunks, return_regions=return_regions, anti_agent=anti_agent)}"
             
         return prompt
 

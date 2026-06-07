@@ -123,6 +123,9 @@ class ConfigManager:
         if "auto_region_sections_enabled" not in self.config:
             self.config["auto_region_sections_enabled"] = True
             migrated = True
+        if "anti_agent_enabled" not in self.config:
+            self.config["anti_agent_enabled"] = False
+            migrated = True
 
         for legacy_key in ("return_structures",):
             if legacy_key in self.config:
@@ -427,6 +430,13 @@ class ConfigManager:
     def set_return_regions(self, value):
         """Sets whether prompts should ask for full modified regions and saves config."""
         self.config["return_regions"] = bool(value)
+        self.save_config()
+
+    def get_anti_agent_enabled(self):
+        return bool(self.config.get("anti_agent_enabled", False))
+
+    def set_anti_agent_enabled(self, value):
+        self.config["anti_agent_enabled"] = bool(value)
         self.save_config()
 
     def get_include_file_headers_in_codigo_txt(self):

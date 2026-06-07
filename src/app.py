@@ -121,7 +121,15 @@ class Application:
         current_return_files = self.controller.config_manager.get_return_files()
         current_return_chunks = self.controller.config_manager.get_return_chunks()
         current_return_regions = self.controller.config_manager.get_return_regions()
-        if current_return_files and (current_return_chunks or current_return_regions):
+        current_anti_agent = self.controller.config_manager.get_anti_agent_enabled()
+        if current_anti_agent and (current_return_files or current_return_chunks or current_return_regions):
+            current_return_files = False
+            current_return_chunks = False
+            current_return_regions = False
+            self.controller.config_manager.set_return_files(False)
+            self.controller.config_manager.set_return_chunks(False)
+            self.controller.config_manager.set_return_regions(False)
+        elif current_return_files and (current_return_chunks or current_return_regions):
             current_return_chunks = False
             current_return_regions = False
             self.controller.config_manager.set_return_chunks(False)
@@ -133,6 +141,7 @@ class Application:
         self.output_return_files_var = tk.BooleanVar(value=current_return_files)
         self.output_return_chunks_var = tk.BooleanVar(value=current_return_chunks)
         self.output_return_regions_var = tk.BooleanVar(value=current_return_regions)
+        self.output_anti_agent_var = tk.BooleanVar(value=current_anti_agent)
         self.include_project_tree_var = tk.BooleanVar(
             value=self.controller.config_manager.get_include_project_tree()
         )
@@ -168,6 +177,12 @@ class Application:
             label="Devolver regiones",
             variable=self.output_return_regions_var,
             command=self._on_toggle_output_return_regions
+        )
+        self.output_menu.add_separator()
+        self.output_menu.add_checkbutton(
+            label="Anti-Agent",
+            variable=self.output_anti_agent_var,
+            command=self._on_toggle_anti_agent
         )
         self.configure_params_menu = tk.Menu(self.menu_bar, tearoff=0)
         self.configure_params_menu.add_command(
@@ -238,7 +253,7 @@ class Application:
         self.root.config(menu=self.menu_bar)
         self.sync_output_menu_state()
 
-    def sync_output_menu_state(self, return_files=None, return_chunks=None, return_regions=None):
+    def sync_output_menu_state(self, return_files=None, return_chunks=None, return_regions=None, anti_agent=None):
         """Keeps the Output menu vars in sync with CodeView state."""
         if (
             not hasattr(self, "output_return_files_var")
@@ -263,9 +278,13 @@ class Application:
                 return_chunks = self.controller.config_manager.get_return_chunks()
                 return_regions = self.controller.config_manager.get_return_regions()
 
+        if anti_agent is None:
+            anti_agent = self.controller.config_manager.get_anti_agent_enabled()
+
         self.output_return_files_var.set(bool(return_files))
         self.output_return_chunks_var.set(bool(return_chunks))
         self.output_return_regions_var.set(bool(return_regions))
+        self.output_anti_agent_var.set(bool(anti_agent))
 
     def _on_toggle_output_return_files(self):
         """Updates the return-files mode from the Output menu."""
@@ -275,6 +294,9 @@ class Application:
 
         should_enable = bool(self.output_return_files_var.get())
         code_view._set_return_mode(return_files=should_enable, return_chunks=False, return_regions=False)
+        if should_enable:
+            self.controller.config_manager.set_anti_agent_enabled(False)
+            self.output_anti_agent_var.set(False)
         self.sync_output_menu_state()
 
     def _on_toggle_output_return_chunks(self):
@@ -285,6 +307,9 @@ class Application:
 
         should_enable = bool(self.output_return_chunks_var.get())
         code_view._set_return_mode(return_files=False, return_chunks=should_enable, return_regions=False)
+        if should_enable:
+            self.controller.config_manager.set_anti_agent_enabled(False)
+            self.output_anti_agent_var.set(False)
         self.sync_output_menu_state()
 
     def _on_toggle_output_return_regions(self):
@@ -295,6 +320,18 @@ class Application:
 
         should_enable = bool(self.output_return_regions_var.get())
         code_view._set_return_mode(return_files=False, return_chunks=False, return_regions=should_enable)
+        if should_enable:
+            self.controller.config_manager.set_anti_agent_enabled(False)
+            self.output_anti_agent_var.set(False)
+        self.sync_output_menu_state()
+
+    def _on_toggle_anti_agent(self):
+        should_enable = bool(self.output_anti_agent_var.get())
+        self.controller.config_manager.set_anti_agent_enabled(should_enable)
+        if should_enable:
+            code_view = getattr(getattr(self, "layout", None), "code_view", None)
+            if code_view is not None:
+                code_view._set_return_mode(return_files=False, return_chunks=False, return_regions=False)
         self.sync_output_menu_state()
 
     def _on_toggle_include_project_tree(self):

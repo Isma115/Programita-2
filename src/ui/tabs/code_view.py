@@ -269,12 +269,18 @@ class CodeView(ttk.Frame):
         val_return_files = False
         val_return_chunks = False
         val_return_regions = False
+        val_anti_agent = False
         if hasattr(self.controller, 'config_manager'):
             val_return_files = self.controller.config_manager.get_return_files()
             val_return_chunks = self.controller.config_manager.get_return_chunks()
             val_return_regions = self.controller.config_manager.get_return_regions()
+            val_anti_agent = self.controller.config_manager.get_anti_agent_enabled()
 
-        if val_return_files and (val_return_chunks or val_return_regions):
+        if val_anti_agent and (val_return_files or val_return_chunks or val_return_regions):
+            val_return_files = False
+            val_return_chunks = False
+            val_return_regions = False
+        elif val_return_files and (val_return_chunks or val_return_regions):
             val_return_chunks = False
             val_return_regions = False
         elif val_return_chunks and val_return_regions:
@@ -289,6 +295,7 @@ class CodeView(ttk.Frame):
             self.controller.config_manager.set_return_files(val_return_files)
             self.controller.config_manager.set_return_chunks(val_return_chunks)
             self.controller.config_manager.set_return_regions(val_return_regions)
+            self.controller.config_manager.set_anti_agent_enabled(val_anti_agent)
             self.controller.config_manager.set_include_file_headers_in_codigo_txt(True)
 
     def _load_file_type_icons(self):
@@ -2873,6 +2880,8 @@ class CodeView(ttk.Frame):
             self.controller.config_manager.set_return_files(return_files)
             self.controller.config_manager.set_return_chunks(return_chunks)
             self.controller.config_manager.set_return_regions(return_regions)
+            if return_files or return_chunks or return_regions:
+                self.controller.config_manager.set_anti_agent_enabled(False)
 
         app_instance = getattr(self.winfo_toplevel(), "app_instance", None)
         if app_instance and hasattr(app_instance, "sync_output_menu_state"):
@@ -4996,6 +5005,9 @@ class CodeView(ttk.Frame):
         return_files = self.var_return_files.get()
         return_chunks = self.var_return_chunks.get()
         return_regions = self.var_return_regions.get()
+        anti_agent = False
+        if hasattr(self.controller, 'config_manager'):
+            anti_agent = self.controller.config_manager.get_anti_agent_enabled()
 
         include_project_tree = False
         if hasattr(self.controller, 'config_manager'):
@@ -5040,9 +5052,17 @@ class CodeView(ttk.Frame):
                     + "\n\n"
                 )
 
+            if anti_agent:
+                from src.addons.bridge_sus import build_anti_agent_output_instruction
+                output_instruction = build_anti_agent_output_instruction()
+            else:
+                output_instruction = (
+                    "Formato: responde en Markdown. Devuelve exclusivamente el código o los fragmentos de código modificados, sin explicaciones ni código no afectado. Cada bloque de código debe empezar con un comentario dentro del propio bloque con este texto exacto: Archivo: (ruta de archivo), usando el tipo de comentario correcto según el lenguaje. Añade también un comentario con el texto exacto [MODIFICACIÓN] en cada punto donde se haya aplicado un cambio, usando el tipo de comentario correcto según el lenguaje."
+                )
+
             clipboard_content = (
                 f"Petición del Usuario:\n{text}\n\n"
-                "Formato: responde en Markdown. Devuelve exclusivamente el código o los fragmentos de código modificados, sin explicaciones ni código no afectado. Cada bloque de código debe empezar con un comentario dentro del propio bloque con este texto exacto: Archivo: (ruta de archivo), usando el tipo de comentario correcto según el lenguaje. Añade también un comentario con el texto exacto [MODIFICACIÓN] en cada punto donde se haya aplicado un cambio, usando el tipo de comentario correcto según el lenguaje.\n\n"
+                f"{output_instruction}\n\n"
                 f"{files_instruction}"
                 f"Código de Contexto:\n{segment_code}"
             )
@@ -5092,7 +5112,8 @@ class CodeView(ttk.Frame):
                 selected_regions,
                 return_files,
                 return_chunks,
-                return_regions
+                return_regions,
+                anti_agent
             )
             if not self._create_memory_backup_for_current_code_list():
                 return
@@ -5138,7 +5159,8 @@ class CodeView(ttk.Frame):
                 return_files=return_files,
                 return_chunks=return_chunks,
                 return_regions=return_regions,
-                include_project_tree=include_project_tree
+                include_project_tree=include_project_tree,
+                anti_agent=anti_agent
             )
 
             self.clipboard_clear()
@@ -5146,7 +5168,7 @@ class CodeView(ttk.Frame):
             print(f"Agente: Prompt copiado con {len(selected_files_data)} ficheros priorizados")
         else:
             clipboard_content = text
-            clipboard_content += f"\n\n{self.controller.get_code_output_prompt(return_files=return_files, return_chunks=return_chunks, return_regions=return_regions)}"
+            clipboard_content += f"\n\n{self.controller.get_code_output_prompt(return_files=return_files, return_chunks=return_chunks, return_regions=return_regions, anti_agent=anti_agent)}"
 
             if include_project_tree:
                 project_tree_block = self.controller.get_project_tree_prompt_block()
@@ -5172,7 +5194,8 @@ class CodeView(ttk.Frame):
                     include_file_headers=self._should_include_file_headers_in_codigo_txt(),
                     include_project_tree=include_project_tree,
                     min_files=min_files,
-                    file_paths=selected_file_paths
+                    file_paths=selected_file_paths,
+                    anti_agent=anti_agent
                 )
 
                 documents_path = os.path.join(os.path.expanduser("~"), "Documents")
@@ -5312,7 +5335,7 @@ class CodeView(ttk.Frame):
                     regions.append(region)
         return regions
 
-    def _build_project_regions_prompt(self, user_text, regions, return_files=False, return_chunks=False, return_regions=False):
+    def _build_project_regions_prompt(self, user_text, regions, return_files=False, return_chunks=False, return_regions=False, anti_agent=False):
         """Builds a prompt using detected project regions as the code context."""
         blocks = []
         for region in regions or []:
@@ -5332,7 +5355,7 @@ class CodeView(ttk.Frame):
             f"Petición del Usuario:\n{user_text}\n\n"
             "Código de Contexto (regiones detectadas):\n"
             + "\n\n".join(blocks)
-            + f"\n\n{self.controller.get_code_output_prompt(return_files=return_files, return_chunks=return_chunks, return_regions=return_regions)}"
+            + f"\n\n{self.controller.get_code_output_prompt(return_files=return_files, return_chunks=return_chunks, return_regions=return_regions, anti_agent=anti_agent)}"
         )
 
     def _on_start_dynamic_paste(self):
@@ -5402,7 +5425,8 @@ class CodeView(ttk.Frame):
         return_files=False,
         return_chunks=False,
         return_regions=False,
-        include_project_tree=False
+        include_project_tree=False,
+        anti_agent=False
     ):
         """Builds a clipboard prompt tailored for coding agents."""
         lines = [
@@ -5457,7 +5481,8 @@ class CodeView(ttk.Frame):
             self.controller.get_code_output_prompt(
                 return_files=return_files,
                 return_chunks=return_chunks,
-                return_regions=return_regions
+                return_regions=return_regions,
+                anti_agent=anti_agent
             )
         ])
 

@@ -702,6 +702,10 @@ def process_smart_paste(app_instance):
         logging.info("Clever SUS: Portapapeles vacío tras limpiar comentarios [MODIFICACIÓN].")
         return False
 
+    original_clipboard = pyperclip.paste()
+    if clipboard_text != original_clipboard.strip():
+        pyperclip.copy(clipboard_text)
+
     clipboard_structures = extract_code_structures(
         clipboard_text,
         limit=_MAX_CLIPBOARD_STRUCTURES,

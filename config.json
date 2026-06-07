@@ -1,5 +1,5 @@
 {
-    "last_project": "/Users/ismaelmoraledalopez/Desktop/pruebas/EnTest",
+    "last_project": "/Users/ismaelmoraledalopez/Desktop/pruebas/OneShotDeep4Flash",
     "file_limit": 50,
     "return_files": false,
     "doc_path": "/Users/ismaelmoraledalopez/Documents/Documentacion Irrigation",
@@ -20,9 +20,10 @@
         "/Users/ismaelmoraledalopez/Desktop/pruebas/InstaTicket",
         "/Users/ismaelmoraledalopez/Desktop/pruebas/Porfofo",
         "/Users/ismaelmoraledalopez/Documents/Proyecto Pensador",
-        "/Users/ismaelmoraledalopez/Desktop/pruebas/EnTest"
+        "/Users/ismaelmoraledalopez/Desktop/pruebas/EnTest",
+        "/Users/ismaelmoraledalopez/Desktop/pruebas/OneShotDeep4Flash"
     ],
-    "current_project_index": 8,
+    "current_project_index": 9,
     "db_config": {
         "host": "hidralab-server.mysql.database.azure.com",
         "port": "3306",
@@ -44,12 +45,12 @@
     "implementation_mode": false,
     "last_doc_file": "/Users/ismaelmoraledalopez/Documents/Documentacion Irrigation/Gestor de Cultivos/Clientes/planteamiento dni.md",
     "sections_path": "/Users/ismaelmoraledalopez/Desktop/pruebas/Porfofo",
-    "code_extensions_filter": "jsx, css",
+    "code_extensions_filter": "",
     "include_project_tree": false,
     "file_limit_slider_max": 50,
     "return_chunks": false,
     "arbitrary_search_min_chars": 15,
-    "arbitrary_search_max_chars": 30,
+    "arbitrary_search_max_chars": 40,
     "export_prompts_as_folder": false,
     "include_file_headers_in_codigo_txt": true,
     "max_file_limit": 50,
@@ -62,5 +63,6 @@
     "last_main_view": "code",
     "clever_injection_enabled": false,
     "doc_autosave_enabled": true,
-    "auto_region_sections_enabled": true
+    "auto_region_sections_enabled": true,
+    "anti_agent_enabled": true
 }

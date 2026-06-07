@@ -281,15 +281,17 @@ def _load_file_contents(file_list):
     return loaded
 
 
-def _get_substring_quality(substring):
-    """Calcula métricas para priorizar substrings con menos espacio en blanco."""
-    whitespace_chars = sum(1 for char in substring if char.isspace())
-    non_whitespace_chars = len(substring) - whitespace_chars
-    return {
-        "non_whitespace_chars": non_whitespace_chars,
-        "whitespace_chars": whitespace_chars,
-        "length": len(substring),
-    }
+def _normalize_for_match(text):
+    """Normaliza texto para comparación difusa: colapsa espacios en blanco a uno solo."""
+    return re.sub(r'\s+', ' ', text).strip()
+
+
+def _compute_line_fingerprint(line):
+    """Computa una huella normalizada de una línea para comparación rápida."""
+    stripped = line.strip()
+    if not stripped:
+        return ""
+    return _normalize_for_match(stripped)
 
 
 def find_unique_substring(search_text, loaded_files, min_len=20, max_len=None, step=10):
@@ -311,17 +313,19 @@ def find_unique_substring(search_text, loaded_files, min_len=20, max_len=None, s
     - step: incremento de tamaño entre iteraciones.
     """
     text_len = len(search_text)
+    if text_len == 0:
+        return None, None, -1
     if max_len is None:
         max_len = text_len
 
-    # Aseguramos que min_len no supere el texto
     min_len = min(min_len, text_len)
     max_len = min(max_len, text_len)
+    if max_len < min_len:
+        max_len = min_len
 
-    logging.info(f"[Arbitrary] Buscando substring único (priorizando contenido útil). Texto: {text_len} chars, "
+    logging.info(f"[Arbitrary] Buscando substring único. Texto: {text_len} chars, "
                  f"rango [{min_len}..{max_len}], step={step}")
 
-    # Coleccionar todos los candidatos únicos
     best_substring = None
     best_file_path = None
     best_line_num = -1
@@ -329,12 +333,9 @@ def find_unique_substring(search_text, loaded_files, min_len=20, max_len=None, s
     best_start = -1
 
     for substr_len in range(max_len, min_len - 1, -step):
-        # Si ya tenemos un candidato con más caracteres útiles de los que caben en este nivel,
-        # ningún substring de esta longitud ni menores podrá superarlo.
         if best_quality and best_quality["non_whitespace_chars"] > substr_len:
             break
 
-        # Posiciones de inicio a probar: inicio, 1/4, centro, 3/4, fin
         positions = set()
         positions.add(0)
         positions.add(max(0, text_len // 4 - substr_len // 2))
@@ -348,87 +349,202 @@ def find_unique_substring(search_text, loaded_files, min_len=20, max_len=None, s
                 break
             substring = search_text[start:end]
 
-            # Ignorar substrings que sean solo espacios/saltos de línea
             if not substring.strip():
                 continue
 
-            quality = _get_substring_quality(substring)
+            nw = sum(1 for c in substring if not c.isspace())
+            ws = len(substring) - nw
+            quality = {"non_whitespace_chars": nw, "whitespace_chars": ws, "length": len(substring)}
 
-            # Buscar en todos los ficheros
             matching_files = []
             for file_path, content in loaded_files:
                 if substring in content:
                     matching_files.append(file_path)
 
-            if len(matching_files) == 1:
-                should_replace = False
-                if best_quality is None:
+            if len(matching_files) != 1:
+                continue
+
+            should_replace = False
+            if best_quality is None:
+                should_replace = True
+            elif nw > best_quality["non_whitespace_chars"]:
+                should_replace = True
+            elif nw == best_quality["non_whitespace_chars"]:
+                if ws < best_quality["whitespace_chars"]:
                     should_replace = True
-                elif quality["non_whitespace_chars"] > best_quality["non_whitespace_chars"]:
-                    should_replace = True
-                elif quality["non_whitespace_chars"] == best_quality["non_whitespace_chars"]:
-                    if quality["whitespace_chars"] < best_quality["whitespace_chars"]:
+                elif ws == best_quality["whitespace_chars"]:
+                    if quality["length"] > best_quality["length"]:
                         should_replace = True
-                    elif quality["whitespace_chars"] == best_quality["whitespace_chars"]:
-                        if quality["length"] > best_quality["length"]:
-                            should_replace = True
-                        elif quality["length"] == best_quality["length"] and start > best_start:
-                            should_replace = True
+                    elif quality["length"] == best_quality["length"] and start > best_start:
+                        should_replace = True
 
-                # Coincidencia única encontrada - es candidata si mejora la calidad actual
-                if should_replace:
-                    file_path = matching_files[0]
-                    content = next(c for fp, c in loaded_files if fp == file_path)
-                    idx = content.find(substring)
-                    line_num = content[:idx].count('\n') + 1
+            if should_replace:
+                file_path = matching_files[0]
+                content = next(c for fp, c in loaded_files if fp == file_path)
+                idx = content.find(substring)
+                line_num = content[:idx].count('\n') + 1
 
-                    best_substring = substring
-                    best_file_path = file_path
-                    best_line_num = line_num
-                    best_quality = quality
-                    best_start = start
+                best_substring = substring
+                best_file_path = file_path
+                best_line_num = line_num
+                best_quality = quality
+                best_start = start
 
-                    logging.info(
-                        f"[Arbitrary] Candidato único encontrado: "
-                        f"Útiles={quality['non_whitespace_chars']}, blancos={quality['whitespace_chars']}, "
-                        f"len={substr_len}, pos={start}, fichero={os.path.basename(file_path)}, "
-                        f"línea={line_num}"
-                    )
+                logging.info(
+                    f"[Arbitrary] Candidato único: útiles={nw}, len={substr_len}, "
+                    f"fichero={os.path.basename(file_path)}, línea={line_num}"
+                )
 
     if best_substring and best_file_path:
         logging.info(
-            f"[Arbitrary] Mejor resultado seleccionado: "
-            f"Útiles={best_quality['non_whitespace_chars']}, blancos={best_quality['whitespace_chars']}, "
+            f"[Arbitrary] Mejor exacto: útiles={best_quality['non_whitespace_chars']}, "
             f"len={best_quality['length']}, fichero={os.path.basename(best_file_path)}, línea={best_line_num}"
         )
         return best_substring, best_file_path, best_line_num
 
-    logging.info("[Arbitrary] No se encontró substring único en el rango especificado.")
+    logging.info("[Arbitrary] No se encontró substring único exacto.")
     return None, None, -1
+
+
+def _fuzzy_match_region(search_text, loaded_files):
+    """
+    Fallback difuso cuando la búsqueda exacta falla.
+
+    Estrategia:
+    1. Normaliza y compara líneas usando SequenceMatcher.
+    2. Para cada fichero, encuentra el bloque contiguo de líneas con mayor similitud.
+    3. Devuelve (match_text, file_path, ratio, line_num) con la mejor coincidencia.
+    """
+
+    search_lines = search_text.splitlines()
+    if not search_lines:
+        logging.info("[Arbitrary] Fuzzy: texto de búsqueda vacío.")
+        return None, None, 0.0, -1
+
+    search_norms = [_compute_line_fingerprint(l) for l in search_lines]
+    search_norms_filtered = [n for n in search_norms if n]
+
+    if not search_norms_filtered:
+        logging.info("[Arbitrary] Fuzzy: texto de búsqueda sin contenido significativo.")
+        return None, None, 0.0, -1
+
+    best_file_path = None
+    best_match_text = None
+    best_ratio = 0.0
+    best_line_num = 1
+    best_match_start_line = 0
+    best_match_end_line = 0
+
+    MIN_RATIO_THRESHOLD = 0.25
+    MAX_FILE_LINES_FOR_WINDOW = 2000
+    MAX_COMPARISONS_PER_FILE = 500
+
+    for file_path, content in loaded_files:
+        file_lines = content.splitlines()
+        if not file_lines:
+            continue
+
+        file_norms = [_compute_line_fingerprint(l) for l in file_lines]
+        full_search_norm = "\n".join(search_norms_filtered)
+        file_norms_joined = "\n".join(file_norms)
+
+        sm = difflib.SequenceMatcher(None, full_search_norm, file_norms_joined, autojunk=False)
+        longest = sm.find_longest_match(0, len(search_norms_filtered), 0, len(file_norms_joined))
+
+        if longest.size > 3:
+            partial_ratio = longest.size / max(len(search_norms_filtered), 1)
+            if partial_ratio > best_ratio:
+                best_ratio = partial_ratio
+                best_file_path = file_path
+                best_line_num = 1
+                start_line = file_norms_joined[:longest.b].count("\n") if longest.b > 0 else 0
+                match_in_lines = file_norms_joined[longest.b:longest.b + longest.size]
+                end_line = start_line + match_in_lines.count("\n") + 1
+                best_match_start_line = start_line
+                best_match_end_line = end_line
+
+        window_sizes = _compute_fuzzy_window_sizes(len(search_norms_filtered))
+
+        file_line_limit = min(len(file_lines), MAX_FILE_LINES_FOR_WINDOW)
+        step = max(1, file_line_limit // MAX_COMPARISONS_PER_FILE)
+
+        for window_size in window_sizes:
+            window_text = "\n".join(search_norms_filtered[:window_size])
+            if not window_text.strip():
+                continue
+
+            for start in range(0, file_line_limit - window_size + 1, step):
+                chunk = "\n".join(file_norms[start:start + window_size])
+                if not chunk.strip():
+                    continue
+
+                ratio = difflib.SequenceMatcher(None, window_text, chunk, autojunk=False).ratio()
+
+                end_line = min(start + window_size, len(file_lines))
+
+                if ratio > best_ratio:
+                    best_ratio = ratio
+                    best_file_path = file_path
+                    best_match_start_line = start
+                    best_match_end_line = end_line
+                    best_line_num = start + 1
+
+    if best_ratio < MIN_RATIO_THRESHOLD or best_file_path is None:
+        logging.info(f"[Arbitrary] Fuzzy: mejor ratio {best_ratio:.2f} insuficiente (mínimo {MIN_RATIO_THRESHOLD}).")
+        return None, None, 0.0, -1
+
+    content = next(c for fp, c in loaded_files if fp == best_file_path)
+    file_lines = content.splitlines()
+    start_idx = max(0, best_match_start_line)
+    end_idx = min(len(file_lines), best_match_end_line)
+    if end_idx <= start_idx:
+        end_idx = min(start_idx + len(search_lines), len(file_lines))
+    match_text = "\n".join(file_lines[start_idx:end_idx])
+
+    logging.info(
+        f"[Arbitrary] Fuzzy: ratio={best_ratio:.2f}, "
+        f"fichero={os.path.basename(best_file_path)}, "
+        f"líneas={start_idx + 1}-{end_idx}"
+    )
+
+    return match_text, best_file_path, best_ratio, best_line_num
+
+
+def _compute_fuzzy_window_sizes(num_search_lines):
+    """Calcula tamaños de ventana para la búsqueda difusa por líneas."""
+    if num_search_lines <= 0:
+        return [1]
+    sizes = set()
+    sizes.add(num_search_lines)
+    sizes.add(max(1, num_search_lines // 2))
+    sizes.add(max(1, num_search_lines // 4))
+    sizes.add(min(num_search_lines, 8))
+    sizes.add(min(num_search_lines, 4))
+    return sorted(sizes, reverse=True)
 
 
 def find_similar_region(file_list, search_text, step=None, forced_file=None, min_search_len=None, max_search_len=None):
     """
-    Busca la región de código usando el algoritmo de substring único.
+    Busca la región de código con coincidencia exacta primero, luego difusa.
 
     1. Carga todos los ficheros en memoria.
     2. Si forced_file, filtra solo ese fichero.
-    3. Llama a find_unique_substring para encontrar la coincidencia exacta única.
-    4. Devuelve (match_text, file_path, ratio, line_num).
+    3. Intenta coincidencia exacta con find_unique_substring.
+    4. Si falla, intenta coincidencia difusa por líneas con _fuzzy_match_region.
+    5. Siempre devuelve la mejor coincidencia encontrada.
 
-    El 'ratio' devuelto es 1.0 si se encontró coincidencia exacta, 0 si no.
+    Devuelve (match_text, file_path, ratio, line_num).
+    ratio=1.0 para coincidencia exacta, <1.0 para difusa.
     """
     if not file_list:
         return None, None, 0, -1
 
-    # Cargar contenidos
     loaded_files = _load_file_contents(file_list)
 
     if not loaded_files:
         return None, None, 0, -1
 
     if forced_file:
-        # Filtrar solo el fichero forzado
         loaded_files = [(fp, c) for fp, c in loaded_files if fp == forced_file]
         logging.info(f"[Arbitrary] Fichero forzado: {os.path.basename(forced_file)}")
 
@@ -441,7 +557,7 @@ def find_similar_region(file_list, search_text, step=None, forced_file=None, min
     min_search_len = min(min_search_len, text_len) if text_len else min_search_len
     if max_search_len < min_search_len:
         max_search_len = min_search_len
-    substr_step = 2 # Paso fino para encontrar el fragmento más grande posible
+    substr_step = max(2, min(text_len // 20, 50)) if text_len else 2
 
     substring, file_path, line_num = find_unique_substring(
         search_text, loaded_files,
@@ -453,14 +569,47 @@ def find_similar_region(file_list, search_text, step=None, forced_file=None, min
     if substring and file_path:
         return substring, file_path, 1.0, line_num
 
+    logging.info("[Arbitrary] Coincidencia exacta no encontrada, intentando búsqueda difusa...")
+
+    match_text, fuzzy_file, fuzzy_ratio, fuzzy_line = _fuzzy_match_region(search_text, loaded_files)
+
+    if match_text and fuzzy_file and fuzzy_ratio > 0:
+        return match_text, fuzzy_file, fuzzy_ratio, fuzzy_line
+
+    logging.info("[Arbitrary] Búsqueda difusa tampoco encontró coincidencias suficientes.")
+
+    if loaded_files:
+        best_fp = loaded_files[0][0]
+        best_content = loaded_files[0][1]
+        best_ratio_line = 0.0
+        search_norm = _normalize_for_match(search_text)
+        for fp, content in loaded_files:
+            file_norm = _normalize_for_match(content)
+            ratio = difflib.SequenceMatcher(None, search_norm, file_norm, autojunk=False).ratio()
+            if ratio > best_ratio_line:
+                best_ratio_line = ratio
+                best_fp = fp
+                best_content = content
+
+        match_text = best_content
+        file_path = best_fp
+        line_num = 1
+        ratio = best_ratio_line
+
+        if ratio > 0.05:
+            logging.info(
+                f"[Arbitrary] Fallback último recurso: ratio={ratio:.2f}, "
+                f"fichero={os.path.basename(file_path)}"
+            )
+            return match_text, file_path, ratio, line_num
+
     return None, None, 0, -1
 
 
 def identify_best_file(file_list, search_text):
     """
     Identifica el archivo candidato usando el algoritmo de substring único.
-    Devuelve (file_path, score) donde score=1.0 si hay coincidencia única, 0 si no.
-    Mantenida por compatibilidad con el flujo existente.
+    Devuelve (file_path, score) donde score=1.0 si hay coincidencia única, <1.0 si es difusa.
     """
     loaded_files = _load_file_contents(file_list)
     if not loaded_files:
@@ -481,8 +630,105 @@ def identify_best_file(file_list, search_text):
         logging.info(f"[Arbitrary] Fichero identificado: {os.path.basename(file_path)} (Score: 1.0)")
         return file_path, 1.0
 
+    match_text, fuzzy_file, fuzzy_ratio, fuzzy_line = _fuzzy_match_region(search_text, loaded_files)
+
+    if fuzzy_file and fuzzy_ratio > 0:
+        logging.info(f"[Arbitrary] Fichero identificado (fuzzy): {os.path.basename(fuzzy_file)} (Score: {fuzzy_ratio:.2f})")
+        return fuzzy_file, fuzzy_ratio
+
     logging.info("[Arbitrary] No se pudo identificar fichero único.")
     return None, 0
+
+_ARBITRARY_STRUCTURE_MIN_SCORE = 0.4
+_ARBITRARY_MAX_CLIPBOARD_STRUCTURES = 12
+_ARBITRARY_MAX_PROJECT_STRUCTURES_PER_FILE = 50
+
+
+def _find_match_by_structures(search_text, code_files, min_score=_ARBITRARY_STRUCTURE_MIN_SCORE, forced_file=None):
+    """
+    Primera capa del algoritmo: identifica estructuras de codigo en el
+    portapapeles (cabeceras de funciones, clases, bloques entre llaves,
+    corchetes, componentes, etc.) y las compara con las estructuras del
+    proyecto para localizar el fichero y la linea de la coincidencia mas
+    probable.
+
+    Devuelve (match_text, file_path, ratio, line_num) o (None, None, 0, -1).
+    """
+    try:
+        from src.addons.clever_sus import (
+            extract_code_structures,
+            _structure_similarity,
+            StructureMatch,
+        )
+    except ImportError:
+        logging.warning("[Arbitrary] Estructuras: no se pudo importar clever_sus.")
+        return None, None, 0, -1
+
+    clipboard_structures = extract_code_structures(
+        search_text,
+        limit=_ARBITRARY_MAX_CLIPBOARD_STRUCTURES,
+        top_level_only=True,
+    )
+
+    if not clipboard_structures:
+        logging.info("[Arbitrary] Estructuras: no se detectaron estructuras en el portapapeles.")
+        return None, None, 0, -1
+
+    logging.info(f"[Arbitrary] Estructuras: {len(clipboard_structures)} estructura(es) en portapapeles.")
+
+    loaded_files = _load_file_contents(code_files)
+    if not loaded_files:
+        return None, None, 0, -1
+
+    if forced_file:
+        loaded_files = [(fp, c) for fp, c in loaded_files if fp == forced_file]
+        logging.info(f"[Arbitrary] Estructuras: fichero forzado {os.path.basename(forced_file)}")
+
+    project_structures = []
+    for fp, content in loaded_files:
+        file_structs = extract_code_structures(
+            content,
+            file_path=fp,
+            limit=_ARBITRARY_MAX_PROJECT_STRUCTURES_PER_FILE,
+        )
+        project_structures.extend(file_structs)
+
+    if not project_structures:
+        logging.info("[Arbitrary] Estructuras: no se detectaron estructuras en los archivos del proyecto.")
+        return None, None, 0, -1
+
+    logging.info(f"[Arbitrary] Estructuras: {len(project_structures)} estructura(es) en proyecto.")
+
+    best_match = None
+    best_score = 0.0
+
+    for clip_struct in clipboard_structures:
+        for proj_struct in project_structures:
+            score, header_score, body_score = _structure_similarity(clip_struct, proj_struct)
+            if score > best_score:
+                best_score = score
+                best_match = StructureMatch(
+                    clipboard_structure=clip_struct,
+                    project_structure=proj_struct,
+                    score=score,
+                    header_score=header_score,
+                    body_score=body_score,
+                )
+
+    if best_match and best_score >= min_score:
+        proj = best_match.project_structure
+        logging.info(
+            f"[Arbitrary] Estructuras: coincidencia score={best_score:.2f}, "
+            f"fichero={os.path.basename(proj.file_path or '')}, "
+            f"linea={proj.line_num}, cabecera='{proj.header[:80]}'"
+        )
+        return proj.text, proj.file_path, best_score, proj.line_num
+
+    logging.info(
+        f"[Arbitrary] Estructuras: mejor score {best_score:.2f} insuficiente (umbral {min_score})."
+    )
+    return None, None, 0, -1
+
 
 def get_match_context(file_path, match_text, approximate_line_num):
     try:
@@ -496,7 +742,12 @@ def get_match_context(file_path, match_text, approximate_line_num):
         matches = list(re.finditer(pattern, content_norm))
         
         if not matches:
-             return None, 0, 0
+            clipped = match_norm[:200] if len(match_norm) > 200 else match_norm
+            lines = content_norm.split('\n')
+            approx_line = max(0, approximate_line_num - 1)
+            approx_index = sum(len(l) + 1 for l in lines[:approx_line])
+            approx_char = min(approx_index, len(content_norm))
+            return content_norm, 0, len(content_norm), approx_char
 
         lines = content_norm.split('\n')
         approx_index = sum(len(line) + 1 for line in lines[:approximate_line_num-1])
@@ -511,12 +762,11 @@ def get_match_context(file_path, match_text, approximate_line_num):
                 selected_match = m
         
         if not selected_match:
-            return None, 0, 0
+            return content_norm, 0, len(content_norm), 0
             
         start_idx = selected_match.start()
-        full_block = content_norm
 
-        return full_block, 0, len(content_norm), start_idx
+        return content_norm, 0, len(content_norm), start_idx
 
     except Exception as e:
         logging.error(f"Error obteniendo contexto: {e}")
@@ -770,7 +1020,9 @@ def show_popup(clipboard_text, match_text, file_path, ratio, line_num, app_insta
     # Popup
     popup = tk.Toplevel()
     _ACTIVE_ARBITRARY_POPUP = popup
-    popup.title(f"✨ Comparación y Edición - {os.path.basename(file_path)}")
+    ratio_pct = f"{ratio:.0%}" if ratio < 1.0 else ""
+    ratio_label = f" ({ratio_pct})" if ratio_pct else ""
+    popup.title(f"✨ Comparación y Edición{ratio_label} - {os.path.basename(file_path)}")
     
     # Centrar ventana
     # Maximizar ventana (modo ventana ocupando toda la pantalla)
@@ -881,6 +1133,7 @@ def show_popup(clipboard_text, match_text, file_path, ratio, line_num, app_insta
     txt_clip = create_styled_text_widget(content_frame, editable=False)
     txt_clip.insert("1.0", clipboard_text)
     highlight_syntax(txt_clip, file_path)  # Highlight con detección de lenguaje
+    txt_clip.tag_configure("match_highlight", background="#fff792", foreground="#111827")
 
     def on_clip_right_click(event=None):
         """Relanza Arbitrary Search con el texto seleccionado del panel izquierdo."""
@@ -1009,8 +1262,79 @@ def show_popup(clipboard_text, match_text, file_path, ratio, line_num, app_insta
     scroll_edit.grid(row=1, column=1, sticky="nse", pady=5)
     txt_edit.config(yscrollcommand=scroll_edit.set)
 
+    def on_edit_right_click(event=None):
+        """Busca la selección del editor en el portapapeles (panel izquierdo)."""
+        try:
+            selected_text = txt_edit.get("sel.first", "sel.last").strip()
+        except tk.TclError:
+            logging.info("Arbitrary: Click derecho sin selección en el panel editor.")
+            return "break"
+
+        if not selected_text:
+            logging.info("Arbitrary: La selección del panel editor está vacía.")
+            return "break"
+
+        txt_clip.tag_remove("match_highlight", "1.0", tk.END)
+
+        content = txt_clip.get("1.0", "end-1c")
+        norm_selected = _normalize_text(selected_text)
+        norm_content = _normalize_text(content)
+
+        all_ranges = []
+
+        idx = norm_content.find(norm_selected)
+        if idx >= 0:
+            line_start = norm_content.count("\n", 0, idx) + 1
+            col_start = idx - norm_content.rfind("\n", 0, idx) - 1
+            end_idx = idx + len(norm_selected)
+            line_end = norm_content.count("\n", 0, end_idx) + 1
+            col_end = end_idx - norm_content.rfind("\n", 0, end_idx) - 1
+            all_ranges.append((f"{line_start}.{col_start}", f"{line_end}.{col_end}"))
+            start_offset = end_idx
+            while True:
+                idx2 = norm_content.find(norm_selected, start_offset)
+                if idx2 < 0:
+                    break
+                ls = norm_content.count("\n", 0, idx2) + 1
+                cs = idx2 - norm_content.rfind("\n", 0, idx2) - 1
+                ei2 = idx2 + len(norm_selected)
+                le = norm_content.count("\n", 0, ei2) + 1
+                ce = ei2 - norm_content.rfind("\n", 0, ei2) - 1
+                all_ranges.append((f"{ls}.{cs}", f"{le}.{ce}"))
+                start_offset = ei2
+                if len(all_ranges) >= 50:
+                    break
+
+        if not all_ranges:
+            start = "1.0"
+            while True:
+                pos = txt_clip.search(selected_text, start, stopindex=tk.END, nocase=True)
+                if not pos:
+                    break
+                end = f"{pos}+{len(selected_text)}c"
+                all_ranges.append((pos, end))
+                start = end
+                if len(all_ranges) >= 50:
+                    break
+
+        if all_ranges:
+            for range_start, range_end in all_ranges:
+                txt_clip.tag_add("match_highlight", range_start, range_end)
+            txt_clip.tag_lower("match_highlight")
+            txt_clip.see(all_ranges[0][0])
+            logging.info(f"Arbitrary: Selección del editor encontrada en portapapeles ({len(all_ranges)} resultado(s)).")
+        else:
+            logging.info("Arbitrary: Selección del editor no encontrada en portapapeles.")
+
+        return "break"
+
+    txt_edit.bind("<Button-2>", on_edit_right_click)
+    txt_edit.bind("<Button-3>", on_edit_right_click)
+    txt_edit.bind("<Control-Button-1>", on_edit_right_click)
+
     def clear_match_highlight(event=None):
         txt_edit.tag_remove("match_highlight", "1.0", tk.END)
+        txt_clip.tag_remove("match_highlight", "1.0", tk.END)
 
     txt_edit.bind("<Button-1>", clear_match_highlight)
 
@@ -1518,7 +1842,7 @@ def show_popup(clipboard_text, match_text, file_path, ratio, line_num, app_insta
             start_index = f"{match_start_line}.{match_start_col}"
             end_index = f"{match_end_line}.{match_end_col}"
             
-            txt_edit.tag_configure("match_highlight", background="#fff9c4", foreground="#111827")
+            txt_edit.tag_configure("match_highlight", background="#fff792", foreground="#111827")
             txt_edit.tag_add("match_highlight", start_index, end_index)
             # Ensure match_highlight is below syntax tags so colors are preserved
             txt_edit.tag_lower("match_highlight")
@@ -1779,6 +2103,15 @@ def run_arbitrary_search_with_text(
             logging.info("Arbitrary: Texto de búsqueda vacío tras limpiar comentarios [MODIFICACIÓN].")
             return
 
+        try:
+            current_clipboard = pyperclip.paste()
+            cleaned_clipboard, had_comments = strip_modification_comments(current_clipboard)
+            cleaned_clipboard_stripped = cleaned_clipboard.strip()
+            if had_comments > 0 and cleaned_clipboard_stripped:
+                pyperclip.copy(cleaned_clipboard)
+        except Exception:
+            pass
+
         if display_clipboard_text is None:
             display_clipboard_text = search_text
         else:
@@ -1819,7 +2152,30 @@ def run_arbitrary_search_with_text(
         app_instance.root.config(cursor="watch")
         app_instance.root.update()
 
-        # El nuevo algoritmo de substring único determina el fichero automáticamente
+        # --- PRIMERA CAPA: Busqueda por estructuras de codigo ---
+        struct_match, struct_file, struct_ratio, struct_line = _find_match_by_structures(
+            search_text, code_files, forced_file=forced_file
+        )
+
+        if struct_match and struct_file and struct_ratio >= _ARBITRARY_STRUCTURE_MIN_SCORE:
+            app_instance.root.config(cursor="")
+            logging.info(
+                f"[Arbitrary] Coincidencia por estructura (score={struct_ratio:.2f}, "
+                f"fichero={os.path.basename(struct_file)}, linea={struct_line})"
+            )
+            show_popup(
+                display_clipboard_text,
+                struct_match,
+                struct_file,
+                struct_ratio,
+                struct_line,
+                app_instance=app_instance,
+            )
+            return
+
+        logging.info("[Arbitrary] Busqueda por estructuras sin resultado satisfactorio, intentando busqueda por substring...")
+
+        # --- SEGUNDA CAPA: Busqueda por substring (algoritmo original) ---
         match, file_path, ratio, line_num = find_similar_region(
             code_files,
             search_text,
@@ -1840,7 +2196,7 @@ def run_arbitrary_search_with_text(
                 app_instance=app_instance,
             )
         else:
-            logging.info("Arbitrary: Sin coincidencias exactas únicas.")
+            logging.info("Arbitrary: Sin coincidencias suficientes para abrir popup.")
 
     except Exception as e:
         app_instance.root.config(cursor="")
@@ -1859,6 +2215,9 @@ def run_arbitrary_search(app_instance, prioritize_clipboard_file=False):
     if not clipboard_text:
         logging.info("Arbitrary: Portapapeles vacío tras limpiar comentarios [MODIFICACIÓN].")
         return
+
+    if clipboard_text != pyperclip.paste().strip():
+        pyperclip.copy(clipboard_text)
 
     run_arbitrary_search_with_text(
         app_instance,
@@ -1889,6 +2248,10 @@ def process_smart_paste(app_instance):
         if not content:
             _log_smart_paste_skip("el portapapeles está vacío tras limpiar comentarios [MODIFICACIÓN]")
             return False
+
+        original_clipboard = pyperclip.paste()
+        if content != original_clipboard.strip():
+            pyperclip.copy(content)
 
         # 0. Chequeo de Comando de Consola
         if is_console_command(content):

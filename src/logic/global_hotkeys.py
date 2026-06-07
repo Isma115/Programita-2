@@ -327,21 +327,25 @@ class GlobalHotkeyListener:
                 self._dispatch_trigger_async()
 
     def handle_trigger(self):
-        from src.addons import Arbitrary_sus, chunk_sus, clever_sus, file_sus
+        from src.addons import Arbitrary_sus, bridge_sus, chunk_sus, clever_sus, file_sus
         try:
             print("GlobalHotkeyListener: Shift + Left Click triggered. Running structure-aware smart paste.")
-            # Schedule on main thread to be safe with UI
             if self.controller and self.controller.app and self.controller.app.root:
                 def _dispatch():
                     def _log_arbitrary_skip(reason):
                         print(f"GlobalHotkeyListener: Arbitrary_sus no se disparó porque {reason}.")
 
                     handled = False
-                    if chunk_sus._is_chunk_replace_enabled(self.controller.app):
+                    if bridge_sus._is_anti_agent_enabled(self.controller.app):
+                        print("GlobalHotkeyListener: Anti-Agent activo. Lanzando bridge_sus.")
+                        handled = bridge_sus.process_bridge_injection(self.controller.app)
+                        if handled:
+                            _log_arbitrary_skip("bridge_sus manejó el evento")
+                    if not handled and chunk_sus._is_chunk_replace_enabled(self.controller.app):
                         handled = chunk_sus.process_chunk_replacements(self.controller.app)
                         if handled:
                             _log_arbitrary_skip("chunk_sus manejó el evento")
-                    elif file_sus._is_file_replace_enabled(self.controller.app):
+                    elif not handled and file_sus._is_file_replace_enabled(self.controller.app):
                         handled = file_sus.process_file_replacements(self.controller.app)
                         if handled:
                             _log_arbitrary_skip("file_sus manejó el evento")
