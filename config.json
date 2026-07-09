@@ -36,7 +36,7 @@
     },
     "doc_view_settings": {
         "is_dark_mode": true,
-        "is_editor_mode": true,
+        "is_editor_mode": false,
         "code_sash_ratio": 0.525503355704698,
         "is_fullscreen_mode": false,
         "markdown_preview_zoom": 1.0,
@@ -45,7 +45,7 @@
     "last_doc_section": "Gestor de Equipos",
     "last_code_section": "Asignar Volumen",
     "implementation_mode": false,
-    "last_doc_file": "/Users/ismaelmoraledalopez/Documents/Documentacion Irrigation/Catastro/Tareass.md",
+    "last_doc_file": "/Users/ismaelmoraledalopez/Documents/Documentacion Irrigation/Gestor de Cultivos/Declaracion de cultivos/Lista_tareas.md",
     "sections_path": "/Users/ismaelmoraledalopez/Desktop/pruebas/Porfofo",
     "code_extensions_filter": "",
     "include_project_tree": false,
