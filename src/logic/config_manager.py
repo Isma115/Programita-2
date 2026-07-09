@@ -237,6 +237,24 @@ class ConfigManager:
         self.config["doc_autosave_enabled"] = bool(value)
         self.save_config()
 
+    def get_list_project_documents_enabled(self):
+        """Returns whether DocView includes documents from the loaded project."""
+        return bool(self.config.get("list_project_documents_enabled", False))
+
+    def set_list_project_documents_enabled(self, value):
+        """Persists the project-document listing preference for DocView."""
+        self.config["list_project_documents_enabled"] = bool(value)
+        self.save_config()
+
+    def get_advanced_doc_search_enabled(self):
+        """Returns whether DocView should use advanced document search."""
+        return bool(self.config.get("advanced_doc_search_enabled", False))
+
+    def set_advanced_doc_search_enabled(self, value):
+        """Persists the advanced document search preference for DocView."""
+        self.config["advanced_doc_search_enabled"] = bool(value)
+        self.save_config()
+
     def get_doc_path_history(self):
         """Returns the saved documentation folder history."""
         history = self.config.get("doc_path_history", [])

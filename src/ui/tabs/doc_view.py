@@ -121,6 +121,7 @@ class DocView(ttk.Frame):
     MARKDOWN_EDITOR_FONT_SIZE_MIN = 9
     MARKDOWN_EDITOR_FONT_SIZE_MAX = 32
     DEFAULT_SECTIONS_PANEL_WIDTH = 340
+    NO_DOCUMENTATION_PATH_LABEL = "Ninguna"
     AUTOSAVE_DELAY_MS = 3000
     FULLSCREEN_ENTER_SVG = """
     <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="#f2f3f5" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round">
@@ -184,6 +185,7 @@ class DocView(ttk.Frame):
         self.advanced_doc_search_var = tk.BooleanVar(value=False)
         self._doc_search_content_cache = {}
         self._doc_search_placeholder_active = False
+        self.list_project_documents_var = tk.BooleanVar(value=False)
         self._show_all_doc_sections = False
         self.DOC_SECTIONS_INITIAL_LIMIT = 10
         self.DOC_SECTIONS_EXPANDED_VISIBLE_ROWS = 20
@@ -212,6 +214,12 @@ class DocView(ttk.Frame):
                 self.MARKDOWN_EDITOR_FONT_SIZE_DEFAULT
             )
             self.autosave_enabled = bool(self.controller.config_manager.get_doc_autosave_enabled())
+            self.list_project_documents_var.set(
+                bool(self.controller.config_manager.get_list_project_documents_enabled())
+            )
+            self.advanced_doc_search_var.set(
+                bool(self.controller.config_manager.get_advanced_doc_search_enabled())
+            )
         else:
             self.code_sash_ratio = 0.7
             self.markdown_preview_zoom = self.MARKDOWN_PREVIEW_ZOOM
@@ -680,6 +688,25 @@ class DocView(ttk.Frame):
         self.cmb_doc_paths.pack(fill="x")
         self.cmb_doc_paths.bind("<<ComboboxSelected>>", self._on_doc_path_selected)
 
+        self.list_project_documents_check = tk.Checkbutton(
+            self.right_top_frame,
+            text="Listar documentos de proyecto",
+            variable=self.list_project_documents_var,
+            command=self._toggle_project_document_listing,
+            bg=Styles.COLOR_BG_SIDEBAR,
+            fg=Styles.COLOR_DIM,
+            activebackground=Styles.COLOR_BG_SIDEBAR,
+            activeforeground=Styles.COLOR_FG_TEXT,
+            selectcolor=Styles.COLOR_INPUT_BG,
+            font=(self.doc_sidebar_font_family, 11),
+            anchor="w",
+            bd=0,
+            highlightthickness=0,
+            padx=8,
+            pady=2
+        )
+        self.list_project_documents_check.pack(fill="x", padx=8, pady=(0, 4))
+
         self.section_search_shell = tk.Frame(
             self.right_top_frame,
             bg=Styles.COLOR_BG_SIDEBAR,
@@ -1096,6 +1123,10 @@ class DocView(ttk.Frame):
 
     def _toggle_advanced_doc_search(self):
         self.advanced_doc_search_var.set(not self.advanced_doc_search_var.get())
+        if self.controller and hasattr(self.controller, "config_manager"):
+            self.controller.config_manager.set_advanced_doc_search_enabled(
+                self.advanced_doc_search_var.get()
+            )
         if self._doc_search_placeholder_active or not self.section_search_entry.get().strip():
             self._show_doc_search_placeholder(force=True)
         self._update_advanced_doc_search_toggle()
@@ -1231,6 +1262,13 @@ class DocView(ttk.Frame):
 
     def _on_doc_path_selected(self, event=None):
         selected_label = self.cmb_doc_paths.get().strip()
+        if selected_label == self.NO_DOCUMENTATION_PATH_LABEL:
+            self._show_all_doc_sections = False
+            if self.controller and hasattr(self.controller, "config_manager"):
+                self.controller.config_manager.set_doc_path(None)
+            self._refresh_sections()
+            return
+
         selected_path = self.doc_path_options.get(selected_label)
         if not selected_path:
             return
@@ -1243,6 +1281,43 @@ class DocView(ttk.Frame):
         if self.controller and hasattr(self.controller, "config_manager"):
             self.controller.config_manager.set_doc_path(selected_path)
         self._refresh_sections()
+
+    def _toggle_project_document_listing(self):
+        """Switches between the documentation folder and the loaded project."""
+        self._show_all_doc_sections = False
+        if self.controller and hasattr(self.controller, "config_manager"):
+            self.controller.config_manager.set_list_project_documents_enabled(
+                self.list_project_documents_var.get()
+            )
+        self._refresh_sections()
+
+    def _get_project_root(self):
+        if not self.controller or not hasattr(self.controller, "project_manager"):
+            return None
+        project_root = getattr(self.controller.project_manager, "current_project_path", None)
+        if not project_root:
+            return None
+        project_root = os.path.abspath(project_root)
+        return project_root if os.path.isdir(project_root) else None
+
+    @staticmethod
+    def _project_document_extensions():
+        return {".md", ".pdf", ".doc", ".docx"}
+
+    def _project_directory_has_documents(self, directory):
+        extensions = self._project_document_extensions()
+        ignored_dirs = {
+            ".git", ".hg", ".svn", "__pycache__", ".venv", "venv",
+            "node_modules", "dist", "build", ".idea", ".vscode"
+        }
+        try:
+            for current_root, dirnames, filenames in os.walk(directory):
+                dirnames[:] = [name for name in dirnames if name not in ignored_dirs]
+                if any(os.path.splitext(name)[1].lower() in extensions for name in filenames):
+                    return True
+        except OSError:
+            return False
+        return False
 
     def _get_doc_root(self):
         if not self.controller or not hasattr(self.controller, "config_manager"):
@@ -3219,8 +3294,8 @@ class DocView(ttk.Frame):
             pass
             
         doc_root = self._get_doc_root()
-        if not doc_root:
-            self._display_message("⚠️ Carga una carpeta de documentación.")
+        project_root = self._get_project_root() if self.list_project_documents_var.get() else None
+        if not doc_root and not project_root:
             return
 
         self.section_tree.configure(
@@ -3231,8 +3306,24 @@ class DocView(ttk.Frame):
             )
         )
         self._load_section_colors(doc_root)
-        self._build_tree(doc_root, "")
-        self._update_show_more_sections(doc_root)
+        self._tree_root_items_added = 0
+        self._tree_inserted_paths = set()
+        documentation_exts = {'.md', '.pdf', '.doc', '.docx', '.xls', '.xlsx', '.txt', '.png', '.jpg', '.jpeg'}
+        if doc_root:
+            self._build_tree(
+                doc_root,
+                "",
+                supported_exts=documentation_exts,
+                project_documents_only=False
+            )
+        if project_root and os.path.normcase(project_root) != os.path.normcase(doc_root or ""):
+            self._build_tree(
+                project_root,
+                "",
+                supported_exts=self._project_document_extensions(),
+                project_documents_only=True
+            )
+        self._update_show_more_sections(doc_root, project_root)
         
         if not preferred_path:
             if not self.current_file_path and self.controller and hasattr(self.controller, "config_manager"):
@@ -3246,15 +3337,23 @@ class DocView(ttk.Frame):
             if not self.current_file_path and os.path.isfile(preferred_path):
                 self._on_section_select()
 
-    def _build_tree(self, root_path, parent_id):
+    def _build_tree(self, root_path, parent_id, supported_exts=None, project_documents_only=None):
         """Recursively builds the Treeview structure."""
         try:
             if not os.path.isdir(root_path): return
-            supported_exts = {'.md', '.pdf', '.doc', '.docx', '.xls', '.xlsx', '.txt', '.png', '.jpg', '.jpeg'}
+            if supported_exts is None:
+                supported_exts = {'.md', '.pdf', '.doc', '.docx', '.xls', '.xlsx', '.txt', '.png', '.jpg', '.jpeg'}
+            project_mode = (
+                bool(self.list_project_documents_var.get())
+                if project_documents_only is None else bool(project_documents_only)
+            )
             items = []
             for name in os.listdir(root_path):
                 full_path = os.path.join(root_path, name)
-                if os.path.isdir(full_path) or os.path.splitext(name)[1].lower() in supported_exts:
+                if os.path.isdir(full_path):
+                    if not project_mode or self._project_directory_has_documents(full_path):
+                        items.append(name)
+                elif os.path.splitext(name)[1].lower() in supported_exts:
                     items.append(name)
 
             # En macOS st_birthtime representa la creación real. En otros
@@ -3264,7 +3363,9 @@ class DocView(ttk.Frame):
             # La paginación solo afecta a las secciones de primer nivel; el
             # contenido de cada carpeta se construye completo al desplegarla.
             if not parent_id and not self._show_all_doc_sections and not self._get_doc_search_query():
-                items = items[:self.DOC_SECTIONS_INITIAL_LIMIT]
+                remaining = max(self.DOC_SECTIONS_INITIAL_LIMIT - self._tree_root_items_added, 0)
+                items = items[:remaining]
+                self._tree_root_items_added += len(items)
             
             query = self._get_doc_search_query()
             advanced_search_enabled = bool(self.advanced_doc_search_var.get())
@@ -3272,6 +3373,9 @@ class DocView(ttk.Frame):
             for name in items:
                 full_path = os.path.join(root_path, name)
                 is_dir = os.path.isdir(full_path)
+
+                if full_path in self._tree_inserted_paths:
+                    continue
                 
                 ext = os.path.splitext(name)[1].lower()
                 if is_dir:
@@ -3280,7 +3384,8 @@ class DocView(ttk.Frame):
 
                     color_tag = self._configure_section_color_tag(full_path, "folder")
                     self.section_tree.insert(parent_id, "end", iid=node_id, text=f"{name}", tags=(color_tag,), open=bool(query))
-                    self._build_tree(full_path, node_id)
+                    self._tree_inserted_paths.add(full_path)
+                    self._build_tree(full_path, node_id, supported_exts, project_documents_only)
                     
                     if query:
                         if advanced_search_enabled:
@@ -3301,6 +3406,7 @@ class DocView(ttk.Frame):
                         tag = "md" if ext == ".md" else "document"
                         color_tag = self._configure_section_color_tag(full_path, tag)
                         self.section_tree.insert(parent_id, "end", iid=full_path, text=f"{name}", tags=(color_tag,))
+                        self._tree_inserted_paths.add(full_path)
         except Exception as e:
             logging.error(f"Error building tree for {root_path}: {e}")
 
@@ -3323,6 +3429,8 @@ class DocView(ttk.Frame):
 
     def _load_section_colors(self, doc_root):
         self._section_colors = {}
+        if not doc_root:
+            return
         try:
             with open(self._section_colors_path(doc_root), "r", encoding="utf-8") as fh:
                 data = json.load(fh)
@@ -3372,22 +3480,33 @@ class DocView(ttk.Frame):
         self.section_tree.tag_configure(tag, foreground=color, font=font)
         return tag
 
-    def _update_show_more_sections(self, doc_root):
+    def _update_show_more_sections(self, doc_root, project_root=None):
         """Updates the visibility of the textual root-list expansion control."""
         if not hasattr(self, "btn_show_more_sections") or not hasattr(self, "section_scrollbar"):
             return
 
         try:
             root_entries = []
-            supported_exts = {'.md', '.pdf', '.doc', '.docx', '.xls', '.xlsx', '.txt', '.png', '.jpg', '.jpeg'}
-            for name in os.listdir(doc_root):
-                path = os.path.join(doc_root, name)
-                if os.path.isdir(path) or os.path.splitext(name)[1].lower() in supported_exts:
-                    root_entries.append(name)
+            documentation_exts = {'.md', '.pdf', '.doc', '.docx', '.xls', '.xlsx', '.txt', '.png', '.jpg', '.jpeg'}
+
+            def collect_root_entries(root_path, supported_exts, project_documents_only=False):
+                if not root_path or not os.path.isdir(root_path):
+                    return
+                for name in os.listdir(root_path):
+                    path = os.path.join(root_path, name)
+                    if os.path.isdir(path):
+                        if not project_documents_only or self._project_directory_has_documents(path):
+                            root_entries.append(os.path.normcase(path))
+                    elif os.path.splitext(name)[1].lower() in supported_exts:
+                        root_entries.append(os.path.normcase(path))
+
+            collect_root_entries(doc_root, documentation_exts)
+            if project_root and os.path.normcase(project_root) != os.path.normcase(doc_root or ""):
+                collect_root_entries(project_root, self._project_document_extensions(), True)
             has_more = (
                 not self._show_all_doc_sections
                 and not self._get_doc_search_query()
-                and len(root_entries) > self.DOC_SECTIONS_INITIAL_LIMIT
+                and len(set(root_entries)) > self.DOC_SECTIONS_INITIAL_LIMIT
             )
         except OSError:
             has_more = False
@@ -3408,7 +3527,7 @@ class DocView(ttk.Frame):
 
     def _refresh_doc_path_history(self):
         self.doc_path_options = {}
-        values = []
+        values = [self.NO_DOCUMENTATION_PATH_LABEL]
         if self.controller and hasattr(self.controller, "get_existing_doc_directories"):
             for path in self.controller.get_existing_doc_directories():
                 label = self._format_doc_path_option(path)
@@ -3426,7 +3545,7 @@ class DocView(ttk.Frame):
                 self.cmb_doc_paths.config(values=values)
             self.cmb_doc_paths.set(current_label)
         elif values:
-            self.cmb_doc_paths.set(values[0])
+            self.cmb_doc_paths.set(self.NO_DOCUMENTATION_PATH_LABEL)
         else:
             self.cmb_doc_paths.set("")
 

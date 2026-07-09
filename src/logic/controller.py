@@ -301,6 +301,8 @@ class Controller:
             if hasattr(self.app.layout, 'code_view'):
                 self.app.layout.code_view.refresh_file_list()
                 self.app.layout.code_view._update_project_label()
+            if hasattr(self.app.layout, 'doc_view'):
+                self.app.layout.doc_view._refresh_sections()
                 
         except Exception as e:
             print(f"Error loading project: {e}")

@@ -1,8 +1,8 @@
 {
-    "last_project": "/Users/ismaelmoraledalopez/Documents/Azure-Irrigation-Web/HidraSmart-Irrigation-System",
+    "last_project": "/Users/ismaelmoraledalopez/Desktop/pruebas/OpenDesign",
     "file_limit": 50,
     "return_files": false,
-    "doc_path": "/Users/ismaelmoraledalopez/Documents/Documentacion Irrigation",
+    "doc_path": null,
     "doc_path_history": [
         "/Users/ismaelmoraledalopez/Documents/Documentacion Irrigation"
     ],
@@ -25,7 +25,7 @@
         "/Users/ismaelmoraledalopez/Documents/Codigos_Python/HidraSmart-Irrigation-System.Codigos_Python/Codigos_Python/SHP a BBDD",
         "/Users/ismaelmoraledalopez/Desktop/pruebas/OpenDesign"
     ],
-    "current_project_index": 0,
+    "current_project_index": 11,
     "db_config": {
         "host": "hidralab-server.mysql.database.azure.com",
         "port": "3306",
@@ -45,7 +45,7 @@
     "last_doc_section": "Gestor de Equipos",
     "last_code_section": "Asignar Volumen",
     "implementation_mode": false,
-    "last_doc_file": "/Users/ismaelmoraledalopez/Documents/Documentacion Irrigation/Gestor de Cultivos/Declaracion de cultivos/Lista_tareas.md",
+    "last_doc_file": "/Users/ismaelmoraledalopez/Desktop/pruebas/OpenDesign/DESKTOP.md",
     "sections_path": "/Users/ismaelmoraledalopez/Desktop/pruebas/Porfofo",
     "code_extensions_filter": "",
     "include_project_tree": false,
@@ -68,5 +68,7 @@
     "auto_region_sections_enabled": true,
     "anti_agent_enabled": false,
     "region_injection_enabled": false,
-    "sus_mod_enabled": false
+    "sus_mod_enabled": false,
+    "list_project_documents_enabled": true,
+    "advanced_doc_search_enabled": true
 }
