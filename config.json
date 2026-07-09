@@ -1,5 +1,5 @@
 {
-    "last_project": "/Users/ismaelmoraledalopez/Desktop/pruebas/OneShotDeep4Flash",
+    "last_project": "/Users/ismaelmoraledalopez/Documents/Azure-Irrigation-Web/HidraSmart-Irrigation-System",
     "file_limit": 50,
     "return_files": false,
     "doc_path": "/Users/ismaelmoraledalopez/Documents/Documentacion Irrigation",
@@ -21,15 +21,17 @@
         "/Users/ismaelmoraledalopez/Desktop/pruebas/Porfofo",
         "/Users/ismaelmoraledalopez/Documents/Proyecto Pensador",
         "/Users/ismaelmoraledalopez/Desktop/pruebas/EnTest",
-        "/Users/ismaelmoraledalopez/Desktop/pruebas/OneShotDeep4Flash"
+        "/Users/ismaelmoraledalopez/Desktop/pruebas/OneShotDeep4Flash",
+        "/Users/ismaelmoraledalopez/Documents/Codigos_Python/HidraSmart-Irrigation-System.Codigos_Python/Codigos_Python/SHP a BBDD",
+        "/Users/ismaelmoraledalopez/Desktop/pruebas/OpenDesign"
     ],
-    "current_project_index": 9,
+    "current_project_index": 0,
     "db_config": {
         "host": "hidralab-server.mysql.database.azure.com",
         "port": "3306",
         "user": "telemedida_alcazar",
         "password": "Hidra2023Alcazar",
-        "database": "hidrasmart_is_b2",
+        "database": "hidrasmart_is_b4",
         "pem_file": ""
     },
     "doc_view_settings": {
@@ -38,12 +40,12 @@
         "code_sash_ratio": 0.525503355704698,
         "is_fullscreen_mode": false,
         "markdown_preview_zoom": 1.0,
-        "markdown_editor_font_size": 12
+        "markdown_editor_font_size": 15
     },
     "last_doc_section": "Gestor de Equipos",
     "last_code_section": "Asignar Volumen",
     "implementation_mode": false,
-    "last_doc_file": "/Users/ismaelmoraledalopez/Documents/Documentacion Irrigation/Gestor de Cultivos/Clientes/planteamiento dni.md",
+    "last_doc_file": "/Users/ismaelmoraledalopez/Documents/Documentacion Irrigation/Catastro/Tareass.md",
     "sections_path": "/Users/ismaelmoraledalopez/Desktop/pruebas/Porfofo",
     "code_extensions_filter": "",
     "include_project_tree": false,
@@ -60,9 +62,11 @@
     "last_code_view_mode": "regions",
     "return_regions": false,
     "remember_last_main_view": true,
-    "last_main_view": "code",
+    "last_main_view": "docs",
     "clever_injection_enabled": false,
     "doc_autosave_enabled": true,
     "auto_region_sections_enabled": true,
-    "anti_agent_enabled": true
+    "anti_agent_enabled": false,
+    "region_injection_enabled": false,
+    "sus_mod_enabled": false
 }

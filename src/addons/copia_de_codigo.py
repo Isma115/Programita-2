@@ -8,68 +8,13 @@ import shutil
 from datetime import datetime
 from tkinter import filedialog, messagebox
 
-# Code file extensions to include in the copy
-CODE_EXTENSIONS = {
-    # Python
-    '.py', '.pyw', '.pyi', '.pyx', '.pxd',
-    # JavaScript/TypeScript
-    '.js', '.jsx', '.ts', '.tsx', '.mjs', '.cjs',
-    # Web
-    '.html', '.htm', '.css', '.scss', '.sass', '.less',
-    # Java
-    '.java', '.class', '.jar',
-    # C/C++
-    '.c', '.cpp', '.cc', '.cxx', '.h', '.hpp', '.hxx',
-    # C#
-    '.cs', '.csx',
-    # Go
-    '.go',
-    # Rust
-    '.rs',
-    # Ruby
-    '.rb', '.erb',
-    # PHP
-    '.php', '.phtml',
-    # Swift
-    '.swift',
-    # Kotlin
-    '.kt', '.kts',
-    # Scala
-    '.scala',
-    # Shell
-    '.sh', '.bash', '.zsh', '.fish',
-    # PowerShell
-    '.ps1', '.psm1', '.psd1',
-    # SQL
-    '.sql',
-    # Lua
-    '.lua',
-    # Perl
-    '.pl', '.pm',
-    # R
-    '.r', '.R',
-    # MATLAB
-    '.m', '.mat',
-    # Haskell
-    '.hs', '.lhs',
-    # Lisp
-    '.lisp', '.cl', '.el',
-    # Clojure
-    '.clj', '.cljs', '.cljc', '.edn',
-    # Erlang/Elixir
-    '.erl', '.ex', '.exs',
-    # F#
-    '.fs', '.fsi', '.fsx',
-    # Dart
-    '.dart',
-    # Vue
-    '.vue',
-    # Svelte
-    '.svelte',
-    # Config/Data that often contains code
-    '.json', '.yaml', '.yml', '.xml', '.toml',
-    # Markdown (documentation is important)
-    '.md', '.rst',
+from src.logic.project_manager import ProjectManager
+
+
+# Documentation/context files previously copied by this addon. The source-code
+# detection itself lives in ProjectManager to avoid maintaining two extension lists.
+EXTRA_CONTEXT_EXTENSIONS = {
+    '.md', '.markdown', '.mdown', '.rst', '.adoc',
 }
 
 # Directories to exclude from copying
@@ -191,7 +136,7 @@ def run(app, args):
 
 def _is_code_file(filename: str) -> bool:
     """
-    Checks if a file is a code file based on its extension.
+    Checks if a file is a code or relevant project-context file.
     """
     _, ext = os.path.splitext(filename)
-    return ext.lower() in CODE_EXTENSIONS
+    return ProjectManager.is_code_file(filename) or ext.lower() in EXTRA_CONTEXT_EXTENSIONS

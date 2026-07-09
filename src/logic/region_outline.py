@@ -3,6 +3,8 @@ import os
 import re
 import unicodedata
 
+from src.logic.smart_matcher import smart_match_tokens, get_highlight_tokens_for_header
+
 
 REGION_WRAP_PREFIX = r'(?:[\{\(\[]+\s*)*'
 REGION_WRAP_SUFFIX = r'(?:\s*[\}\)\]]+)*'
@@ -169,8 +171,8 @@ def match_region_header_candidates(region_nodes, query_text, limit=5):
             continue
 
         sequence_score = difflib.SequenceMatcher(None, normalized_query, normalized_header).ratio()
-        overlap_count = len(query_tokens & header_tokens)
-        token_score = overlap_count / max(len(query_tokens), len(header_tokens), 1)
+        exact_overlap_count = len(query_tokens & header_tokens)
+        token_score = exact_overlap_count / max(len(query_tokens), len(header_tokens), 1)
         keyword_overlap = len(query_keywords & header_keywords)
         keyword_score = keyword_overlap / max(len(query_keywords), len(header_keywords), 1) if (query_keywords and header_keywords) else 0.0
         subset_bonus = 0.22 if query_tokens.issubset(header_tokens) else 0.0
@@ -179,31 +181,41 @@ def match_region_header_candidates(region_nodes, query_text, limit=5):
         exact_bonus = 0.35 if normalized_query == normalized_header else 0.0
         keyword_bonus = 0.18 if keyword_overlap else 0.0
 
+        smart_score, smart_pairs = smart_match_tokens(list(query_tokens), list(header_tokens))
+        smart_bonus = 0.0
+        if smart_pairs:
+            high_quality_pairs = [p for p in smart_pairs if p[2] >= 0.7]
+            smart_bonus = min(0.25, len(high_quality_pairs) * 0.06)
+            if smart_score > token_score:
+                smart_bonus += 0.08
+
         score = max(
             sequence_score,
             min(
                 1.0,
-                (sequence_score * 0.58)
-                + (token_score * 0.18)
-                + (keyword_score * 0.18)
+                (sequence_score * 0.52)
+                + (token_score * 0.16)
+                + (keyword_score * 0.16)
+                + (smart_score * 0.14)
                 + subset_bonus
                 + contains_bonus
                 + starts_bonus
                 + exact_bonus
                 + keyword_bonus
+                + smart_bonus
             ),
         )
 
-        minimum_score = 0.52
+        minimum_score = 0.48
         if len(normalized_query) <= 4:
-            minimum_score = 0.72
+            minimum_score = 0.68
         elif len(query_tokens) >= 3 or len(query_keywords) >= 2:
-            minimum_score = 0.46
+            minimum_score = 0.42
 
-        if overlap_count == 0 and normalized_query not in normalized_header and normalized_header not in normalized_query:
+        if exact_overlap_count == 0 and not smart_pairs and normalized_query not in normalized_header and normalized_header not in normalized_query:
+            minimum_score = max(minimum_score, 0.56)
+        if query_keywords and keyword_overlap == 0 and not smart_pairs:
             minimum_score = max(minimum_score, 0.60)
-        if query_keywords and keyword_overlap == 0:
-            minimum_score = max(minimum_score, 0.64)
 
         if score < minimum_score:
             continue
@@ -214,6 +226,7 @@ def match_region_header_candidates(region_nodes, query_text, limit=5):
             "score": score,
             "normalized_header": normalized_header,
             "file_rel_path": node.get("file_rel_path", ""),
+            "smart_pairs": smart_pairs,
         })
 
     ranked.sort(

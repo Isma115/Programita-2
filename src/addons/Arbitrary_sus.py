@@ -133,7 +133,7 @@ def _normalize_text(text):
 
 def _clean_path_hint(text):
     cleaned = (text or "").strip()
-    cleaned = cleaned.strip("`*[](){}<>")
+    cleaned = cleaned.strip("`*[](){}<>\"'")
     cleaned = cleaned.rstrip(":")
     cleaned = cleaned.replace("\\", "/")
     cleaned = re.sub(r"^(?:[ab]/)", "", cleaned)
@@ -145,6 +145,9 @@ def _extract_explicit_file_marker(line):
     stripped = (line or "").strip()
     if not stripped:
         return None
+
+    stripped = re.sub(r"^(?://|#|--|;|/\*+|\*+)\s*", "", stripped).strip()
+    stripped = re.sub(r"\s*\*/\s*$", "", stripped).strip()
 
     patterns = [
         r"^-{3,}\s*(?:Archivo|Fichero|File)\s*:\s*(.+?)\s*-{3,}$",
@@ -183,6 +186,88 @@ def _extract_clipboard_file_hint(search_text):
         return path_hint, cleaned_text or normalized
 
     return None, normalized
+
+
+def _get_project_root(app_instance):
+    controller = getattr(app_instance, "controller", None)
+    project_manager = getattr(controller, "project_manager", None)
+    project_root = getattr(project_manager, "current_project_path", None)
+    if project_root and os.path.isdir(project_root):
+        return os.path.normpath(project_root)
+    return None
+
+
+def _is_path_inside_root(file_path, project_root):
+    if not file_path or not project_root:
+        return False
+    try:
+        return os.path.commonpath([
+            os.path.abspath(file_path),
+            os.path.abspath(project_root),
+        ]) == os.path.abspath(project_root)
+    except ValueError:
+        return False
+
+
+def _get_project_manager_file_paths(app_instance):
+    controller = getattr(app_instance, "controller", None)
+    project_manager = getattr(controller, "project_manager", None)
+    if project_manager is None or not hasattr(project_manager, "get_files"):
+        return []
+
+    paths = []
+    try:
+        for file_info in project_manager.get_files():
+            if not isinstance(file_info, dict):
+                continue
+            file_path = file_info.get("path") or file_info.get("full_path")
+            if file_path:
+                paths.append(file_path)
+    except Exception:
+        return []
+    return paths
+
+
+def _resolve_project_file_hint(app_instance, path_hint, code_files=None):
+    clean_hint = _clean_path_hint(path_hint)
+    if not clean_hint:
+        return None
+
+    project_root = _get_project_root(app_instance)
+    direct_candidates = []
+
+    if os.path.isabs(clean_hint):
+        direct_candidates.append(clean_hint)
+    elif project_root:
+        direct_candidates.append(os.path.join(project_root, clean_hint))
+
+    for candidate in direct_candidates:
+        normalized_candidate = os.path.normpath(candidate)
+        if not os.path.isfile(normalized_candidate):
+            continue
+        if project_root and not _is_path_inside_root(normalized_candidate, project_root):
+            continue
+        return normalized_candidate
+
+    known_files = []
+    seen = set()
+    for file_path in list(code_files or []) + _get_project_manager_file_paths(app_instance):
+        normalized_path = os.path.normpath(str(file_path or "").strip())
+        if not normalized_path or normalized_path in seen or not os.path.isfile(normalized_path):
+            continue
+        if project_root and not _is_path_inside_root(normalized_path, project_root):
+            continue
+        seen.add(normalized_path)
+        known_files.append(normalized_path)
+
+    if not known_files:
+        return None
+
+    matches = _match_code_files_by_path_hint(clean_hint, known_files)
+    if len(matches) == 1:
+        return matches[0]
+
+    return None
 
 
 def _match_code_files_by_path_hint(path_hint, code_files):
@@ -292,6 +377,39 @@ def _compute_line_fingerprint(line):
     if not stripped:
         return ""
     return _normalize_for_match(stripped)
+
+
+def _extract_similarity_tokens(text):
+    """Extrae tokens utiles para validar que una coincidencia difusa comparte vocabulario real."""
+    return set(re.findall(r"[A-Za-z_][A-Za-z0-9_]*|[0-9]+", text or ""))
+
+
+def _token_overlap_ratio(left_text, right_text):
+    left_tokens = _extract_similarity_tokens(left_text)
+    right_tokens = _extract_similarity_tokens(right_text)
+    if not left_tokens or not right_tokens:
+        return 0.0
+    return len(left_tokens & right_tokens) / max(len(left_tokens), 1)
+
+
+def _min_fuzzy_window_size(num_search_lines):
+    if num_search_lines <= 2:
+        return num_search_lines
+    return max(3, (num_search_lines * 3 + 4) // 5)
+
+
+def _iter_fuzzy_search_windows(search_norms, window_size):
+    max_start = max(0, len(search_norms) - window_size)
+    starts = {0, max_start}
+    if max_start:
+        starts.add(max_start // 2)
+
+    for start in sorted(starts):
+        end = start + window_size
+        window_lines = search_norms[start:end]
+        window_text = "\n".join(window_lines)
+        if window_text.strip():
+            yield start, window_text, window_lines
 
 
 def find_unique_substring(search_text, loaded_files, min_len=20, max_len=None, step=10):
@@ -429,13 +547,13 @@ def _fuzzy_match_region(search_text, loaded_files):
         return None, None, 0.0, -1
 
     best_file_path = None
-    best_match_text = None
     best_ratio = 0.0
     best_line_num = 1
     best_match_start_line = 0
     best_match_end_line = 0
 
-    MIN_RATIO_THRESHOLD = 0.25
+    MIN_RATIO_THRESHOLD = 0.68
+    MIN_TOKEN_OVERLAP_THRESHOLD = 0.34
     MAX_FILE_LINES_FOR_WINDOW = 2000
     MAX_COMPARISONS_PER_FILE = 500
 
@@ -444,50 +562,48 @@ def _fuzzy_match_region(search_text, loaded_files):
         if not file_lines:
             continue
 
-        file_norms = [_compute_line_fingerprint(l) for l in file_lines]
-        full_search_norm = "\n".join(search_norms_filtered)
-        file_norms_joined = "\n".join(file_norms)
-
-        sm = difflib.SequenceMatcher(None, full_search_norm, file_norms_joined, autojunk=False)
-        longest = sm.find_longest_match(0, len(search_norms_filtered), 0, len(file_norms_joined))
-
-        if longest.size > 3:
-            partial_ratio = longest.size / max(len(search_norms_filtered), 1)
-            if partial_ratio > best_ratio:
-                best_ratio = partial_ratio
-                best_file_path = file_path
-                best_line_num = 1
-                start_line = file_norms_joined[:longest.b].count("\n") if longest.b > 0 else 0
-                match_in_lines = file_norms_joined[longest.b:longest.b + longest.size]
-                end_line = start_line + match_in_lines.count("\n") + 1
-                best_match_start_line = start_line
-                best_match_end_line = end_line
+        indexed_file_norms = [
+            (line_index, fingerprint)
+            for line_index, fingerprint in (
+                (idx, _compute_line_fingerprint(line))
+                for idx, line in enumerate(file_lines)
+            )
+            if fingerprint
+        ]
+        if not indexed_file_norms:
+            continue
 
         window_sizes = _compute_fuzzy_window_sizes(len(search_norms_filtered))
 
-        file_line_limit = min(len(file_lines), MAX_FILE_LINES_FOR_WINDOW)
+        file_line_limit = min(len(indexed_file_norms), MAX_FILE_LINES_FOR_WINDOW)
         step = max(1, file_line_limit // MAX_COMPARISONS_PER_FILE)
 
         for window_size in window_sizes:
-            window_text = "\n".join(search_norms_filtered[:window_size])
-            if not window_text.strip():
-                continue
+            for _, window_text, window_lines in _iter_fuzzy_search_windows(search_norms_filtered, window_size):
+                for start in range(0, file_line_limit - window_size + 1, step):
+                    file_window = indexed_file_norms[start:start + window_size]
+                    chunk_lines = [item[1] for item in file_window]
+                    chunk = "\n".join(chunk_lines)
+                    if not chunk.strip():
+                        continue
 
-            for start in range(0, file_line_limit - window_size + 1, step):
-                chunk = "\n".join(file_norms[start:start + window_size])
-                if not chunk.strip():
-                    continue
+                    char_ratio = difflib.SequenceMatcher(None, window_text, chunk, autojunk=False).ratio()
+                    line_ratio = difflib.SequenceMatcher(None, window_lines, chunk_lines, autojunk=False).ratio()
+                    token_ratio = _token_overlap_ratio(window_text, chunk)
 
-                ratio = difflib.SequenceMatcher(None, window_text, chunk, autojunk=False).ratio()
+                    if token_ratio < MIN_TOKEN_OVERLAP_THRESHOLD and line_ratio < 0.45:
+                        continue
 
-                end_line = min(start + window_size, len(file_lines))
+                    ratio = (char_ratio * 0.72) + (line_ratio * 0.18) + (token_ratio * 0.10)
 
-                if ratio > best_ratio:
-                    best_ratio = ratio
-                    best_file_path = file_path
-                    best_match_start_line = start
-                    best_match_end_line = end_line
-                    best_line_num = start + 1
+                    if ratio > best_ratio:
+                        original_start_line = file_window[0][0]
+                        original_end_line = file_window[-1][0] + 1
+                        best_ratio = ratio
+                        best_file_path = file_path
+                        best_match_start_line = original_start_line
+                        best_match_end_line = original_end_line
+                        best_line_num = original_start_line + 1
 
     if best_ratio < MIN_RATIO_THRESHOLD or best_file_path is None:
         logging.info(f"[Arbitrary] Fuzzy: mejor ratio {best_ratio:.2f} insuficiente (mínimo {MIN_RATIO_THRESHOLD}).")
@@ -514,13 +630,17 @@ def _compute_fuzzy_window_sizes(num_search_lines):
     """Calcula tamaños de ventana para la búsqueda difusa por líneas."""
     if num_search_lines <= 0:
         return [1]
-    sizes = set()
-    sizes.add(num_search_lines)
-    sizes.add(max(1, num_search_lines // 2))
-    sizes.add(max(1, num_search_lines // 4))
-    sizes.add(min(num_search_lines, 8))
-    sizes.add(min(num_search_lines, 4))
-    return sorted(sizes, reverse=True)
+    min_size = _min_fuzzy_window_size(num_search_lines)
+    sizes = {
+        num_search_lines,
+        max(1, (num_search_lines * 4 + 4) // 5),
+        max(1, (num_search_lines * 2 + 2) // 3),
+        max(1, (num_search_lines + 1) // 2),
+    }
+    return sorted(
+        {min(num_search_lines, size) for size in sizes if size >= min_size},
+        reverse=True,
+    )
 
 
 def find_similar_region(file_list, search_text, step=None, forced_file=None, min_search_len=None, max_search_len=None):
@@ -577,31 +697,6 @@ def find_similar_region(file_list, search_text, step=None, forced_file=None, min
         return match_text, fuzzy_file, fuzzy_ratio, fuzzy_line
 
     logging.info("[Arbitrary] Búsqueda difusa tampoco encontró coincidencias suficientes.")
-
-    if loaded_files:
-        best_fp = loaded_files[0][0]
-        best_content = loaded_files[0][1]
-        best_ratio_line = 0.0
-        search_norm = _normalize_for_match(search_text)
-        for fp, content in loaded_files:
-            file_norm = _normalize_for_match(content)
-            ratio = difflib.SequenceMatcher(None, search_norm, file_norm, autojunk=False).ratio()
-            if ratio > best_ratio_line:
-                best_ratio_line = ratio
-                best_fp = fp
-                best_content = content
-
-        match_text = best_content
-        file_path = best_fp
-        line_num = 1
-        ratio = best_ratio_line
-
-        if ratio > 0.05:
-            logging.info(
-                f"[Arbitrary] Fallback último recurso: ratio={ratio:.2f}, "
-                f"fichero={os.path.basename(file_path)}"
-            )
-            return match_text, file_path, ratio, line_num
 
     return None, None, 0, -1
 
@@ -2117,18 +2212,25 @@ def run_arbitrary_search_with_text(
         else:
             display_clipboard_text, _ = strip_modification_comments(display_clipboard_text)
 
-        code_files = _get_code_files_for_arbitrary_search(app_instance)
-        if not code_files:
-             tk.messagebox.showwarning("Arbitrary", "No se pudieron resolver archivos objetivo para la búsqueda.")
-             return
-
         min_search_len, max_search_len = _get_arbitrary_search_bounds(app_instance, search_text)
         forced_file = None
-        if prioritize_clipboard_file:
-            path_hint, cleaned_search_text = _extract_clipboard_file_hint(search_text)
-            if path_hint:
-                search_text = cleaned_search_text
-                min_search_len, max_search_len = _get_arbitrary_search_bounds(app_instance, search_text)
+        path_hint, cleaned_search_text = _extract_clipboard_file_hint(search_text)
+
+        code_files = _get_code_files_for_arbitrary_search(app_instance)
+        if path_hint:
+            search_text = cleaned_search_text
+            min_search_len, max_search_len = _get_arbitrary_search_bounds(app_instance, search_text)
+
+            resolved_file = _resolve_project_file_hint(app_instance, path_hint, code_files)
+            if resolved_file:
+                forced_file = resolved_file
+                if forced_file not in code_files:
+                    code_files.insert(0, forced_file)
+                logging.info(
+                    f"Arbitrary: Archivo explícito detectado en portapapeles. "
+                    f"Buscando directamente en {forced_file}."
+                )
+            elif prioritize_clipboard_file:
                 matched_files = _match_code_files_by_path_hint(path_hint, code_files)
                 if len(matched_files) == 1:
                     forced_file = matched_files[0]
@@ -2146,6 +2248,15 @@ def run_arbitrary_search_with_text(
                         f"Arbitrary: La pista de archivo '{path_hint}' no coincide con "
                         "ningún fichero objetivo. Se mantiene búsqueda global."
                     )
+            else:
+                logging.info(
+                    f"Arbitrary: La pista de archivo '{path_hint}' no pudo resolverse "
+                    "dentro del proyecto."
+                )
+
+        if not code_files:
+            tk.messagebox.showwarning("Arbitrary", "No se pudieron resolver archivos objetivo para la búsqueda.")
+            return
 
         logging.info(f"Arbitrary: Buscando en {len(code_files)} ficheros objetivo.")
 

@@ -1,7 +1,8 @@
 import tkinter as tk
 import tkinter.font as tkfont
-from tkinter import ttk, filedialog, messagebox, simpledialog
+from tkinter import ttk, filedialog, messagebox, simpledialog, colorchooser
 import io
+import json
 import os
 import webbrowser
 import logging
@@ -183,6 +184,10 @@ class DocView(ttk.Frame):
         self.advanced_doc_search_var = tk.BooleanVar(value=False)
         self._doc_search_content_cache = {}
         self._doc_search_placeholder_active = False
+        self._show_all_doc_sections = False
+        self.DOC_SECTIONS_INITIAL_LIMIT = 10
+        self.DOC_SECTIONS_EXPANDED_VISIBLE_ROWS = 20
+        self._section_colors = {}
 
         try:
             self.controller = parent.master.controller
@@ -731,11 +736,15 @@ class DocView(ttk.Frame):
         self._update_advanced_doc_search_toggle()
 
         # Section Tree (replaces Listbox for hierarchical support)
+        self.section_tree_frame = ttk.Frame(self.right_top_frame, style="Sidebar.TFrame")
+        self.section_tree_frame.pack(fill="x", expand=False, padx=5, pady=5)
+
         self.section_tree = ttk.Treeview(
-            self.right_top_frame,
+            self.section_tree_frame,
             show="tree",
             selectmode="browse",
-            style="Treeview"
+            style="Treeview",
+            height=self.DOC_SECTIONS_INITIAL_LIMIT
         )
         self.section_tree.column("#0", stretch=True)
         self.section_tree.bind("<<TreeviewSelect>>", self._on_section_select)
@@ -750,11 +759,61 @@ class DocView(ttk.Frame):
         self.section_tree.tag_configure("md", font=(self.doc_sidebar_font_family, 14))
         self.section_tree.tag_configure("document", font=(self.doc_sidebar_font_family, 14), foreground=Styles.COLOR_DIM)
         self.section_tree.tag_configure("drop_target", background="#244b74", foreground="#f4f7fb")
+
+        doc_scrollbar_style = ttk.Style(self)
+        doc_scrollbar_style.configure(
+            "Documentation.Vertical.TScrollbar",
+            gripcount=0,
+            background="#5d6878",
+            darkcolor="#5d6878",
+            lightcolor="#5d6878",
+            troughcolor=Styles.COLOR_BG_MAIN,
+            bordercolor=Styles.COLOR_BG_MAIN,
+            arrowcolor=Styles.COLOR_DIM,
+            relief="flat",
+            borderwidth=0
+        )
+        doc_scrollbar_style.map(
+            "Documentation.Vertical.TScrollbar",
+            background=[("active", "#748196")]
+        )
         
-        self.section_tree.pack(fill="both", expand=True, padx=5, pady=5)
+        self.section_scrollbar = ttk.Scrollbar(
+            self.section_tree_frame,
+            orient="vertical",
+            command=self.section_tree.yview,
+            style="Documentation.Vertical.TScrollbar"
+        )
+        self.section_tree.configure(yscrollcommand=self.section_scrollbar.set)
+        self.section_tree.pack(side="left", fill="both", expand=True)
+        self.section_scrollbar.pack_forget()
                 
         btn_frame = ttk.Frame(self.right_top_frame, style="Sidebar.TFrame")
         btn_frame.pack(fill="x", padx=5, pady=5)
+
+        # Se muestra solo cuando hay más de diez entradas en la raíz. Es un
+        # enlace textual, sin fondo ni borde, para no añadir otro botón visual
+        # al panel de documentación.
+        self.btn_show_more_sections = tk.Label(
+            btn_frame,
+            text="Mostrar más",
+            font=(self.doc_sidebar_font_family, 13),
+            bg=Styles.COLOR_BG_SIDEBAR,
+            fg=Styles.COLOR_DIM,
+            cursor="hand2",
+            anchor="w",
+            padx=5,
+            pady=2
+        )
+        self.btn_show_more_sections.bind("<Button-1>", self._show_all_sections)
+        self.btn_show_more_sections.bind(
+            "<Enter>",
+            lambda _event: self.btn_show_more_sections.configure(fg=Styles.COLOR_FG_TEXT)
+        )
+        self.btn_show_more_sections.bind(
+            "<Leave>",
+            lambda _event: self.btn_show_more_sections.configure(fg=Styles.COLOR_DIM)
+        )
         
         
         # Nueva Sección moved to context menu
@@ -1179,6 +1238,7 @@ class DocView(ttk.Frame):
         if current_path and os.path.normpath(current_path) == os.path.normpath(selected_path):
             return
 
+        self._show_all_doc_sections = False
         if self.controller and hasattr(self.controller, "config_manager"):
             self.controller.config_manager.set_doc_path(selected_path)
         self._refresh_sections()
@@ -3077,28 +3137,185 @@ class DocView(ttk.Frame):
     def _on_edit_section(self):
         selected = self.section_tree.selection()
         if not selected:
-            messagebox.showwarning("Aviso", "Selecciona una carpeta o archivo para renombrar.")
+            messagebox.showwarning("Aviso", "Selecciona una carpeta o archivo para editar.")
             return
 
         old_path = selected[0]
         old_name = os.path.basename(old_path)
-        new_name = simpledialog.askstring("Renombrar", "Nuevo nombre:", initialvalue=old_name)
-        if not new_name:
-            return
-        new_name = new_name.strip()
-        if not new_name or self._has_path_separator(new_name) or new_name == old_name:
-            return
+        base_tag = "folder" if os.path.isdir(old_path) else (
+            "md" if os.path.splitext(old_name)[1].lower() == ".md" else "document"
+        )
+        color = self._section_colors.get(
+            self._section_color_key(old_path),
+            self._default_section_color(old_path, base_tag)
+        )
 
-        new_path = os.path.join(os.path.dirname(old_path), new_name)
-        if os.path.exists(new_path):
-            messagebox.showwarning("Aviso", "Ya existe.")
-            return
+        dialog = tk.Toplevel(self.winfo_toplevel())
+        dialog.title("Editar sección")
+        dialog.transient(self.winfo_toplevel())
+        dialog.resizable(False, False)
+        dialog.configure(bg=Styles.COLOR_BG_SIDEBAR)
 
-        try:
-            os.rename(old_path, new_path)
-            self._refresh_sections(preferred_path=new_path)
-        except Exception as e:
-            messagebox.showerror("Error", f"No se pudo renombrar: {e}")
+        dialog_style = ttk.Style(dialog)
+        dialog_style.configure(
+            "DocEdit.TButton",
+            background=Styles.COLOR_BUTTON_BG,
+            foreground=Styles.COLOR_BUTTON_FG,
+            font=(self.doc_sidebar_font_family, 12, "bold"),
+            padding=(9, 5),
+            borderwidth=0,
+            relief="flat"
+        )
+        dialog_style.map(
+            "DocEdit.TButton",
+            background=[("active", Styles.COLOR_BUTTON_HOVER), ("pressed", Styles.COLOR_BUTTON_ACTIVE)],
+            foreground=[("active", Styles.COLOR_BUTTON_FG_ACTIVE), ("pressed", Styles.COLOR_BUTTON_FG_ACTIVE)]
+        )
+        dialog_style.configure(
+            "DocEditPrimary.TButton",
+            background=Styles.COLOR_ACCENT,
+            foreground="#ffffff",
+            font=(self.doc_sidebar_font_family, 12, "bold"),
+            padding=(10, 5),
+            borderwidth=0,
+            relief="flat"
+        )
+        dialog_style.map(
+            "DocEditPrimary.TButton",
+            background=[("active", Styles.COLOR_ACCENT_HOVER), ("pressed", Styles.COLOR_ACCENT)]
+        )
+
+        body = tk.Frame(dialog, bg=Styles.COLOR_BG_SIDEBAR)
+        body.pack(fill="both", expand=True, padx=14, pady=12)
+
+        tk.Label(
+            body,
+            text="Nombre:",
+            bg=Styles.COLOR_BG_SIDEBAR,
+            fg=Styles.COLOR_FG_TEXT,
+            anchor="w"
+        ).pack(fill="x")
+        name_entry = tk.Entry(
+            body,
+            bg=Styles.COLOR_INPUT_BG,
+            fg=Styles.COLOR_INPUT_FG,
+            insertbackground=Styles.COLOR_INPUT_FG,
+            relief="flat",
+            width=32
+        )
+        name_entry.pack(fill="x", pady=(4, 14), ipady=5)
+        name_entry.insert(0, old_name)
+
+        color_row = tk.Frame(body, bg=Styles.COLOR_BG_SIDEBAR)
+        color_row.pack(fill="x")
+        tk.Label(
+            color_row,
+            text="Color del título:",
+            bg=Styles.COLOR_BG_SIDEBAR,
+            fg=Styles.COLOR_FG_TEXT
+        ).pack(side="left")
+        color_preview = tk.Label(
+            color_row,
+            text=color,
+            bg=color,
+            fg="#ffffff",
+            width=10,
+            padx=8,
+            pady=5,
+            cursor="hand2"
+        )
+        color_preview.pack(side="right", padx=(8, 0))
+
+        def copy_color_to_clipboard(event=None):
+            try:
+                dialog.clipboard_clear()
+                dialog.clipboard_append(color)
+                dialog.update()
+            except tk.TclError:
+                return
+
+            notice = tk.Toplevel(dialog)
+            notice.overrideredirect(True)
+            notice.configure(bg="#263448")
+            tk.Label(
+                notice,
+                text="Color copiado",
+                bg="#263448",
+                fg="#ffffff",
+                font=(self.doc_sidebar_font_family, 9),
+                padx=5,
+                pady=2
+            ).pack()
+            notice.update_idletasks()
+            x = (event.x_root + 8) if event else dialog.winfo_rootx() + 8
+            y = (event.y_root + 8) if event else dialog.winfo_rooty() + 8
+            notice.geometry(f"+{x}+{y}")
+            notice.after(1100, notice.destroy)
+
+        color_preview.bind("<Double-Button-1>", copy_color_to_clipboard)
+
+        color_button = ttk.Button(
+            color_row,
+            text="Elegir color",
+            style="DocEdit.TButton"
+        )
+        color_button.pack(side="right")
+
+        def choose_color():
+            nonlocal color
+            chosen = colorchooser.askcolor(color=color, parent=dialog, title="Color del título")
+            if chosen and chosen[1]:
+                color = chosen[1]
+                color_preview.configure(text=color, bg=color)
+
+        color_button.configure(command=choose_color)
+
+        buttons = tk.Frame(body, bg=Styles.COLOR_BG_SIDEBAR)
+        buttons.pack(fill="x", pady=(18, 0))
+
+        def cancel():
+            dialog.destroy()
+
+        def save():
+            new_name = name_entry.get().strip()
+            if not new_name or self._has_path_separator(new_name):
+                messagebox.showwarning("Aviso", "Nombre inválido.", parent=dialog)
+                return
+
+            new_path = os.path.join(os.path.dirname(old_path), new_name)
+            if new_path != old_path and os.path.exists(new_path):
+                messagebox.showwarning("Aviso", "Ya existe.", parent=dialog)
+                return
+
+            try:
+                if new_path != old_path:
+                    os.rename(old_path, new_path)
+                    self._section_colors.pop(self._section_color_key(old_path), None)
+                self._section_colors[self._section_color_key(new_path)] = color
+                self._save_section_colors()
+                dialog.destroy()
+                self._refresh_sections(preferred_path=new_path)
+            except Exception as exc:
+                messagebox.showerror("Error", f"No se pudo editar: {exc}", parent=dialog)
+
+        ttk.Button(
+            buttons,
+            text="Cancelar",
+            command=cancel,
+            style="DocEdit.TButton"
+        ).pack(side="right", padx=(8, 0))
+        ttk.Button(
+            buttons,
+            text="Guardar",
+            command=save,
+            style="DocEditPrimary.TButton"
+        ).pack(side="right")
+
+        dialog.protocol("WM_DELETE_WINDOW", cancel)
+        dialog.grab_set()
+        name_entry.focus_set()
+        name_entry.selection_range(0, tk.END)
+        dialog.wait_window()
 
     def _on_delete_section(self):
         selected = self.section_tree.selection()
@@ -3152,7 +3369,16 @@ class DocView(ttk.Frame):
             self._display_message("⚠️ Carga una carpeta de documentación.")
             return
 
+        self.section_tree.configure(
+            height=(
+                self.DOC_SECTIONS_EXPANDED_VISIBLE_ROWS
+                if self._show_all_doc_sections
+                else self.DOC_SECTIONS_INITIAL_LIMIT
+            )
+        )
+        self._load_section_colors(doc_root)
         self._build_tree(doc_root, "")
+        self._update_show_more_sections(doc_root)
         
         if not preferred_path:
             if not self.current_file_path and self.controller and hasattr(self.controller, "config_manager"):
@@ -3170,9 +3396,21 @@ class DocView(ttk.Frame):
         """Recursively builds the Treeview structure."""
         try:
             if not os.path.isdir(root_path): return
-            items = os.listdir(root_path)
-            # Sort items: directories first, then files
-            items.sort(key=lambda x: (not os.path.isdir(os.path.join(root_path, x)), x.lower()))
+            supported_exts = {'.md', '.pdf', '.doc', '.docx', '.xls', '.xlsx', '.txt', '.png', '.jpg', '.jpeg'}
+            items = []
+            for name in os.listdir(root_path):
+                full_path = os.path.join(root_path, name)
+                if os.path.isdir(full_path) or os.path.splitext(name)[1].lower() in supported_exts:
+                    items.append(name)
+
+            # En macOS st_birthtime representa la creación real. En otros
+            # sistemas se usa ctime y, como último recurso, mtime.
+            items.sort(key=lambda name: self._doc_creation_sort_key(os.path.join(root_path, name)))
+
+            # La paginación solo afecta a las secciones de primer nivel; el
+            # contenido de cada carpeta se construye completo al desplegarla.
+            if not parent_id and not self._show_all_doc_sections and not self._get_doc_search_query():
+                items = items[:self.DOC_SECTIONS_INITIAL_LIMIT]
             
             query = self._get_doc_search_query()
             advanced_search_enabled = bool(self.advanced_doc_search_var.get())
@@ -3181,18 +3419,13 @@ class DocView(ttk.Frame):
                 full_path = os.path.join(root_path, name)
                 is_dir = os.path.isdir(full_path)
                 
-                # Check for supported extensions
                 ext = os.path.splitext(name)[1].lower()
-                supported_exts = {'.md', '.pdf', '.doc', '.docx', '.xls', '.xlsx', '.txt', '.png', '.jpg', '.jpeg'}
-                
-                if not is_dir and ext not in supported_exts:
-                    continue
-
                 if is_dir:
                     # Create node
                     node_id = full_path
 
-                    self.section_tree.insert(parent_id, "end", iid=node_id, text=f"{name}", tags=("folder",), open=bool(query))
+                    color_tag = self._configure_section_color_tag(full_path, "folder")
+                    self.section_tree.insert(parent_id, "end", iid=node_id, text=f"{name}", tags=(color_tag,), open=bool(query))
                     self._build_tree(full_path, node_id)
                     
                     if query:
@@ -3212,9 +3445,112 @@ class DocView(ttk.Frame):
 
                     if include_file:
                         tag = "md" if ext == ".md" else "document"
-                        self.section_tree.insert(parent_id, "end", iid=full_path, text=f"{name}", tags=(tag,))
+                        color_tag = self._configure_section_color_tag(full_path, tag)
+                        self.section_tree.insert(parent_id, "end", iid=full_path, text=f"{name}", tags=(color_tag,))
         except Exception as e:
             logging.error(f"Error building tree for {root_path}: {e}")
+
+    @staticmethod
+    def _doc_creation_sort_key(path):
+        """Returns a stable creation-time key for files and folders."""
+        try:
+            stat = os.stat(path)
+            creation_time = getattr(stat, "st_birthtime", None)
+            if creation_time is None:
+                creation_time = getattr(stat, "st_ctime", None)
+            if creation_time is None:
+                creation_time = stat.st_mtime
+            return (float(creation_time), os.path.basename(path).casefold())
+        except OSError:
+            return (float("inf"), os.path.basename(path).casefold())
+
+    def _section_colors_path(self, doc_root):
+        return os.path.join(doc_root, ".section_colors.json")
+
+    def _load_section_colors(self, doc_root):
+        self._section_colors = {}
+        try:
+            with open(self._section_colors_path(doc_root), "r", encoding="utf-8") as fh:
+                data = json.load(fh)
+            if isinstance(data, dict):
+                self._section_colors = {
+                    str(path): str(color)
+                    for path, color in data.items()
+                    if isinstance(color, str) and color.startswith("#")
+                }
+        except (OSError, json.JSONDecodeError):
+            pass
+
+    def _save_section_colors(self):
+        doc_root = self._get_doc_root()
+        if not doc_root:
+            return
+        try:
+            with open(self._section_colors_path(doc_root), "w", encoding="utf-8") as fh:
+                json.dump(self._section_colors, fh, indent=2, ensure_ascii=False)
+        except OSError as exc:
+            logging.warning("No se pudieron guardar los colores de las secciones: %s", exc)
+
+    def _section_color_key(self, path):
+        doc_root = self._get_doc_root()
+        if not doc_root:
+            return os.path.normpath(path)
+        try:
+            return os.path.relpath(path, doc_root)
+        except ValueError:
+            return os.path.normpath(path)
+
+    def _default_section_color(self, path, base_tag):
+        if base_tag == "folder":
+            return Styles.COLOR_ACCENT
+        if base_tag == "document":
+            return Styles.COLOR_DIM
+        return Styles.COLOR_FG_TEXT
+
+    def _configure_section_color_tag(self, path, base_tag):
+        color = self._section_colors.get(self._section_color_key(path))
+        if not color:
+            color = self._default_section_color(path, base_tag)
+        tag = f"section_color_{abs(hash(os.path.normcase(path)))}"
+        font = (self.doc_sidebar_font_family, 16, "bold") if base_tag == "folder" else (
+            self.doc_sidebar_font_family, 14
+        )
+        self.section_tree.tag_configure(tag, foreground=color, font=font)
+        return tag
+
+    def _update_show_more_sections(self, doc_root):
+        """Updates the visibility of the textual root-list expansion control."""
+        if not hasattr(self, "btn_show_more_sections") or not hasattr(self, "section_scrollbar"):
+            return
+
+        try:
+            root_entries = []
+            supported_exts = {'.md', '.pdf', '.doc', '.docx', '.xls', '.xlsx', '.txt', '.png', '.jpg', '.jpeg'}
+            for name in os.listdir(doc_root):
+                path = os.path.join(doc_root, name)
+                if os.path.isdir(path) or os.path.splitext(name)[1].lower() in supported_exts:
+                    root_entries.append(name)
+            has_more = (
+                not self._show_all_doc_sections
+                and not self._get_doc_search_query()
+                and len(root_entries) > self.DOC_SECTIONS_INITIAL_LIMIT
+            )
+        except OSError:
+            has_more = False
+
+        if has_more or self._show_all_doc_sections:
+            self.section_scrollbar.pack(side="right", fill="y", pady=5)
+        else:
+            self.section_scrollbar.pack_forget()
+
+        if has_more:
+            self.btn_show_more_sections.pack(fill="x", padx=5, pady=(0, 2))
+        else:
+            self.btn_show_more_sections.pack_forget()
+
+    def _show_all_sections(self, event=None):
+        self._show_all_doc_sections = True
+        self._refresh_sections()
 
     def _refresh_doc_path_history(self):
         self.doc_path_options = {}

@@ -122,6 +122,16 @@ class Application:
         current_return_chunks = self.controller.config_manager.get_return_chunks()
         current_return_regions = self.controller.config_manager.get_return_regions()
         current_anti_agent = self.controller.config_manager.get_anti_agent_enabled()
+        current_sus_mod = self.controller.config_manager.get_sus_mod_enabled()
+        current_region_injection = self.controller.config_manager.get_region_injection_enabled()
+        if current_anti_agent and (current_sus_mod or current_region_injection):
+            current_sus_mod = False
+            current_region_injection = False
+            self.controller.config_manager.set_sus_mod_enabled(False)
+            self.controller.config_manager.set_region_injection_enabled(False)
+        elif current_sus_mod and current_region_injection:
+            current_region_injection = False
+            self.controller.config_manager.set_region_injection_enabled(False)
         if current_anti_agent and (current_return_files or current_return_chunks or current_return_regions):
             current_return_files = False
             current_return_chunks = False
@@ -142,6 +152,8 @@ class Application:
         self.output_return_chunks_var = tk.BooleanVar(value=current_return_chunks)
         self.output_return_regions_var = tk.BooleanVar(value=current_return_regions)
         self.output_anti_agent_var = tk.BooleanVar(value=current_anti_agent)
+        self.output_sus_mod_var = tk.BooleanVar(value=current_sus_mod)
+        self.output_region_injection_var = tk.BooleanVar(value=current_region_injection)
         self.include_project_tree_var = tk.BooleanVar(
             value=self.controller.config_manager.get_include_project_tree()
         )
@@ -183,6 +195,16 @@ class Application:
             label="Anti-Agent",
             variable=self.output_anti_agent_var,
             command=self._on_toggle_anti_agent
+        )
+        self.output_menu.add_checkbutton(
+            label="sus-mod",
+            variable=self.output_sus_mod_var,
+            command=self._on_toggle_sus_mod
+        )
+        self.output_menu.add_checkbutton(
+            label="Inyectar regiones",
+            variable=self.output_region_injection_var,
+            command=self._on_toggle_region_injection
         )
         self.configure_params_menu = tk.Menu(self.menu_bar, tearoff=0)
         self.configure_params_menu.add_command(
@@ -253,12 +275,14 @@ class Application:
         self.root.config(menu=self.menu_bar)
         self.sync_output_menu_state()
 
-    def sync_output_menu_state(self, return_files=None, return_chunks=None, return_regions=None, anti_agent=None):
+    def sync_output_menu_state(self, return_files=None, return_chunks=None, return_regions=None, anti_agent=None, sus_mod=None, region_injection=None):
         """Keeps the Output menu vars in sync with CodeView state."""
         if (
             not hasattr(self, "output_return_files_var")
             or not hasattr(self, "output_return_chunks_var")
             or not hasattr(self, "output_return_regions_var")
+            or not hasattr(self, "output_sus_mod_var")
+            or not hasattr(self, "output_region_injection_var")
         ):
             return
 
@@ -280,11 +304,17 @@ class Application:
 
         if anti_agent is None:
             anti_agent = self.controller.config_manager.get_anti_agent_enabled()
+        if sus_mod is None:
+            sus_mod = self.controller.config_manager.get_sus_mod_enabled()
+        if region_injection is None:
+            region_injection = self.controller.config_manager.get_region_injection_enabled()
 
         self.output_return_files_var.set(bool(return_files))
         self.output_return_chunks_var.set(bool(return_chunks))
         self.output_return_regions_var.set(bool(return_regions))
         self.output_anti_agent_var.set(bool(anti_agent))
+        self.output_sus_mod_var.set(bool(sus_mod))
+        self.output_region_injection_var.set(bool(region_injection))
 
     def _on_toggle_output_return_files(self):
         """Updates the return-files mode from the Output menu."""
@@ -329,9 +359,33 @@ class Application:
         should_enable = bool(self.output_anti_agent_var.get())
         self.controller.config_manager.set_anti_agent_enabled(should_enable)
         if should_enable:
+            self.controller.config_manager.set_sus_mod_enabled(False)
+            self.controller.config_manager.set_region_injection_enabled(False)
+            self.output_sus_mod_var.set(False)
+            self.output_region_injection_var.set(False)
             code_view = getattr(getattr(self, "layout", None), "code_view", None)
             if code_view is not None:
                 code_view._set_return_mode(return_files=False, return_chunks=False, return_regions=False)
+        self.sync_output_menu_state()
+
+    def _on_toggle_sus_mod(self):
+        should_enable = bool(self.output_sus_mod_var.get())
+        self.controller.config_manager.set_sus_mod_enabled(should_enable)
+        if should_enable:
+            self.controller.config_manager.set_anti_agent_enabled(False)
+            self.controller.config_manager.set_region_injection_enabled(False)
+            self.output_anti_agent_var.set(False)
+            self.output_region_injection_var.set(False)
+        self.sync_output_menu_state()
+
+    def _on_toggle_region_injection(self):
+        should_enable = bool(self.output_region_injection_var.get())
+        self.controller.config_manager.set_region_injection_enabled(should_enable)
+        if should_enable:
+            self.controller.config_manager.set_anti_agent_enabled(False)
+            self.controller.config_manager.set_sus_mod_enabled(False)
+            self.output_anti_agent_var.set(False)
+            self.output_sus_mod_var.set(False)
         self.sync_output_menu_state()
 
     def _on_toggle_include_project_tree(self):

@@ -17,6 +17,16 @@ def get_file_path_comment_inline_instruction():
     )
 
 
+def build_return_regions_instruction():
+    """Returns the strict output contract for prompts that ask for modified regions."""
+    return "\n".join([
+        "SALIDA: solo regiones completas modificadas, cada una en un bloque Markdown con triple ```.",
+        "En cada bloque: comentario `Archivo: ruta` y despues la region entera desde #region hasta #endregion, conservando cabecera e indentacion.",
+        "No devuelvas regiones sin cambios, archivos completos, fragmentos, diffs, explicaciones, listas ni marcadores [MODIFICACION].",
+        "Si no hay cambios: SIN CAMBIOS",
+    ])
+
+
 def ensure_file_path_comment_instruction(prompt_text):
     """Appends the shared file path comment rule to a prompt when missing."""
     text = (prompt_text or "").rstrip()

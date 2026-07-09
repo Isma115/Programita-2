@@ -18,30 +18,53 @@ class ProjectManager:
     
     # Supported code extensions
     CODE_EXTENSIONS = {
-        '.c', '.cc', '.cpp', '.cxx', '.h', '.hh', '.hpp', '.hxx',
-        '.cs', '.vb', '.fs', '.fsx',
-        '.go', '.rs', '.zig',
-        '.java', '.kt', '.kts', '.scala', '.groovy', '.gradle',
+        '.c', '.cc', '.cpp', '.cxx', '.h', '.hh', '.hpp', '.hxx', '.ipp', '.inl', '.tpp',
+        '.cu', '.cuh', '.metal',
+        '.cs', '.csx', '.vb', '.fs', '.fsi', '.fsx',
+        '.go', '.rs', '.zig', '.nim', '.cr', '.d',
+        '.java', '.kt', '.kts', '.scala', '.groovy', '.gvy', '.gy', '.gsp', '.gradle',
         '.swift', '.m', '.mm',
-        '.py', '.pyw', '.rb', '.php', '.phtml',
-        '.pl', '.pm', '.lua', '.r', '.jl', '.dart',
+        '.py', '.pyw', '.pyi', '.pyx', '.pxd', '.pxi', '.ipynb',
+        '.rb', '.erb', '.rake', '.php', '.phtml', '.php3', '.php4', '.php5', '.phps',
+        '.pl', '.pm', '.t', '.lua', '.r', '.jl', '.dart',
         '.ex', '.exs', '.erl', '.hrl',
-        '.js', '.mjs', '.cjs', '.jsx', '.ts', '.tsx',
+        '.hs', '.lhs', '.ml', '.mli', '.re', '.rei', '.elm', '.purs',
+        '.lisp', '.lsp', '.cl', '.el', '.scm', '.ss', '.rkt',
+        '.clj', '.cljs', '.cljc', '.edn',
+        '.adb', '.ads', '.f', '.for', '.f90', '.f95', '.f03', '.f08',
+        '.cob', '.cbl',
+        '.js', '.mjs', '.cjs', '.jsx', '.ts', '.tsx', '.mts', '.cts',
         '.html', '.htm', '.xhtml', '.css', '.scss', '.sass', '.less',
         '.vue', '.svelte', '.astro',
-        '.ejs', '.hbs', '.handlebars', '.mustache', '.njk', '.twig', '.jinja', '.jinja2', '.tpl',
-        '.sql', '.graphql', '.gql', '.proto',
+        '.ejs', '.hbs', '.handlebars', '.mustache', '.njk', '.twig', '.jinja', '.jinja2',
+        '.tpl', '.liquid', '.haml', '.slim', '.pug', '.jade',
+        '.sql', '.psql', '.pgsql', '.mysql', '.ddl', '.dml', '.hql', '.cql',
+        '.graphql', '.gql', '.proto', '.thrift', '.avsc', '.raml',
         '.json', '.jsonc', '.xml', '.xsd', '.xsl', '.wsdl',
-        '.yml', '.yaml', '.toml', '.ini', '.cfg', '.conf', '.properties',
-        '.sh', '.bash', '.zsh', '.fish', '.bat', '.cmd', '.ps1', '.psm1', '.psd1',
+        '.yml', '.yaml', '.toml', '.ini', '.cfg', '.conf', '.properties', '.plist',
+        '.tf', '.tfvars', '.hcl', '.nix', '.prisma',
+        '.bzl', '.bazel', '.star', '.cmake',
+        '.qml', '.qbs', '.aidl', '.sol', '.vy', '.move', '.cairo',
+        '.cls', '.trigger', '.page', '.component', '.cmp',
+        '.sh', '.bash', '.zsh', '.fish', '.ksh', '.csh', '.tcsh',
+        '.bat', '.cmd', '.ps1', '.psm1', '.psd1', '.bats', '.awk', '.sed', '.tcl', '.ahk',
+        '.applescript',
         '.dockerignore', '.editorconfig'
     }
     DEFAULT_HIDDEN_CODE_EXTENSIONS = {'.json', '.jsonc'}
     CODE_FILENAMES = {
         'Dockerfile', 'Containerfile', 'Makefile', 'CMakeLists.txt',
         'Jenkinsfile', 'Procfile', 'Rakefile', 'Gemfile', 'Podfile',
-        'Brewfile', 'Vagrantfile'
+        'Brewfile', 'Vagrantfile', 'Justfile', 'Taskfile', 'Tiltfile',
+        'Earthfile', 'Snakefile', 'SConstruct', 'SConscript', 'wscript',
+        'meson.build', 'meson_options.txt', 'BUILD', 'BUILD.bazel',
+        'WORKSPACE', 'WORKSPACE.bazel', 'MODULE.bazel'
     }
+    CODE_FILENAME_PREFIXES = (
+        'Dockerfile.',
+        'Containerfile.',
+        'Makefile.',
+    )
     MARKUP_EXTENSIONS = {
         '.html', '.htm', '.xhtml', '.xml', '.xsd', '.xsl', '.wsdl',
         '.jsx', '.tsx', '.vue', '.svelte', '.astro',
@@ -161,7 +184,11 @@ class ProjectManager:
         """Returns True if the file should be treated as code/config/source."""
         basename = os.path.basename(filename)
         ext = os.path.splitext(basename)[1].lower()
-        return ext in cls.CODE_EXTENSIONS or basename in cls.CODE_FILENAMES
+        return (
+            ext in cls.CODE_EXTENSIONS
+            or basename in cls.CODE_FILENAMES
+            or any(basename.startswith(prefix) for prefix in cls.CODE_FILENAME_PREFIXES)
+        )
 
     @classmethod
     def is_default_code_file(cls, filename):

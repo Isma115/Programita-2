@@ -67,6 +67,72 @@ def _strip_markdown_code_blocks(text):
     return result
 
 
+def _split_patch_operations(patch_text):
+    operations = []
+    current = None
+
+    for line in patch_text.split("\n"):
+        op_match = re.match(r'^\s*@@\s+([A-Z_]+)\s*$', line)
+        if op_match:
+            if current is not None:
+                operations.append(current)
+            current = {"op": op_match.group(1), "body": []}
+            continue
+        if current is not None:
+            current["body"].append(line)
+
+    if current is not None:
+        operations.append(current)
+
+    return operations
+
+
+def _parse_patch_sections(body):
+    sections = {}
+    current_name = None
+    current_lines = []
+
+    for line in body:
+        section_match = re.match(r'^\s*(FIND|WITH|CONTENT|LINE):\s*$', line)
+        if section_match:
+            if current_name is not None:
+                sections[current_name] = _strip_markdown_code_blocks("\n".join(current_lines))
+            current_name = section_match.group(1).lower()
+            current_lines = []
+            continue
+        if current_name is not None:
+            current_lines.append(line)
+
+    if current_name is not None:
+        sections[current_name] = _strip_markdown_code_blocks("\n".join(current_lines))
+
+    return sections
+
+
+def _parse_patch_operations(patch_text):
+    operations = []
+
+    for raw_operation in _split_patch_operations(patch_text):
+        op = raw_operation["op"].lower()
+        sections = _parse_patch_sections(raw_operation["body"])
+        operation = {"op": op}
+
+        if op in ("replace", "insert_before", "insert_after", "delete"):
+            operation["find"] = sections.get("find", "")
+            if "line" in sections:
+                operation["line"] = sections.get("line", "")
+        if op == "replace":
+            operation["with"] = sections.get("with", "")
+        elif op in ("insert_before", "insert_after"):
+            operation["content"] = sections.get("content", "")
+        elif op != "delete":
+            operation["unsupported"] = True
+
+        operations.append(operation)
+
+    return operations
+
+
 def parse_ai_response(text):
     changes = []
     text = text.replace("\r\n", "\n")
@@ -82,6 +148,20 @@ def parse_ai_response(text):
             "type": "new_file",
             "file": match.group(1).strip(),
             "content": content
+        })
+
+    patch_pattern = re.compile(
+        r'\[\[\[\s*ARCHIVO:\s*(.+?)\s*\]\]\]\s*\n'
+        r'\[\[\[\s*PATCH\s*\n(.*?)PATCH\s*\]\]\]',
+        re.DOTALL
+    )
+    for match in patch_pattern.finditer(text):
+        patch_text = _strip_markdown_code_blocks(match.group(2))
+        operations = _parse_patch_operations(patch_text)
+        changes.append({
+            "type": "patch",
+            "file": match.group(1).strip(),
+            "operations": operations
         })
 
     change_pattern = re.compile(
@@ -103,6 +183,160 @@ def parse_ai_response(text):
         })
 
     return changes
+
+
+def _find_once(content, needle):
+    if not needle:
+        return None, False
+
+    start = content.find(needle)
+    if start != -1:
+        return (start, start + len(needle)), False
+
+    normalized_content = _normalize_whitespace(content)
+    normalized_needle = _normalize_whitespace(needle)
+    start = normalized_content.find(normalized_needle)
+    if start == -1:
+        return None, False
+
+    original_start = _map_normalized_to_original(content, start)
+    original_end = _map_normalized_to_original(content, start + len(normalized_needle))
+    return (original_start, original_end), True
+
+
+def _replace_fragment(content, original, modified):
+    span, fuzzy = _find_once(content, original)
+    if span is None:
+        return None, False
+    start, end = span
+    return content[:start] + modified + content[end:], fuzzy
+
+
+def _parse_line_range(line_value):
+    line_value = (line_value or "").strip()
+    if not line_value:
+        return None
+
+    match = re.search(r'L?\s*(\d+)(?:\s*[-:]\s*L?\s*(\d+))?', line_value, re.IGNORECASE)
+    if not match:
+        return None
+
+    start_line = int(match.group(1))
+    end_line = int(match.group(2) or start_line)
+    if start_line < 1 or end_line < start_line:
+        return None
+    return start_line, end_line
+
+
+def _line_span(content, line_range):
+    if not line_range:
+        return None
+
+    lines = content.splitlines(keepends=True)
+    if not lines:
+        return (0, 0) if line_range == (1, 1) else None
+
+    start_line, end_line = line_range
+    if start_line > len(lines):
+        return None
+
+    end_line = min(end_line, len(lines))
+    start = sum(len(line) for line in lines[:start_line - 1])
+    end = sum(len(line) for line in lines[:end_line])
+    return start, end
+
+
+def _insert_at_line_boundary(content, insert_at, insertion):
+    prefix = ""
+    suffix = ""
+    if insert_at > 0 and content[insert_at - 1] != "\n" and not insertion.startswith("\n"):
+        prefix = "\n"
+    if insert_at < len(content) and insertion and not insertion.endswith("\n"):
+        suffix = "\n"
+    return content[:insert_at] + prefix + insertion + suffix + content[insert_at:]
+
+
+def _apply_patch_operation_by_line(content, operation):
+    span = _line_span(content, _parse_line_range(operation.get("line", "")))
+    if span is None:
+        return None, "ancla FIND no encontrada y LINE inválido o fuera de rango"
+
+    start, end = span
+    op = operation.get("op")
+    if op == "replace":
+        replacement = operation.get("with", "")
+        if end > start and content[end - 1:end] == "\n" and replacement and not replacement.endswith("\n"):
+            replacement += "\n"
+        return content[:start] + replacement + content[end:], "line"
+    if op == "delete":
+        return content[:start] + content[end:], "line"
+    if op == "insert_before":
+        return _insert_at_line_boundary(content, start, operation.get("content", "")), "line"
+    if op == "insert_after":
+        return _insert_at_line_boundary(content, end, operation.get("content", "")), "line"
+
+    return None, "operación no soportada"
+
+
+def _insert_before_anchor(content, start, insertion):
+    prefix = ""
+    suffix = ""
+    if start > 0 and content[start - 1] != "\n" and not insertion.startswith("\n"):
+        prefix = "\n"
+    if insertion and not insertion.endswith("\n"):
+        suffix = "\n"
+    return content[:start] + prefix + insertion + suffix + content[start:]
+
+
+def _insert_after_anchor(content, end, insertion):
+    insert_at = end
+    if insert_at < len(content) and content[insert_at] == "\n":
+        insert_at += 1
+
+    prefix = ""
+    suffix = ""
+    if insert_at > 0 and content[insert_at - 1] != "\n" and not insertion.startswith("\n"):
+        prefix = "\n"
+    if insert_at < len(content) and insertion and not insertion.endswith("\n"):
+        suffix = "\n"
+    return content[:insert_at] + prefix + insertion + suffix + content[insert_at:]
+
+
+def _apply_patch_operation(content, operation):
+    if operation.get("unsupported"):
+        return None, "operación no soportada"
+
+    op = operation.get("op")
+    find_text = operation.get("find", "")
+    span, fuzzy = _find_once(content, find_text)
+    if span is None:
+        return _apply_patch_operation_by_line(content, operation)
+
+    start, end = span
+    if op == "replace":
+        return content[:start] + operation.get("with", "") + content[end:], "fuzzy" if fuzzy else None
+    if op == "delete":
+        return content[:start] + content[end:], "fuzzy" if fuzzy else None
+    if op == "insert_before":
+        return _insert_before_anchor(content, start, operation.get("content", "")), "fuzzy" if fuzzy else None
+    if op == "insert_after":
+        return _insert_after_anchor(content, end, operation.get("content", "")), "fuzzy" if fuzzy else None
+
+    return None, "operación no soportada"
+
+
+def _apply_patch_change(content, operations):
+    match_modes = set()
+
+    for index, operation in enumerate(operations, start=1):
+        updated_content, match_mode = _apply_patch_operation(content, operation)
+        if updated_content is None:
+            return None, f"op {index}: {match_mode}", match_modes
+        content = updated_content
+        if match_mode:
+            match_modes.add(match_mode)
+
+    return content, None, match_modes
 
 
 def _apply_changes(project_root, changes):
@@ -137,40 +371,56 @@ def _apply_changes(project_root, changes):
             results["details"].append(f"[ERROR] Leyendo {file_path}: {e}")
             continue
 
+        if change["type"] == "patch":
+            operation_count = len(change.get("operations", []))
+            if operation_count == 0:
+                results["failed"] += 1
+                results["details"].append(f"[ERROR] {file_path}: parche sin operaciones")
+                continue
+
+            updated_content, error, match_modes = _apply_patch_change(content, change["operations"])
+            if error is None:
+                try:
+                    with open(full_path, "w", encoding="utf-8") as f:
+                        f.write(updated_content)
+                    results["success"] += operation_count
+                    marker = "[OK~]" if match_modes else "[OK]"
+                    mode_labels = []
+                    if "fuzzy" in match_modes:
+                        mode_labels.append("match fuzzy")
+                    if "line" in match_modes:
+                        mode_labels.append("fallback LINE")
+                    suffix = f" ({', '.join(mode_labels)})" if mode_labels else ""
+                    results["details"].append(
+                        f"{marker} {file_path}: {operation_count} operación(es){suffix}")
+                except Exception as e:
+                    results["failed"] += 1
+                    results["details"].append(f"[ERROR] Escribiendo {file_path}: {e}")
+            else:
+                results["failed"] += 1
+                results["details"].append(f"[NO MATCH] {file_path}: {error}")
+            continue
+
         original = change["original"]
         modified = change["modified"]
+        updated_content, fuzzy = _replace_fragment(content, original, modified)
 
-        if original in content:
-            content = content.replace(original, modified, 1)
+        if updated_content is not None:
             try:
                 with open(full_path, "w", encoding="utf-8") as f:
-                    f.write(content)
+                    f.write(updated_content)
                 results["success"] += 1
-                results["details"].append(f"[OK] {file_path}")
+                if fuzzy:
+                    results["details"].append(f"[OK~] {file_path} (match fuzzy)")
+                else:
+                    results["details"].append(f"[OK] {file_path}")
             except Exception as e:
                 results["failed"] += 1
                 results["details"].append(f"[ERROR] Escribiendo {file_path}: {e}")
         else:
-            normalized_content = _normalize_whitespace(content)
-            normalized_original = _normalize_whitespace(original)
-            if normalized_original in normalized_content:
-                start_idx = normalized_content.index(normalized_original)
-                original_start = _map_normalized_to_original(content, start_idx)
-                original_end = _map_normalized_to_original(
-                    content, start_idx + len(normalized_original))
-                content = content[:original_start] + modified + content[original_end:]
-                try:
-                    with open(full_path, "w", encoding="utf-8") as f:
-                        f.write(content)
-                    results["success"] += 1
-                    results["details"].append(f"[OK~] {file_path} (match fuzzy)")
-                except Exception as e:
-                    results["failed"] += 1
-                    results["details"].append(f"[ERROR] {file_path}: {e}")
-            else:
-                results["failed"] += 1
-                results["details"].append(
-                    f"[NO MATCH] {file_path}: fragmento original no encontrado")
+            results["failed"] += 1
+            results["details"].append(
+                f"[NO MATCH] {file_path}: fragmento original no encontrado")
 
     return results
 
@@ -208,8 +458,7 @@ def process_bridge_injection(app_instance):
             "No se encontraron bloques de cambios válidos en el portapapeles.\n\n"
             "Asegúrate de que la IA ha usado el formato:\n"
             "[[[ ARCHIVO: ruta ]]]\n"
-            "[[[ ORIGINAL ... ORIGINAL ]]]\n"
-            "]]] MODIFICADO ... MODIFICADO [[[")
+            "[[[ PATCH ... PATCH ]]]")
         return True
 
     project_root = _get_project_root(app_instance)
@@ -228,10 +477,13 @@ def process_bridge_injection(app_instance):
 
 def _confirm_injection(app_instance, changes):
     n_mods = sum(1 for c in changes if c["type"] == "modification")
+    n_patch_ops = sum(len(c.get("operations", [])) for c in changes if c["type"] == "patch")
     n_new = sum(1 for c in changes if c["type"] == "new_file")
     files_affected = set(c["file"] for c in changes)
 
-    summary_lines = [f"Se van a aplicar {n_mods} modificación(es) y {n_new} fichero(s) nuevo(s)."]
+    summary_lines = [
+        f"Se van a aplicar {n_mods + n_patch_ops} modificación(es) y {n_new} fichero(s) nuevo(s)."
+    ]
     summary_lines.append(f"Archivos afectados ({len(files_affected)}):")
     for f in sorted(files_affected):
         summary_lines.append(f"  - {f}")
@@ -246,30 +498,71 @@ def build_anti_agent_output_instruction():
         "FORMATO DE RESPUESTA OBLIGATORIO",
         "=" * 60,
         "",
-        "Para CADA modificación que realices, debes devolverla EXACTAMENTE",
-        "en el siguiente formato (respeta los marcadores al pie de la letra).",
+        "Usa parches incrementales. NO devuelvas archivos completos ni bloques",
+        "originales completos. Devuelve solo las líneas nuevas o cambiadas y un",
+        "ancla FIND mínima para localizar dónde aplicar cada cambio.",
         "NO envuelvas el código en bloques markdown (nada de ```). Escribe el código tal cual.",
         "",
         "[[[ ARCHIVO: ruta/del/archivo.ext ]]]",
-        "[[[ ORIGINAL",
-        "// código ORIGINAL exacto que vas a reemplazar",
-        "ORIGINAL ]]]",
-        "]]] MODIFICADO",
-        "// código NUEVO que reemplaza al original",
-        "MODIFICADO [[["
+        "[[[ PATCH",
+        "@@ REPLACE",
+        "LINE:",
+        "123-125",
+        "FIND:",
+        "// texto mínimo exacto que se sustituye",
+        "WITH:",
+        "// texto nuevo",
+        "",
+        "@@ INSERT_AFTER",
+        "LINE:",
+        "123",
+        "FIND:",
+        "// ancla mínima exacta existente",
+        "CONTENT:",
+        "// código nuevo a insertar después del ancla",
+        "",
+        "@@ INSERT_BEFORE",
+        "LINE:",
+        "123",
+        "FIND:",
+        "// ancla mínima exacta existente",
+        "CONTENT:",
+        "// código nuevo a insertar antes del ancla",
+        "",
+        "@@ DELETE",
+        "LINE:",
+        "123-125",
+        "FIND:",
+        "// texto mínimo exacto que se elimina",
+        "PATCH ]]]",
         "",
         "REGLAS:",
-        "1. El bloque [[[ ORIGINAL debe contener código EXACTO del archivo,",
-        "   carácter por carácter, para que pueda encontrarse y reemplazarse.",
-        "2. Incluye suficiente contexto (2-3 líneas antes/después) para que",
-        "   la búsqueda sea única y no ambigua.",
-        "3. Si hay múltiples cambios en un mismo archivo, usa múltiples bloques.",
-        "4. Si necesitas CREAR un archivo nuevo, usa:",
+        "1. Usa @@ INSERT_AFTER o @@ INSERT_BEFORE para añadir código sin repetir",
+        "   el bloque existente completo.",
+        "2. Usa @@ REPLACE solo para la parte concreta que cambia, no para toda",
+        "   la función si solo cambian unas líneas.",
+        "3. LINE es obligatorio y debe indicar la línea o rango aproximado del",
+        "   archivo original. Si FIND falla, la app usará LINE como fallback.",
+        "4. FIND debe ser el ancla más corta que sea única en el archivo.",
+        "5. Si hay múltiples cambios en un mismo archivo, pon varias operaciones",
+        "   @@ dentro del mismo bloque PATCH, en orden de aplicación.",
+        "6. INSERT_AFTER e INSERT_BEFORE están pensados para insertar líneas;",
+        "   para cambios dentro de una línea usa @@ REPLACE.",
+        "7. Si necesitas CREAR un archivo nuevo, usa:",
         "   [[[ ARCHIVO NUEVO: ruta/nuevo/archivo.ext ]]]",
         "   ]]] CONTENIDO",
         "   // código completo del nuevo archivo",
         "   CONTENIDO [[[",
-        "5. Si necesitas ELIMINAR código, deja el bloque MODIFICADO vacío.",
-        "6. NO uses bloques de código markdown (```) en ningún lugar de la respuesta.",
+        "8. Para eliminar código usa @@ DELETE con FIND; no generes WITH vacío.",
+        "9. NO uses bloques de código markdown (```) en ningún lugar de la respuesta.",
+        "",
+        "FORMATO LEGADO ACEPTADO SOLO SI ES IMPRESCINDIBLE:",
+        "[[[ ARCHIVO: ruta/del/archivo.ext ]]]",
+        "[[[ ORIGINAL",
+        "// código original exacto",
+        "ORIGINAL ]]]",
+        "]]] MODIFICADO",
+        "// código nuevo",
+        "MODIFICADO [[[",
     ]
     return "\n".join(lines)

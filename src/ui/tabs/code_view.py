@@ -21,6 +21,7 @@ from src.logic.region_outline import (
     normalize_region_match_text,
     tokenize_region_match_text,
 )
+from src.logic.smart_matcher import smart_match_tokens, get_highlight_tokens_for_header, word_similarity
 from src.logic.structure_outline import (
     build_segment_full_text,
     build_segment_full_text_from_items,
@@ -214,6 +215,12 @@ class CodeView(ttk.Frame):
         self.region_list_auto_var = tk.BooleanVar(value=False)
         self._region_list_refresh_after = None
         self._region_list_limit_save_after = None
+        self._region_search_generation = 0
+        self._region_search_running = False
+        self._region_search_restart_requested = False
+        self._region_search_cancel_event = None
+        self._latest_region_search_request = None
+        self._pending_region_search_result = None
         self._search_timer = None
         self._last_relevant_files = None
         self._last_region_list_items = []
@@ -2629,6 +2636,7 @@ class CodeView(ttk.Frame):
         self.after_idle(self._set_default_sections_panel_width)
         self.bind("<Configure>", self._on_resize)
         self.bind("<<BackgroundSearchDone>>", self._on_background_search_done)
+        self.bind("<<ProjectRegionSearchDone>>", self._on_project_region_search_done)
         
         # Load project files initially
         self._show_file_list_view()
@@ -3375,11 +3383,140 @@ class CodeView(ttk.Frame):
                 self.after_cancel(self._region_list_refresh_after)
             except Exception:
                 pass
-        self._region_list_refresh_after = self.after(120, self._refresh_project_region_list)
+        if self._region_search_cancel_event is not None:
+            self._region_search_cancel_event.set()
+        self._region_list_refresh_after = self.after(1000, self._refresh_project_region_list)
 
     def _refresh_project_region_list(self):
-        """Renders detected #region blocks in the left list, ranked by prompt similarity."""
+        """Starts an async refresh of detected #region blocks ranked by prompt similarity."""
         self._region_list_refresh_after = None
+        request = self._build_project_region_search_request()
+        self._latest_region_search_request = request
+        if self._region_search_cancel_event is not None:
+            self._region_search_cancel_event.set()
+        if self._region_search_running:
+            self._region_search_restart_requested = True
+            return
+        self._start_project_region_search_worker(request)
+
+    def _build_project_region_search_request(self):
+        self._region_search_generation += 1
+        query = ""
+        if hasattr(self, "txt_prompt"):
+            query = self.txt_prompt.get("1.0", "end-1c").strip()
+        extension = self.ext_var.get() if hasattr(self, "ext_var") else ""
+        return {
+            "generation": self._region_search_generation,
+            "query": query,
+            "extension": extension,
+            "auto_enabled": self._is_region_list_auto_enabled(),
+            "limit": self._get_region_list_limit(),
+        }
+
+    def _start_project_region_search_worker(self, request):
+        self._region_search_running = True
+        self._region_search_restart_requested = False
+        cancel_event = threading.Event()
+        self._region_search_cancel_event = cancel_event
+        threading.Thread(
+            target=self._perform_project_region_search,
+            args=(request, cancel_event),
+            daemon=True,
+        ).start()
+
+    def _perform_project_region_search(self, request, cancel_event):
+        result = {
+            "generation": request.get("generation"),
+            "cancelled": False,
+            "error": None,
+            "file_infos": [],
+            "visible_regions": [],
+            "auto_total_bytes": None,
+        }
+        try:
+            if hasattr(self.controller, "get_relevant_files_for_ui"):
+                file_infos = self.controller.get_relevant_files_for_ui(
+                    "",
+                    selected_section=None,
+                    selected_subsection=None,
+                    extension=request.get("extension") or "",
+                    min_files=0,
+                    max_files=None,
+                )
+            else:
+                project_manager = getattr(self.controller, "project_manager", None)
+                file_infos = list(project_manager.get_files()) if project_manager else []
+
+            if cancel_event.is_set():
+                result["cancelled"] = True
+                return
+
+            file_infos = list(file_infos or [])
+            region_items = extract_regions_for_files(file_infos)
+            if cancel_event.is_set():
+                result["cancelled"] = True
+                return
+
+            ranked_regions = self._rank_project_regions_for_prompt(
+                region_items,
+                query=request.get("query") or "",
+                cancel_event=cancel_event,
+            )
+            if cancel_event.is_set():
+                result["cancelled"] = True
+                return
+
+            auto_total_bytes = None
+            if request.get("auto_enabled"):
+                visible_regions, auto_total_bytes = self._get_auto_limited_region_list(ranked_regions)
+            else:
+                visible_regions = ranked_regions[:max(0, int(request.get("limit") or 0))]
+
+            result.update({
+                "file_infos": file_infos,
+                "visible_regions": list(visible_regions or []),
+                "auto_total_bytes": auto_total_bytes,
+            })
+        except Exception as e:
+            result["error"] = e
+        finally:
+            self._pending_region_search_result = result
+            try:
+                self.event_generate("<<ProjectRegionSearchDone>>", when="tail")
+            except tk.TclError:
+                pass
+
+    def _on_project_region_search_done(self, event=None):
+        result = self._pending_region_search_result
+        self._pending_region_search_result = None
+        self._region_search_running = False
+        self._region_search_cancel_event = None
+
+        if self._region_search_restart_requested:
+            self._region_search_restart_requested = False
+            request = self._latest_region_search_request or self._build_project_region_search_request()
+            self._start_project_region_search_worker(request)
+            return
+
+        if not result or result.get("cancelled"):
+            return
+        if result.get("generation") != self._region_search_generation:
+            return
+        if result.get("error") is not None:
+            print(f"Project region search error: {result['error']}")
+            return
+
+        self._render_project_region_list(
+            result.get("file_infos") or [],
+            result.get("visible_regions") or [],
+            result.get("auto_total_bytes"),
+        )
+
+    def _render_project_region_list(self, file_infos, visible_regions, auto_total_bytes=None):
+        """Renders already ranked project regions in the left list on the main thread."""
+        if not self._should_show_project_regions_in_file_list():
+            return
+
         self._configure_file_tree_headings_for_regions()
         self._clear_folder_chip_overlays()
         self._clear_region_name_highlight_overlays()
@@ -3390,30 +3527,8 @@ class CodeView(ttk.Frame):
 
         self._region_rows_by_iid = {}
         self._region_group_rows_by_iid = {}
-        self._last_relevant_files = []
-
-        extension = self.ext_var.get() if hasattr(self, "ext_var") else ""
-        if hasattr(self.controller, "get_relevant_files_for_ui"):
-            file_infos = self.controller.get_relevant_files_for_ui(
-                "",
-                selected_section=None,
-                selected_subsection=None,
-                extension=extension,
-                min_files=0,
-                max_files=None,
-            )
-        else:
-            project_manager = getattr(self.controller, "project_manager", None)
-            file_infos = list(project_manager.get_files()) if project_manager else []
-
         self._last_relevant_files = list(file_infos or [])
-        region_items = extract_regions_for_files(file_infos)
-        ranked_regions = self._rank_project_regions_for_prompt(region_items)
-        auto_total_bytes = None
-        if self._is_region_list_auto_enabled():
-            visible_regions, auto_total_bytes = self._get_auto_limited_region_list(ranked_regions)
-        else:
-            visible_regions = ranked_regions[:self._get_region_list_limit()]
+        visible_regions = list(visible_regions or [])
         rows_to_render = list(visible_regions)
         self._last_region_list_items = visible_regions
         self._update_region_list_limit_label(
@@ -3474,17 +3589,19 @@ class CodeView(ttk.Frame):
         self.tree.heading("type", text="Líneas")
         self.tree.heading("view", text="Ver")
 
-    def _rank_project_regions_for_prompt(self, regions):
+    def _rank_project_regions_for_prompt(self, regions, query=None, cancel_event=None):
         """Sorts regions by string similarity to the current AI message."""
-        query = ""
-        if hasattr(self, "txt_prompt"):
+        if query is None and hasattr(self, "txt_prompt"):
             query = self.txt_prompt.get("1.0", "end-1c").strip()
+        query = query or ""
         normalized_query = normalize_region_match_text(query)
         query_tokens = {token for token in tokenize_region_match_text(normalized_query) if token}
 
         scored_regions = []
         query_keywords = get_region_match_keywords(query)
         for index, region in enumerate(regions or []):
+            if cancel_event is not None and cancel_event.is_set():
+                return []
             if not isinstance(region, dict):
                 continue
             region_copy = dict(region)
@@ -3544,6 +3661,14 @@ class CodeView(ttk.Frame):
         if query_keywords and candidate_keywords:
             keyword_overlap = len(query_keywords & candidate_keywords) / max(len(query_keywords), 1)
 
+        smart_score = 0.0
+        smart_bonus = 0.0
+        if query_tokens and candidate_tokens:
+            smart_score, smart_pairs = smart_match_tokens(list(query_tokens), list(candidate_tokens))
+            if smart_pairs:
+                high_quality = [p for p in smart_pairs if p[2] >= 0.7]
+                smart_bonus = min(0.18, len(high_quality) * 0.05)
+
         exact_bonus = 0.28 if normalized_query == candidate_text else 0.0
         contains_bonus = 0.16 if normalized_query in candidate_text or candidate_text in normalized_query else 0.0
         starts_bonus = 0.10 if candidate_text.startswith(normalized_query) or normalized_query.startswith(candidate_text) else 0.0
@@ -3554,28 +3679,46 @@ class CodeView(ttk.Frame):
             1.0,
             max(
                 sequence_score,
-                (sequence_score * 0.52)
-                + (token_overlap * 0.18)
-                + (keyword_overlap * 0.16)
+                (sequence_score * 0.48)
+                + (token_overlap * 0.15)
+                + (keyword_overlap * 0.14)
+                + (smart_score * 0.14)
                 + exact_bonus
                 + contains_bonus
                 + starts_bonus
                 + subset_bonus
                 + keyword_bonus
+                + smart_bonus
             ),
         )
 
     def _find_region_prompt_highlight_tokens(self, query_tokens, region_header):
-        """Returns normalized header words that also appear in the prompt, including stop-words."""
+        """Returns normalized header words that match the prompt (exact + synonym/similar)."""
         if not query_tokens:
+            return ()
+
+        header_tokens_list = tokenize_region_match_text(region_header)
+        if not header_tokens_list:
             return ()
 
         header_tokens = []
         seen_tokens = set()
-        for token in tokenize_region_match_text(region_header):
+        for token in header_tokens_list:
             if token in query_tokens and token not in seen_tokens:
                 seen_tokens.add(token)
                 header_tokens.append(token)
+
+        if len(header_tokens) < len(header_tokens_list):
+            smart_pairs = get_highlight_tokens_for_header(
+                list(query_tokens),
+                list(set(header_tokens_list)),
+                match_threshold=0.60,
+            )
+            for ht, qt, score in smart_pairs:
+                if ht not in seen_tokens:
+                    seen_tokens.add(ht)
+                    header_tokens.append(ht)
+
         return tuple(header_tokens)
 
     def _get_region_header_highlight_spans(self, header_text, highlight_tokens):
@@ -5026,7 +5169,7 @@ class CodeView(ttk.Frame):
                 segment_code, _copied_count = build_segment_full_text_from_items(
                     list(self.controller.project_manager.get_files()),
                     list((selected_entity or {}).get("items", [])),
-                    strip_region_markers=True,
+                    strip_region_markers=not return_regions,
                 )
                 segment_code = segment_code.strip()
 
@@ -5055,6 +5198,8 @@ class CodeView(ttk.Frame):
             if anti_agent:
                 from src.addons.bridge_sus import build_anti_agent_output_instruction
                 output_instruction = build_anti_agent_output_instruction()
+            elif return_regions:
+                output_instruction = self.controller.get_code_output_prompt(return_regions=True)
             else:
                 output_instruction = (
                     "Formato: responde en Markdown. Devuelve exclusivamente el código o los fragmentos de código modificados, sin explicaciones ni código no afectado. Cada bloque de código debe empezar con un comentario dentro del propio bloque con este texto exacto: Archivo: (ruta de archivo), usando el tipo de comentario correcto según el lenguaje. Añade también un comentario con el texto exacto [MODIFICACIÓN] en cada punto donde se haya aplicado un cambio, usando el tipo de comentario correcto según el lenguaje."

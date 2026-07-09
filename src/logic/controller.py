@@ -5,7 +5,10 @@ from src.logic.section_manager import SectionManager
 from src.logic.config_manager import ConfigManager
 from src.logic.editor_launcher import open_file_in_running_editor, reveal_file_in_system_explorer
 from src.logic.global_hotkeys import GlobalHotkeyListener
-from src.logic.prompt_rules import get_file_path_comment_inline_instruction
+from src.logic.prompt_rules import (
+    build_return_regions_instruction,
+    get_file_path_comment_inline_instruction,
+)
 from src.ui.styles import Styles
 from src.logic.app_paths import project_root
 from datetime import datetime
@@ -272,13 +275,7 @@ class Controller:
             )
 
         if return_regions:
-            return (
-                "IMPORTANTE: Antes de contestar, indica la lista de regiones que tienes que modificar. "
-                "Después, devuelve SOLO las regiones completas que hayan necesitado modificación, "
-                "manteniendo su cabecera de región y su cierre #endregion. "
-                "No devuelvas regiones sin cambios. "
-                f"{path_comment_instruction}"
-            )
+            return build_return_regions_instruction()
 
         return (
             "IMPORTANTE: Devuelve SOLO las partes de código que hayan necesitado modificación. "

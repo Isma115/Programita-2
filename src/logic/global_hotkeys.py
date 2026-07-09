@@ -327,7 +327,7 @@ class GlobalHotkeyListener:
                 self._dispatch_trigger_async()
 
     def handle_trigger(self):
-        from src.addons import Arbitrary_sus, bridge_sus, chunk_sus, clever_sus, file_sus
+        from src.addons import Arbitrary_sus, bridge_sus, chunk_sus, clever_sus, file_sus, region_inject_sus, sus_mod
         try:
             print("GlobalHotkeyListener: Shift + Left Click triggered. Running structure-aware smart paste.")
             if self.controller and self.controller.app and self.controller.app.root:
@@ -336,11 +336,21 @@ class GlobalHotkeyListener:
                         print(f"GlobalHotkeyListener: Arbitrary_sus no se disparó porque {reason}.")
 
                     handled = False
-                    if bridge_sus._is_anti_agent_enabled(self.controller.app):
+                    if region_inject_sus._is_region_injection_enabled(self.controller.app):
+                        print("GlobalHotkeyListener: Inyectar regiones activo. Lanzando region_inject_sus.")
+                        handled = region_inject_sus.process_region_injection(self.controller.app)
+                        if handled:
+                            _log_arbitrary_skip("region_inject_sus manejó el evento")
+                    if not handled and bridge_sus._is_anti_agent_enabled(self.controller.app):
                         print("GlobalHotkeyListener: Anti-Agent activo. Lanzando bridge_sus.")
                         handled = bridge_sus.process_bridge_injection(self.controller.app)
                         if handled:
                             _log_arbitrary_skip("bridge_sus manejó el evento")
+                    if not handled and sus_mod.is_sus_mod_enabled(self.controller.app):
+                        print("GlobalHotkeyListener: sus-mod activo. Lanzando sus_mod.")
+                        handled = sus_mod.process_sus_mod(self.controller.app)
+                        if handled:
+                            _log_arbitrary_skip("sus_mod manejó el evento")
                     if not handled and chunk_sus._is_chunk_replace_enabled(self.controller.app):
                         handled = chunk_sus.process_chunk_replacements(self.controller.app)
                         if handled:

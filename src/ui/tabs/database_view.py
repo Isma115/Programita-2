@@ -26,6 +26,7 @@ class DatabaseView(ttk.Frame):
         # Expuesto para otros módulos (controller/search popup)
         # Clave: "schema.table"
         self.table_vars = {}
+        self.selected_table_keys = set()
 
         self.table_filter_var = tk.StringVar(value="")
         self.tree_item_meta = {}
@@ -58,7 +59,7 @@ class DatabaseView(ttk.Frame):
         ).pack(anchor="w")
         tk.Label(
             header_frame,
-            text="Explora toda la conexión (esquemas, tablas y columnas) y exporta muestras.",
+            text="Explora la conexión, marca tablas y obtiene muestras de las seleccionadas.",
             bg=Styles.COLOR_BG_MAIN,
             fg=Styles.COLOR_DIM,
             font=Styles.scale_font(Styles.ui_font(12)),
@@ -367,6 +368,7 @@ class DatabaseView(ttk.Frame):
 
         self.db_tree.bind("<<TreeviewOpen>>", self._on_tree_open)
         self.db_tree.bind("<<TreeviewSelect>>", self._on_tree_selection_change)
+        self.db_tree.bind("<Button-1>", self._on_tree_click)
 
         self.table_filter_var.trace_add("write", self._on_table_filter_change)
         self._clear_tables()
@@ -426,7 +428,17 @@ class DatabaseView(ttk.Frame):
             state="disabled",
         )
         self.btn_sample.pack(side="left", padx=5)
-        attach_tooltip(self.btn_sample, "Muestras de tablas seleccionadas del árbol")
+        attach_tooltip(self.btn_sample, "Obtener muestras de las tablas marcadas en el árbol")
+
+        self.btn_structure = ttk.Button(
+            export_frame,
+            text="Obtener estructura",
+            style="Secondary.TButton",
+            command=self._on_get_structure,
+            state="disabled",
+        )
+        self.btn_structure.pack(side="left", padx=5)
+        attach_tooltip(self.btn_structure, "Obtener columnas, primary keys, foreign keys e indices sin incluir datos")
 
         self.btn_export_sample = ttk.Button(
             export_frame,
@@ -500,6 +512,7 @@ class DatabaseView(ttk.Frame):
         self._set_connection_status("Conexión perdida", color="#ff6b6b")
         self._show_connection_lost_indicator(True)
         self.btn_sample.config(state="disabled")
+        self.btn_structure.config(state="disabled")
         self.btn_export_sample.config(state="disabled")
         self._set_btn_state(self.btn_connect, False)
         self._set_btn_state(self.btn_disconnect, True)
@@ -574,8 +587,10 @@ class DatabaseView(ttk.Frame):
             self._set_btn_state(self.btn_disconnect, True)
             self._set_btn_state(self.btn_reconnect, True)
             self.btn_sample.config(state="normal")
+            self.btn_structure.config(state="normal")
             self.btn_export_sample.config(state="normal")
             self._set_connection_form_state(False)
+            self.selected_table_keys.clear()
 
             self._load_connection_tree()
 
@@ -597,10 +612,11 @@ class DatabaseView(ttk.Frame):
         self._set_btn_state(self.btn_disconnect, False)
         self._set_btn_state(self.btn_reconnect, False)
         self.btn_sample.config(state="disabled")
+        self.btn_structure.config(state="disabled")
         self.btn_export_sample.config(state="disabled")
         self._set_connection_form_state(True)
 
-        self._clear_tables()
+        self._clear_tables(reset_selection=True)
 
     def _on_reconnect(self):
         """Reconexión manual únicamente."""
@@ -644,8 +660,10 @@ class DatabaseView(ttk.Frame):
             self._set_btn_state(self.btn_disconnect, True)
             self._set_btn_state(self.btn_reconnect, True)
             self.btn_sample.config(state="normal")
+            self.btn_structure.config(state="normal")
             self.btn_export_sample.config(state="normal")
             self._set_connection_form_state(False)
+            self.selected_table_keys.clear()
 
             self._load_connection_tree()
             messagebox.showinfo("Éxito", "Conexión reiniciada correctamente.")
@@ -657,6 +675,7 @@ class DatabaseView(ttk.Frame):
             self._set_btn_state(self.btn_disconnect, False)
             self._set_btn_state(self.btn_reconnect, False)
             self.btn_sample.config(state="disabled")
+            self.btn_structure.config(state="disabled")
             self.btn_export_sample.config(state="disabled")
             self._set_connection_form_state(True)
 
@@ -687,9 +706,11 @@ class DatabaseView(ttk.Frame):
             raise ValueError(f"No se pudo inferir el esquema para la tabla '{text}'.")
         return fallback_schema, text
 
-    def _clear_tables(self):
+    def _clear_tables(self, reset_selection=False):
         self.table_vars.clear()
         self.tree_item_meta.clear()
+        if reset_selection:
+            self.selected_table_keys.clear()
         try:
             self.db_tree.delete(*self.db_tree.get_children())
         except Exception:
@@ -737,7 +758,13 @@ class DatabaseView(ttk.Frame):
                 return
 
             for schema_name in sorted(by_schema.keys(), key=lambda s: s.lower()):
-                db_iid = self.db_tree.insert("", "end", text=schema_name, open=False, tags=("database",))
+                db_iid = self.db_tree.insert(
+                    "",
+                    "end",
+                    text=self._schema_tree_text(schema_name),
+                    open=False,
+                    tags=("database",),
+                )
                 self.tree_item_meta[db_iid] = {"kind": "database", "schema": schema_name}
 
                 for table_name, table_type in sorted(by_schema[schema_name], key=lambda t: t[0].lower()):
@@ -745,8 +772,13 @@ class DatabaseView(ttk.Frame):
                     self.table_vars[table_key] = tk.BooleanVar(value=False)
 
                     tag = "view" if table_type.upper() == "VIEW" else "table"
-                    suffix = " [VIEW]" if tag == "view" else ""
-                    table_iid = self.db_tree.insert(db_iid, "end", text=f"{table_name}{suffix}", open=False, tags=(tag,))
+                    table_iid = self.db_tree.insert(
+                        db_iid,
+                        "end",
+                        text=self._table_tree_text(table_key, table_name, table_type),
+                        open=False,
+                        tags=(tag,),
+                    )
                     self.tree_item_meta[table_iid] = {
                         "kind": "table",
                         "schema": schema_name,
@@ -757,10 +789,109 @@ class DatabaseView(ttk.Frame):
                     placeholder = self.db_tree.insert(table_iid, "end", text="(expandir para cargar columnas)", tags=("placeholder",))
                     self.tree_item_meta[placeholder] = {"kind": "placeholder"}
 
+                self._refresh_schema_item(db_iid)
+
         except Exception as e:
             if self._looks_like_connection_lost(e):
                 self._mark_connection_lost()
             messagebox.showerror("Error", f"Error cargando explorador de conexión: {e}")
+
+    def _table_tree_text(self, table_key, table_name, table_type=None):
+        checkbox = "[x]" if table_key in self.selected_table_keys else "[ ]"
+        suffix = " [VIEW]" if str(table_type or "").upper() == "VIEW" else ""
+        return f"{checkbox} {table_name}{suffix}"
+
+    def _schema_tree_text(self, schema_name):
+        prefix = f"{schema_name}."
+        schema_keys = [key for key in self.table_vars.keys() if key.startswith(prefix)]
+        if not schema_keys:
+            checkbox = "[ ]"
+        else:
+            selected_count = sum(1 for key in schema_keys if key in self.selected_table_keys)
+            if selected_count == 0:
+                checkbox = "[ ]"
+            elif selected_count == len(schema_keys):
+                checkbox = "[x]"
+            else:
+                checkbox = "[-]"
+        return f"{checkbox} {schema_name}"
+
+    def _refresh_table_item(self, item_id):
+        meta = self.tree_item_meta.get(item_id, {})
+        if meta.get("kind") != "table":
+            return
+        table_key = self._table_ref_key(meta.get("schema"), meta.get("table"))
+        self.db_tree.item(
+            item_id,
+            text=self._table_tree_text(table_key, meta.get("table"), meta.get("table_type")),
+        )
+
+    def _refresh_schema_item(self, item_id):
+        meta = self.tree_item_meta.get(item_id, {})
+        if meta.get("kind") != "database":
+            return
+        self.db_tree.item(item_id, text=self._schema_tree_text(meta.get("schema")))
+
+    def _refresh_selection_labels(self):
+        for item_id, meta in list(self.tree_item_meta.items()):
+            kind = meta.get("kind")
+            if kind == "table":
+                self._refresh_table_item(item_id)
+            elif kind == "database":
+                self._refresh_schema_item(item_id)
+
+    def _set_selected_table_key(self, table_key, selected):
+        if selected:
+            self.selected_table_keys.add(table_key)
+        else:
+            self.selected_table_keys.discard(table_key)
+        if table_key in self.table_vars:
+            try:
+                self.table_vars[table_key].set(bool(selected))
+            except Exception:
+                pass
+
+    def _on_tree_click(self, event):
+        item_id = self.db_tree.identify_row(event.y)
+        if not item_id:
+            return None
+        if self.db_tree.identify_element(event.x, event.y) == "Treeitem.indicator":
+            return None
+
+        meta = self.tree_item_meta.get(item_id, {})
+        kind = meta.get("kind")
+
+        if kind == "table":
+            table_key = self._table_ref_key(meta.get("schema"), meta.get("table"))
+            self._set_selected_table_key(table_key, table_key not in self.selected_table_keys)
+            self._refresh_table_item(item_id)
+            self._refresh_schema_item(self.db_tree.parent(item_id))
+            self._on_tree_selection_change()
+            return "break"
+
+        if kind == "column":
+            table_key = self._table_ref_key(meta.get("schema"), meta.get("table"))
+            self._set_selected_table_key(table_key, table_key not in self.selected_table_keys)
+            table_item = self.db_tree.parent(item_id)
+            self._refresh_table_item(table_item)
+            self._refresh_schema_item(self.db_tree.parent(table_item))
+            self._on_tree_selection_change()
+            return "break"
+
+        if kind == "database":
+            schema_name = meta.get("schema")
+            prefix = f"{schema_name}."
+            schema_keys = [key for key in self.table_vars.keys() if key.startswith(prefix)]
+            if not schema_keys:
+                return "break"
+            mark_as_selected = not all(key in self.selected_table_keys for key in schema_keys)
+            for key in schema_keys:
+                self._set_selected_table_key(key, mark_as_selected)
+            self._refresh_selection_labels()
+            self._on_tree_selection_change()
+            return "break"
+
+        return None
 
     def _on_tree_open(self, event=None):
         item_id = self.db_tree.focus()
@@ -833,23 +964,10 @@ class DatabaseView(ttk.Frame):
             self._set_connection_status("Conectado", color="#66d9a2")
 
     def _get_selected_table_refs(self):
-        selected_iids = self.db_tree.selection()
         selected_refs = set()
 
-        for item_id in selected_iids:
-            meta = self.tree_item_meta.get(item_id, {})
-            kind = meta.get("kind")
-
-            if kind == "table":
-                selected_refs.add((meta.get("schema"), meta.get("table")))
-            elif kind == "column":
-                selected_refs.add((meta.get("schema"), meta.get("table")))
-            elif kind == "database":
-                schema_name = meta.get("schema")
-                prefix = f"{schema_name}."
-                for key in self.table_vars.keys():
-                    if key.startswith(prefix):
-                        selected_refs.add(self._split_table_ref_key(key))
+        for table_key in self.selected_table_keys:
+            selected_refs.add(self._split_table_ref_key(table_key))
 
         return sorted(selected_refs, key=lambda x: (str(x[0]).lower(), str(x[1]).lower()))
 
@@ -883,7 +1001,7 @@ class DatabaseView(ttk.Frame):
             lines.append(f"\n{title}:")
             lines.append(f"(No disponible: {e})")
 
-    def _build_table_report(self, selected_tables, limit_rows):
+    def _build_table_report(self, selected_tables, limit_rows=5, include_data=True):
         if not self.connection:
             raise RuntimeError("No hay conexión activa.")
         if not self._ensure_connection_alive():
@@ -891,15 +1009,23 @@ class DatabaseView(ttk.Frame):
 
         normalized_tables = [self._split_table_ref_key(ref) for ref in selected_tables]
         generated_at = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        report_title = (
+            "REPORTE DE MUESTRAS DE BASE DE DATOS"
+            if include_data
+            else "REPORTE DE ESTRUCTURA DE BASE DE DATOS"
+        )
 
         lines = [
             "=" * 80,
-            "REPORTE DE MUESTRAS DE BASE DE DATOS",
+            report_title,
             f"Servidor: {self.conn_entries['host'].get()}:{self.conn_entries['port'].get()}",
             f"Generado: {generated_at}",
-            f"Filas por tabla: {limit_rows}",
-            "=" * 80,
         ]
+        if include_data:
+            lines.append(f"Filas por tabla: {limit_rows}")
+        else:
+            lines.append("Datos de filas: no incluidos")
+        lines.append("=" * 80)
 
         cursor = self.connection.cursor()
         try:
@@ -1027,22 +1153,175 @@ class DatabaseView(ttk.Frame):
                     lines,
                 )
 
-                try:
-                    cursor.execute(f"SELECT * FROM `{safe_schema}`.`{safe_table}` LIMIT {int(limit_rows)}")
-                    rows = cursor.fetchall()
-                    columns = list(cursor.column_names) if getattr(cursor, "column_names", None) else []
+                if include_data:
+                    try:
+                        cursor.execute(f"SELECT * FROM `{safe_schema}`.`{safe_table}` LIMIT {int(limit_rows)}")
+                        rows = cursor.fetchall()
+                        columns = list(cursor.column_names) if getattr(cursor, "column_names", None) else []
 
-                    lines.append(f"\nDATOS ({int(limit_rows)} filas):")
-                    if columns:
-                        lines.append(",".join(columns))
-                    if rows:
-                        for row in rows:
-                            lines.append(",".join(self._format_db_value(v) for v in row))
-                    else:
-                        lines.append("(Sin datos)")
-                except Exception as e:
-                    lines.append(f"\nDATOS ({int(limit_rows)} filas):")
-                    lines.append(f"(No disponible: {e})")
+                        lines.append(f"\nDATOS ({int(limit_rows)} filas):")
+                        if columns:
+                            lines.append(",".join(columns))
+                        if rows:
+                            for row in rows:
+                                lines.append(",".join(self._format_db_value(v) for v in row))
+                        else:
+                            lines.append("(Sin datos)")
+                    except Exception as e:
+                        lines.append(f"\nDATOS ({int(limit_rows)} filas):")
+                        lines.append(f"(No disponible: {e})")
+
+        except Exception as e:
+            if self._looks_like_connection_lost(e):
+                self._mark_connection_lost()
+                raise RuntimeError("Se perdió la conexión con la base de datos. Reconecta manualmente.") from e
+            raise
+        finally:
+            try:
+                cursor.close()
+            except Exception:
+                pass
+
+        return "\n".join(lines) + "\n"
+
+    def _build_basic_structure_report(self, selected_tables):
+        if not self.connection:
+            raise RuntimeError("No hay conexión activa.")
+        if not self._ensure_connection_alive():
+            raise RuntimeError("Se perdió la conexión con la base de datos. Reconecta manualmente.")
+
+        normalized_tables = [self._split_table_ref_key(ref) for ref in selected_tables]
+        generated_at = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+        lines = [
+            "=" * 80,
+            "ESTRUCTURA BASICA DE TABLAS",
+            f"Servidor: {self.conn_entries['host'].get()}:{self.conn_entries['port'].get()}",
+            f"Generado: {generated_at}",
+            "Datos de filas: no incluidos",
+            "=" * 80,
+        ]
+
+        cursor = self.connection.cursor()
+        try:
+            for schema_name, table_name in normalized_tables:
+                lines.append(f"\nTABLA: {schema_name}.{table_name}")
+                lines.append("-" * 80)
+
+                cursor.execute(
+                    """
+                    SELECT COLUMN_NAME, COLUMN_TYPE, IS_NULLABLE, COLUMN_DEFAULT, COLUMN_KEY, EXTRA
+                    FROM INFORMATION_SCHEMA.COLUMNS
+                    WHERE TABLE_SCHEMA = %s AND TABLE_NAME = %s
+                    ORDER BY ORDINAL_POSITION
+                    """,
+                    (schema_name, table_name),
+                )
+                columns = cursor.fetchall()
+
+                lines.append("\nColumnas:")
+                if columns:
+                    for col_name, col_type, is_nullable, col_default, col_key, extra in columns:
+                        parts = [
+                            f"- {col_name}: {col_type}",
+                            "NULL" if is_nullable == "YES" else "NOT NULL",
+                        ]
+                        if col_key:
+                            parts.append(str(col_key))
+                        if extra:
+                            parts.append(str(extra))
+                        if col_default is not None:
+                            parts.append(f"default={self._format_db_value(col_default)}")
+                        lines.append(" | ".join(parts))
+                else:
+                    lines.append("- Sin columnas visibles")
+
+                cursor.execute(
+                    """
+                    SELECT COLUMN_NAME
+                    FROM INFORMATION_SCHEMA.KEY_COLUMN_USAGE
+                    WHERE TABLE_SCHEMA = %s
+                      AND TABLE_NAME = %s
+                      AND CONSTRAINT_NAME = 'PRIMARY'
+                    ORDER BY ORDINAL_POSITION
+                    """,
+                    (schema_name, table_name),
+                )
+                primary_key_cols = [row[0] for row in cursor.fetchall()]
+
+                lines.append("\nPrimary key:")
+                if primary_key_cols:
+                    lines.append(f"- ({', '.join(primary_key_cols)})")
+                else:
+                    lines.append("- Sin primary key")
+
+                cursor.execute(
+                    """
+                    SELECT
+                        k.CONSTRAINT_NAME,
+                        GROUP_CONCAT(k.COLUMN_NAME ORDER BY k.ORDINAL_POSITION SEPARATOR ', '),
+                        k.REFERENCED_TABLE_SCHEMA,
+                        k.REFERENCED_TABLE_NAME,
+                        GROUP_CONCAT(k.REFERENCED_COLUMN_NAME ORDER BY k.ORDINAL_POSITION SEPARATOR ', '),
+                        rc.UPDATE_RULE,
+                        rc.DELETE_RULE
+                    FROM INFORMATION_SCHEMA.KEY_COLUMN_USAGE k
+                    LEFT JOIN INFORMATION_SCHEMA.REFERENTIAL_CONSTRAINTS rc
+                      ON rc.CONSTRAINT_SCHEMA = k.CONSTRAINT_SCHEMA
+                     AND rc.CONSTRAINT_NAME = k.CONSTRAINT_NAME
+                     AND rc.TABLE_NAME = k.TABLE_NAME
+                    WHERE k.TABLE_SCHEMA = %s
+                      AND k.TABLE_NAME = %s
+                      AND k.REFERENCED_TABLE_NAME IS NOT NULL
+                    GROUP BY
+                        k.CONSTRAINT_NAME,
+                        k.REFERENCED_TABLE_SCHEMA,
+                        k.REFERENCED_TABLE_NAME,
+                        rc.UPDATE_RULE,
+                        rc.DELETE_RULE
+                    ORDER BY k.CONSTRAINT_NAME
+                    """,
+                    (schema_name, table_name),
+                )
+                foreign_keys = cursor.fetchall()
+
+                lines.append("\nForeign keys:")
+                if foreign_keys:
+                    for fk_name, cols, ref_schema, ref_table, ref_cols, update_rule, delete_rule in foreign_keys:
+                        rule_parts = []
+                        if update_rule:
+                            rule_parts.append(f"ON UPDATE {update_rule}")
+                        if delete_rule:
+                            rule_parts.append(f"ON DELETE {delete_rule}")
+                        rules = f" ({', '.join(rule_parts)})" if rule_parts else ""
+                        lines.append(f"- {fk_name}: ({cols}) -> {ref_schema}.{ref_table}({ref_cols}){rules}")
+                else:
+                    lines.append("- Sin foreign keys")
+
+                cursor.execute(
+                    """
+                    SELECT
+                        INDEX_NAME,
+                        NON_UNIQUE,
+                        GROUP_CONCAT(COLUMN_NAME ORDER BY SEQ_IN_INDEX SEPARATOR ', ')
+                    FROM INFORMATION_SCHEMA.STATISTICS
+                    WHERE TABLE_SCHEMA = %s
+                      AND TABLE_NAME = %s
+                      AND INDEX_NAME <> 'PRIMARY'
+                    GROUP BY INDEX_NAME, NON_UNIQUE
+                    ORDER BY INDEX_NAME
+                    """,
+                    (schema_name, table_name),
+                )
+                indexes = cursor.fetchall()
+
+                lines.append("\nIndices:")
+                if indexes:
+                    for index_name, non_unique, cols in indexes:
+                        index_type = "INDEX" if non_unique else "UNIQUE"
+                        lines.append(f"- {index_name}: {index_type} ({cols})")
+                else:
+                    lines.append("- Sin indices secundarios")
 
         except Exception as e:
             if self._looks_like_connection_lost(e):
@@ -1325,7 +1604,7 @@ class DatabaseView(ttk.Frame):
         if not selected:
             messagebox.showwarning(
                 "Aviso",
-                "Selecciona al menos una tabla en el árbol (o un esquema completo).",
+                "Marca al menos una tabla en el árbol (o un esquema completo).",
             )
             return
 
@@ -1342,6 +1621,29 @@ class DatabaseView(ttk.Frame):
             self.txt_results.see("end")
         except Exception as e:
             messagebox.showerror("Error", f"Error obteniendo muestras: {e}")
+
+    def _on_get_structure(self):
+        if not self.connection:
+            messagebox.showwarning("Aviso", "No hay conexión activa.")
+            return
+        if not self._ensure_connection_alive():
+            messagebox.showwarning("Conexión perdida", "Se perdió la conexión con la base de datos. Reconecta manualmente.")
+            return
+
+        selected = self._get_selected_table_refs()
+        if not selected:
+            messagebox.showwarning(
+                "Aviso",
+                "Marca al menos una tabla en el árbol (o un esquema completo).",
+            )
+            return
+
+        try:
+            report = self._build_basic_structure_report(selected)
+            self.txt_results.insert("end", report)
+            self.txt_results.see("end")
+        except Exception as e:
+            messagebox.showerror("Error", f"Error obteniendo estructura: {e}")
 
     @staticmethod
     def _format_bytes(size):
@@ -1367,7 +1669,7 @@ class DatabaseView(ttk.Frame):
 
             with open(file_path, "a", encoding="utf-8") as f:
                 f.write("\n\n" + "=" * 60 + "\n")
-                f.write("MUESTRAS DE BASE DE DATOS\n")
+                f.write("RESULTADOS DE BASE DE DATOS\n")
                 f.write("=" * 60 + "\n")
                 f.write(content)
                 f.write("\n")

@@ -126,6 +126,12 @@ class ConfigManager:
         if "anti_agent_enabled" not in self.config:
             self.config["anti_agent_enabled"] = False
             migrated = True
+        if "region_injection_enabled" not in self.config:
+            self.config["region_injection_enabled"] = False
+            migrated = True
+        if "sus_mod_enabled" not in self.config:
+            self.config["sus_mod_enabled"] = False
+            migrated = True
 
         for legacy_key in ("return_structures",):
             if legacy_key in self.config:
@@ -437,6 +443,24 @@ class ConfigManager:
 
     def set_anti_agent_enabled(self, value):
         self.config["anti_agent_enabled"] = bool(value)
+        self.save_config()
+
+    def get_region_injection_enabled(self):
+        """Returns whether Shift+Click should inject complete regions from clipboard."""
+        return bool(self.config.get("region_injection_enabled", False))
+
+    def set_region_injection_enabled(self, value):
+        """Sets whether Shift+Click should inject complete regions from clipboard."""
+        self.config["region_injection_enabled"] = bool(value)
+        self.save_config()
+
+    def get_sus_mod_enabled(self):
+        """Returns whether Shift+Click should apply [MODIFICACIÓN] substitutions."""
+        return bool(self.config.get("sus_mod_enabled", False))
+
+    def set_sus_mod_enabled(self, value):
+        """Sets whether Shift+Click should apply [MODIFICACIÓN] substitutions."""
+        self.config["sus_mod_enabled"] = bool(value)
         self.save_config()
 
     def get_include_file_headers_in_codigo_txt(self):
