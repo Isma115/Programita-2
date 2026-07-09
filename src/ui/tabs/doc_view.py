@@ -167,6 +167,9 @@ class DocView(ttk.Frame):
         self._editable_block_seq = 0
         self._pending_web_view_scroll = None
         self._pending_web_view_fragment = None
+        self._pending_document_search_query = ""
+        self._document_search_scroll_token = 0
+        self._preserve_section_selection = True
         self._code_highlight_job = None
         self._active_code_file_path = None
         self.diagram_editor_window = None
@@ -185,6 +188,7 @@ class DocView(ttk.Frame):
         self.advanced_doc_search_var = tk.BooleanVar(value=False)
         self._doc_search_content_cache = {}
         self._doc_search_placeholder_active = False
+        self._section_search_debounce_job = None
         self.list_project_documents_var = tk.BooleanVar(value=False)
         self._show_all_doc_sections = False
         self.DOC_SECTIONS_INITIAL_LIMIT = 10
@@ -735,6 +739,7 @@ class DocView(ttk.Frame):
         )
         self.section_search_entry.pack(side="left", fill="x", expand=True, padx=(0, 8), ipady=8)
         self.section_search_entry.bind("<KeyRelease>", self._on_section_search_change)
+        self.section_search_entry.bind("<Return>", self._on_advanced_doc_search_submit)
         self.section_search_entry.bind("<FocusIn>", self._on_doc_search_focus_in)
         self.section_search_entry.bind("<FocusOut>", self._on_doc_search_focus_out)
 
@@ -1115,11 +1120,64 @@ class DocView(ttk.Frame):
         return "break"
 
     def _on_section_search_change(self, event=None):
+        if self._section_search_debounce_job is not None:
+            try:
+                self.after_cancel(self._section_search_debounce_job)
+            except Exception:
+                pass
+        self._section_search_debounce_job = self.after(500, self._apply_debounced_section_search)
+
+    def _apply_debounced_section_search(self):
+        self._section_search_debounce_job = None
         preferred_path = None
-        selected = self.section_tree.selection()
-        if selected:
-            preferred_path = selected[0]
-        self._refresh_sections(preferred_path=preferred_path)
+        # Durante la búsqueda avanzada no conservamos la selección anterior:
+        # al reconstruir el árbol, su evento de selección podría volver a
+        # abrir el documento y sobrescribir el salto realizado con Enter.
+        if not self.advanced_doc_search_var.get():
+            selected = self.section_tree.selection()
+            if selected:
+                preferred_path = selected[0]
+        self._preserve_section_selection = not self.advanced_doc_search_var.get()
+        try:
+            self._refresh_sections(preferred_path=preferred_path)
+        finally:
+            self._preserve_section_selection = True
+
+    def _iter_section_tree_items(self, parent=""):
+        for item_id in self.section_tree.get_children(parent):
+            yield item_id
+            yield from self._iter_section_tree_items(item_id)
+
+    def _on_advanced_doc_search_submit(self, event=None):
+        """Opens the first matching Markdown document and jumps to its match."""
+        if not self.advanced_doc_search_var.get():
+            return None
+
+        if self._section_search_debounce_job is not None:
+            try:
+                self.after_cancel(self._section_search_debounce_job)
+            except Exception:
+                pass
+            self._section_search_debounce_job = None
+            self._apply_debounced_section_search()
+
+        query = self._get_doc_search_query()
+        if not query:
+            return "break"
+
+        exact_match = None
+        for item_id in self._iter_section_tree_items():
+            if os.path.isdir(item_id) or os.path.splitext(item_id)[1].lower() != ".md":
+                continue
+            normalized_content = self._read_text_document_for_search(item_id)
+            if query in normalized_content and exact_match is None:
+                exact_match = item_id
+
+        match_path = exact_match
+        if match_path:
+            self.section_tree.see(match_path)
+            self._display_file_content(match_path, search_query=query)
+        return "break"
 
     def _toggle_advanced_doc_search(self):
         self.advanced_doc_search_var.set(not self.advanced_doc_search_var.get())
@@ -1566,8 +1624,9 @@ class DocView(ttk.Frame):
             messagebox.showerror("Error", f"No se pudo copiar el documento: {e}")
             return
 
-    def _display_file_content(self, file_path):
+    def _display_file_content(self, file_path, search_query=""):
         try:
+            self._document_search_scroll_token += 1
             self._cancel_autosave_timer()
             with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
                 content = f.read()
@@ -1584,7 +1643,12 @@ class DocView(ttk.Frame):
             self._update_breadcrumb(file_path)
             
             # Apply highlighting
+            self._pending_document_search_query = search_query if search_query else ""
+            self._pending_web_view_fragment = "doc-search-match" if search_query else None
             self._apply_markdown_rendering()
+            if search_query:
+                self._schedule_document_search_scroll()
+            self._pending_document_search_query = ""
         except Exception as e:
             messagebox.showerror("Error", f"No se pudo leer: {e}")
 
@@ -2110,11 +2174,31 @@ class DocView(ttk.Frame):
         except Exception:
             pass
 
+    def _schedule_document_search_scroll(self):
+        """Retries the search target after HtmlFrame layout and CSS settle."""
+        self._document_search_scroll_token += 1
+        token = self._document_search_scroll_token
+
+        def scroll_to_match():
+            if token != self._document_search_scroll_token:
+                return
+            try:
+                html_widget = getattr(self.web_view, "_html", None)
+                node = html_widget.search("[id='doc-search-match']") if html_widget else None
+                if node:
+                    self.web_view.yview(node)
+            except Exception:
+                pass
+
+        for delay in (0, 80, 220, 420, 800, 1400):
+            self.after(delay, scroll_to_match)
+
     def _on_web_view_done_loading(self, event=None):
         """Restores scroll once tkinterweb finishes loading the rendered markdown."""
         if self._pending_web_view_fragment is not None:
             self._pending_web_view_fragment = None
             self._pending_web_view_scroll = None
+            self._schedule_document_search_scroll()
             return
         if self._pending_web_view_scroll is None:
             return
@@ -3325,13 +3409,13 @@ class DocView(ttk.Frame):
             )
         self._update_show_more_sections(doc_root, project_root)
         
-        if not preferred_path:
+        if self._preserve_section_selection and not preferred_path:
             if not self.current_file_path and self.controller and hasattr(self.controller, "config_manager"):
                 preferred_path = self.controller.config_manager.get_last_doc_file()
             else:
                 preferred_path = self.current_file_path
                 
-        if preferred_path and self.section_tree.exists(preferred_path):
+        if self._preserve_section_selection and preferred_path and self.section_tree.exists(preferred_path):
             self.section_tree.selection_set(preferred_path)
             self.section_tree.see(preferred_path)
             if not self.current_file_path and os.path.isfile(preferred_path):
@@ -3810,8 +3894,13 @@ class DocView(ttk.Frame):
     def _apply_markdown_rendering(self):
         """Highlights Editor and renders Markdown to HTML for the Web View."""
         content = self.txt_content.get("1.0", "end-1c")
+        search_query = getattr(self, "_pending_document_search_query", "")
         previous_scroll = self._capture_web_view_scroll()
-        self._pending_web_view_scroll = previous_scroll
+        # La búsqueda tiene su propio destino; restaurar el scroll anterior
+        # después de cargar el HTML volvería a llevar la vista al principio.
+        self._pending_web_view_scroll = None if search_query else previous_scroll
+        if search_query:
+            self._pending_web_view_fragment = None
         
         # 1. Highlight Editor (Source view)
         self._highlight_editor(content)
@@ -3938,6 +4027,8 @@ class DocView(ttk.Frame):
             md.renderer.rules["list_item_close"] = render_wrapped_close(render_tag_last=True)
             
             html_content = md.render(content)
+            if search_query:
+                html_content = self._highlight_document_search_match(html_content, search_query)
             
             # Simplified CSS for tkhtml (tkinterweb) compatibility
             # tkhtml is primitive: avoid nth-child, display:block on tables, and complex flex/grid
@@ -4025,14 +4116,40 @@ class DocView(ttk.Frame):
                 th, td {{ border: 1px solid {border_color}; padding: 10px 14px; text-align: left; }}
                 th {{ background-color: {th_bg}; color: {text_color}; font-weight: 700; }}
                 tr {{ background-color: {table_bg}; }}
+                mark.doc-search-match {{ background-color: #fff3a3; color: #111827; padding: 1px 2px; border-radius: 2px; }}
             </style>
             """
             
             full_html = f"<html><head>{css}</head><body>{html_content}</body></html>"
-            self.web_view.load_html(full_html, fragment=self._pending_web_view_fragment)
+            self.web_view.load_html(
+                full_html,
+                fragment=None if search_query else self._pending_web_view_fragment
+            )
             
         except Exception as e:
             logging.error(f"Web Render error: {e}")
+
+    def _highlight_document_search_match(self, html_content, search_query):
+        """Wraps the first visible HTML text match in a yellow mark element."""
+        query = (search_query or "").strip()
+        if not query:
+            return html_content
+
+        candidates = [query, html_escape(query)]
+        parts = re.split(r"(<[^>]+>)", html_content)
+        for index in range(0, len(parts), 2):
+            text_part = parts[index]
+            for candidate in candidates:
+                if candidate and re.search(re.escape(candidate), text_part, flags=re.IGNORECASE):
+                    parts[index] = re.sub(
+                        re.escape(candidate),
+                        lambda match: f'<mark id="doc-search-match" class="doc-search-match">{match.group(0)}</mark>',
+                        text_part,
+                        count=1,
+                        flags=re.IGNORECASE
+                    )
+                    return "".join(parts)
+        return html_content
 
     def _highlight_editor(self, content):
         """Applies basic color highlights to the source editor."""
