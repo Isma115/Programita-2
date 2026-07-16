@@ -189,6 +189,7 @@ class DocView(ttk.Frame):
         self._doc_search_content_cache = {}
         self._doc_search_placeholder_active = False
         self._section_search_debounce_job = None
+        self._advanced_doc_search_scope = None
         self.list_project_documents_var = tk.BooleanVar(value=False)
         self._show_all_doc_sections = False
         self.DOC_SECTIONS_INITIAL_LIMIT = 10
@@ -447,7 +448,7 @@ class DocView(ttk.Frame):
             style="DocToolbarFlat.TButton",
             image=self.icons.get("prompt"),
             text="Prompt",
-            command=self._open_prompt_builder,
+            command=self._safe_open_prompt_builder,
             tooltip_text="Crear prompt"
         )
         
@@ -1120,6 +1121,18 @@ class DocView(ttk.Frame):
         return "break"
 
     def _on_section_search_change(self, event=None):
+        # Keep the selection that existed when this search burst started. The
+        # advanced search refresh can clear the Treeview selection before the
+        # user presses Enter.
+        if self.advanced_doc_search_var.get():
+            current_selection = tuple(self.section_tree.selection())
+            if current_selection:
+                self._advanced_doc_search_scope = current_selection
+            elif self._advanced_doc_search_scope is None:
+                self._advanced_doc_search_scope = ()
+        else:
+            self._advanced_doc_search_scope = None
+
         if self._section_search_debounce_job is not None:
             try:
                 self.after_cancel(self._section_search_debounce_job)
@@ -1148,11 +1161,54 @@ class DocView(ttk.Frame):
             yield item_id
             yield from self._iter_section_tree_items(item_id)
 
+    def _get_document_search_candidates(self, selected_items):
+        """Returns Markdown paths allowed by the current tree selection.
+
+        With no selected items the complete tree is a valid search scope. An
+        empty result with a selection means that none of its items is a
+        searchable Markdown document or section.
+        """
+        all_candidates = [
+            item_id
+            for item_id in self._iter_section_tree_items()
+            if os.path.isfile(item_id)
+            and os.path.splitext(item_id)[1].lower() == ".md"
+        ]
+        if not selected_items:
+            return all_candidates
+
+        selected_paths = [
+            os.path.normpath(item_id)
+            for item_id in selected_items
+            if item_id and os.path.exists(item_id)
+        ]
+        if not selected_paths:
+            return []
+
+        candidates = []
+        for item_id in all_candidates:
+            normalized_item = os.path.normpath(item_id)
+            if any(
+                normalized_item == selected_path
+                or (
+                    os.path.isdir(selected_path)
+                    and self._is_descendant_path(selected_path, normalized_item)
+                )
+                for selected_path in selected_paths
+            ):
+                candidates.append(item_id)
+        return candidates
+
     def _on_advanced_doc_search_submit(self, event=None):
         """Opens the first matching Markdown document and jumps to its match."""
         if not self.advanced_doc_search_var.get():
             return None
 
+        # Capture the scope before applying a pending tree refresh. In
+        # advanced mode that refresh intentionally clears the old selection.
+        selected_items = tuple(self.section_tree.selection())
+        if not selected_items and self._advanced_doc_search_scope:
+            selected_items = self._advanced_doc_search_scope
         if self._section_search_debounce_job is not None:
             try:
                 self.after_cancel(self._section_search_debounce_job)
@@ -1163,24 +1219,27 @@ class DocView(ttk.Frame):
 
         query = self._get_doc_search_query()
         if not query:
+            self._advanced_doc_search_scope = None
             return "break"
 
         exact_match = None
-        for item_id in self._iter_section_tree_items():
-            if os.path.isdir(item_id) or os.path.splitext(item_id)[1].lower() != ".md":
-                continue
+        search_candidates = self._get_document_search_candidates(selected_items)
+        for item_id in search_candidates:
             normalized_content = self._read_text_document_for_search(item_id)
             if query in normalized_content and exact_match is None:
                 exact_match = item_id
 
         match_path = exact_match
         if match_path:
-            self.section_tree.see(match_path)
+            if self.section_tree.exists(match_path):
+                self.section_tree.see(match_path)
             self._display_file_content(match_path, search_query=query)
+        self._advanced_doc_search_scope = None
         return "break"
 
     def _toggle_advanced_doc_search(self):
         self.advanced_doc_search_var.set(not self.advanced_doc_search_var.get())
+        self._advanced_doc_search_scope = None
         if self.controller and hasattr(self.controller, "config_manager"):
             self.controller.config_manager.set_advanced_doc_search_enabled(
                 self.advanced_doc_search_var.get()
@@ -1788,184 +1847,34 @@ class DocView(ttk.Frame):
         except Exception as e:
             messagebox.showerror("Error", f"No se pudo crear: {e}")
 
-    def _build_documentation_prompt(self, functionality_name):
-        functionality_name = (functionality_name or "").strip()
-
-        return (
-            f"Genera un documento markdown para conocer de forma simple y directa el flujo de la funcionalidad del software "
-            f"\"{functionality_name}\".\n\n"
-            "Junto con referencias al código y funciones, variables o elementos importantes relacionados con el flujo. "
-            "Incluye una pequeña descripción de lo que hace cada paso y documenta cada funcionalidad implicada. "
-            "Agrega trozos de código en cada apartado para saber qué código se está ejecutando en cada paso.\n\n"
-            "Estructura obligatoria del documento:\n"
-            "1. Primero escribe el flujo en lenguaje no técnico, simple y directo.\n"
-            "2. Después añade el apartado equivalente en lenguaje técnico.\n"
-            "3. Divide el documento por pasos claros del flujo.\n"
-            "4. En cada paso, indica referencias al código relacionado.\n"
-            "5. Señala funciones, variables, componentes, endpoints, consultas o tablas importantes si aplica.\n"
-            "6. Añade fragmentos de código útiles y concretos en cada apartado.\n\n"
-            "Formato esperado:\n"
-            "- Documento en Markdown.\n"
-            "- Explicación clara y directa.\n"
-            "- Primero visión funcional y después visión técnica.\n"
-            "- Código de apoyo en cada sección relevante.\n\n"
-            "Guarda el documento en docs."
-        )
-
-    def _build_specific_flow_documentation_prompt(self, functionality_name):
-        functionality_name = (functionality_name or "").strip()
-
-        return (
-            f"Documenta el flujo de código de {functionality_name} con las siguientes normas:\n\n"
-            "- Divide el Markdown por pasos\n"
-            "- Cada paso tiene que tener esta estructura:\n"
-            "   1. x número de paso\n"
-            "   2. Descripción sencilla pero detallada de lo que se hace en este paso\n"
-            "   3. Trozo de código exacto o algoritmo que se ejecuta solamente en este paso\n"
-            "   4. No te dejes partes del flujo que sean relevantes, tanto frontend como backend y rutas deben incluirse\n"
-            "   5. Añade comentarios extra al código si es necesario, para explicar de manera sencilla y fácil que hace cada cosa\n"
-            "   6. Repetir para los pasos numerados siguientes hasta el paso final en el fin del documento\n"
-            "- Guarda el documento markdown en una carpeta docs"
-        )
-
-    def _build_optimization_prompt(self, target_name):
-        target_name = (target_name or "").strip()
-
-        return (
-            f"Genera un documento markdown con un plan claro para optimizar la parte del código "
-            f"\"{target_name}\".\n\n"
-            "El objetivo es hacer esa zona más legible, mantenible y eficiente sin romper el comportamiento actual. "
-            "Analiza nombres, responsabilidades, complejidad, duplicidad, estructura, posibles mejoras de rendimiento "
-            "y riesgos del refactor.\n\n"
-            "Estructura obligatoria del documento:\n"
-            "1. Resume qué hace actualmente esa parte del código en lenguaje simple.\n"
-            "2. Describe los problemas detectados de legibilidad, diseño, mantenimiento y rendimiento.\n"
-            "3. Propón una secuencia de pasos concreta para optimizarla.\n"
-            "4. En cada paso, indica archivos, funciones, clases, variables o componentes implicados.\n"
-            "5. Explica el beneficio esperado de cada cambio.\n"
-            "6. Añade fragmentos de código o pseudocódigo cuando ayuden a entender el cambio.\n"
-            "7. Cierra con una checklist de validación para confirmar que el refactor no rompe nada.\n\n"
-            "Formato esperado:\n"
-            "- Documento en Markdown.\n"
-            "- Pasos ordenados y accionables.\n"
-            "- Explicación directa, sin relleno.\n"
-            "- Con referencias concretas al código.\n\n"
-            "Guarda el documento en docs."
-        )
-
-    def _build_test_prompt(self, feature_name):
-        feature_name = (feature_name or "").strip()
-
-        return (
-            f"Propón una prueba manual para validar la característica del software "
-            f"\"{feature_name}\".\n\n"
-            "El objetivo es definir una comprobación simple, clara y fácil de seguir para verificar manualmente que "
-            "esa característica funciona correctamente.\n\n"
-            "Estructura obligatoria del documento:\n"
-            "1. Resume qué se quiere comprobar y cuál es el comportamiento esperado de la característica.\n"
-            "2. Indica el contexto previo necesario para hacer la prueba manual.\n"
-            "3. Describe los pasos exactos que debe seguir una persona dentro de la app/web/software.\n"
-            "4. Explica qué debe comprobar manualmente en cada paso.\n"
-            "5. Indica el resultado esperado final para dar la prueba por válida.\n"
-            "6. Añade una breve lista de señales claras de que la prueba ha fallado.\n\n"
-            "Formato esperado:\n"
-            "- Documento en Markdown.\n"
-            "- Explicación directa y accionable.\n"
-            "- Pasos numerados y fáciles de seguir.\n"
-            "- Solo prueba manual, sin tests automáticos.\n\n"
-            "Guarda el documento en docs."
-        )
-
-    def _build_relevant_files_list_prompt(self, target_name):
-        target_name = (target_name or "").strip()
-
-        return (
-            "Actúa como un agente de código senior.\n\n"
-            f"Tu tarea es identificar los archivos de código relevantes para la parte del sistema "
-            f"\"{target_name}\".\n\n"
-            "Devuelve únicamente una lista simple de rutas de archivos de código relevantes.\n"
-            "No añadas explicaciones, descripciones, encabezados, categorías, viñetas anidadas, comentarios ni texto extra.\n"
-            "No incluyas archivos no relacionados.\n"
-            "Prioriza archivos donde esté la lógica principal, los puntos de entrada, dependencias directas y piezas claramente implicadas.\n\n"
-            "Formato obligatorio de salida:\n"
-            "- Una ruta por línea.\n"
-            "- Solo texto plano con las rutas.\n"
-            "- Sin nada antes ni después de la lista."
-        )
-
-    def _build_code_regions_prompt(self, target_name):
-        target_name = (target_name or "").strip()
-
-        return (
-            "Realiza una división del código en regiones usando la sintaxis de comentarios propia del lenguaje del archivo.\n"
-            "Los comentarios de apertura y cierre de cada región deben ser específicos del lenguaje de programación correspondiente, "
-            "no un formato genérico.\n"
-            "Ejemplos de sintaxis válida: JavaScript/TypeScript/C++/Java con `// #region` y `// #endregion`; "
-            "Python/Shell con `# #region` y `# #endregion`; SQL/Lua con `-- #region` y `-- #endregion`; "
-            "CSS/C con `/* #region */` y `/* #endregion */`; HTML/XML con `<!-- #region -->` y `<!-- #endregion -->`.\n"
-            "Usa este formato de cabecera:\n"
-            "#region Nombre del componente | Estilo/Funcionalidad/Vista/Backend | Descripcion\n"
-            "Plantilla base:\n"
-            "#region Tabla de usuarios | Vista | descripcion\n"
-            "La primera parte debe ser el nombre del componente concreto al que hace referencia la región, "
-            "normalmente un componente pequeño no atómico como tabla de usuarios, formulario de login, sección lateral izquierda, "
-            "ventana modal, sidebar, formulario, tabla, panel o sección.\n"
-            "Regla obligatoria: no puede haber regiones dentro de otras regiones.\n"
-            "Aplica esto a la parte: "
-            f"{target_name}.\n"
-        )
+    def _get_documentation_prompts(self):
+        """Returns the editable prompt definitions stored in the configuration."""
+        if not self.controller or not hasattr(self.controller, "config_manager"):
+            return []
+        return self.controller.config_manager.get_documentation_prompts()
 
     def _open_prompt_builder(self):
-        dialog = tk.Toplevel(self)
+        """Opens the prompt selector using the configured Documentation templates."""
+        prompt_configs = self._get_documentation_prompts()
+        if not prompt_configs:
+            messagebox.showinfo(
+                "Prompt",
+                "No hay prompts configurados. Añade uno desde Opciones > Prompts.",
+                parent=self.winfo_toplevel(),
+            )
+            return
+
+        parent = self.winfo_toplevel()
+        dialog = tk.Toplevel(parent)
+        dialog.withdraw()
         dialog.title("Prompt")
-        dialog.transient(self.winfo_toplevel())
-        dialog.grab_set()
-        dialog.geometry("520x190")
+        dialog.transient(parent)
         dialog.resizable(False, False)
         dialog.configure(bg=Styles.COLOR_BG_MAIN)
 
-        prompt_configs = [
-            {
-                "name": "Documentación",
-                "input_label": "Describe la funcionalidad o componente que quieres documentar",
-                "placeholder": "[FUNCIONALIDAD]",
-                "builder": self._build_documentation_prompt,
-            },
-            {
-                "name": "Documentación funcional",
-                "input_label": "Indica el flujo o comportamiento específico que quieres documentar",
-                "placeholder": "[X]",
-                "builder": self._build_specific_flow_documentation_prompt,
-            },
-            {
-                "name": "Optimización",
-                "input_label": "Indica la parte del código que quieres optimizar",
-                "placeholder": "[PARTE_CODIGO]",
-                "builder": self._build_optimization_prompt,
-            },
-            {
-                "name": "Test",
-                "input_label": "Indica la característica que quieres comprobar manualmente",
-                "placeholder": "[CARACTERISTICA]",
-                "builder": self._build_test_prompt,
-            },
-            {
-                "name": "Lista de ficheros",
-                "input_label": "Indica la funcionalidad cuyos archivos relevantes necesitas identificar",
-                "placeholder": "[PARTE_CODIGO]",
-                "builder": self._build_relevant_files_list_prompt,
-                "include_file_path_instruction": False,
-            },
-            {
-                "name": "Dividir en regiones",
-                "input_label": "Indica la zona o componente del código que quieres dividir en regiones",
-                "placeholder": "[ZONA_CODIGO]",
-                "builder": self._build_code_regions_prompt,
-                "include_file_path_instruction": False,
-            },
-        ]
         prompt_index = {"value": 0}
-        functionality_var = tk.StringVar()
+        prompt_values = [{} for _ in prompt_configs]
+        field_vars = {}
 
         style = ttk.Style(dialog)
         style.configure(
@@ -1975,12 +1884,12 @@ class DocView(ttk.Frame):
             font=(self.doc_sidebar_font_family, 14, "bold"),
             padding=(10, 6),
             borderwidth=0,
-            relief="flat"
+            relief="flat",
         )
         style.map(
             "PromptCompact.TButton",
             background=[("active", Styles.COLOR_BUTTON_HOVER), ("pressed", Styles.COLOR_BUTTON_ACTIVE)],
-            foreground=[("active", Styles.COLOR_BUTTON_FG_ACTIVE), ("pressed", Styles.COLOR_BUTTON_FG_ACTIVE)]
+            foreground=[("active", Styles.COLOR_BUTTON_FG_ACTIVE), ("pressed", Styles.COLOR_BUTTON_FG_ACTIVE)],
         )
         style.configure(
             "PromptCopy.TButton",
@@ -1989,11 +1898,11 @@ class DocView(ttk.Frame):
             font=(self.doc_sidebar_font_family, 13, "bold"),
             padding=(20, 7),
             borderwidth=0,
-            relief="flat"
+            relief="flat",
         )
         style.map(
             "PromptCopy.TButton",
-            background=[("active", Styles.COLOR_ACCENT_HOVER), ("pressed", Styles.COLOR_ACCENT)]
+            background=[("active", Styles.COLOR_ACCENT_HOVER), ("pressed", Styles.COLOR_ACCENT)],
         )
 
         wrapper = tk.Frame(dialog, bg=Styles.COLOR_BG_MAIN)
@@ -2005,24 +1914,28 @@ class DocView(ttk.Frame):
 
         title_var = tk.StringVar()
         btn_prev = ttk.Button(
-            navigation, text="‹", style="PromptCompact.TButton",
-            command=lambda: switch_prompt(-1), width=2
+            navigation,
+            text="‹",
+            style="PromptCompact.TButton",
+            command=lambda: switch_prompt(-1),
+            width=2,
         )
         btn_prev.grid(row=0, column=0, padx=(8, 4), pady=8)
         attach_tooltip(btn_prev, "Prompt anterior")
-
         title_label = tk.Label(
             navigation,
             textvariable=title_var,
             bg=Styles.COLOR_BG_SIDEBAR,
             fg=Styles.COLOR_FG_TEXT,
-            font=(self.doc_sidebar_font_family, 16, "bold")
+            font=(self.doc_sidebar_font_family, 16, "bold"),
         )
         title_label.grid(row=0, column=1, sticky="ew", pady=8)
-
         btn_next = ttk.Button(
-            navigation, text="›", style="PromptCompact.TButton",
-            command=lambda: switch_prompt(1), width=2
+            navigation,
+            text="›",
+            style="PromptCompact.TButton",
+            command=lambda: switch_prompt(1),
+            width=2,
         )
         btn_next.grid(row=0, column=2, padx=(4, 8), pady=8)
         attach_tooltip(btn_next, "Prompt siguiente")
@@ -2036,36 +1949,79 @@ class DocView(ttk.Frame):
             bg=Styles.COLOR_SIDEBAR_CARD_BG,
             fg=Styles.COLOR_FG_TEXT,
             font=(self.doc_sidebar_font_family, 11, "bold"),
-            anchor="w"
+            anchor="w",
+            justify="left",
         ).pack(fill="x", padx=10, pady=(8, 3))
-        entry = tk.Entry(
-            input_card,
-            textvariable=functionality_var,
-            font=(self.doc_sidebar_font_family, 11),
-            bg=Styles.COLOR_INPUT_BG,
-            fg=Styles.COLOR_FG_TEXT,
-            insertbackground=Styles.COLOR_FG_TEXT,
-            relief="flat",
-            bd=0
-        )
-        entry.pack(fill="x", padx=10, pady=(0, 9), ipady=4)
+        fields_frame = tk.Frame(input_card, bg=Styles.COLOR_SIDEBAR_CARD_BG)
+        fields_frame.pack(fill="x", padx=10, pady=(0, 9))
+
+        def refresh_input_fields():
+            nonlocal field_vars
+            config = prompt_configs[prompt_index["value"]]
+            for child in fields_frame.winfo_children():
+                child.destroy()
+            field_vars = {}
+
+            placeholders = []
+            for match in re.finditer(r"\[(.*?)\]", config.get("template", "")):
+                placeholder = match.group(1).strip()
+                if placeholder not in placeholders:
+                    placeholders.append(placeholder)
+
+            if not placeholders:
+                tk.Label(
+                    fields_frame,
+                    text="Este prompt no necesita datos adicionales.",
+                    bg=Styles.COLOR_SIDEBAR_CARD_BG,
+                    fg=Styles.COLOR_DIM,
+                    font=(self.doc_sidebar_font_family, 10),
+                    anchor="w",
+                ).pack(fill="x", pady=(0, 2))
+                return
+
+            saved_values = prompt_values[prompt_index["value"]]
+            for position, placeholder in enumerate(placeholders, start=1):
+                row = tk.Frame(fields_frame, bg=Styles.COLOR_SIDEBAR_CARD_BG)
+                row.pack(fill="x", pady=(3 if position > 1 else 0, 0))
+                value_var = tk.StringVar(value=saved_values.get(placeholder, ""))
+                field_vars[placeholder] = value_var
+                entry = tk.Entry(
+                    row,
+                    textvariable=value_var,
+                    font=(self.doc_sidebar_font_family, 11),
+                    bg=Styles.COLOR_INPUT_BG,
+                    fg=Styles.COLOR_FG_TEXT,
+                    insertbackground=Styles.COLOR_FG_TEXT,
+                )
+                entry.pack(fill="x", expand=True, ipady=4)
+                Styles.soften_classic_widget(entry)
 
         def build_prompt_content():
             config = prompt_configs[prompt_index["value"]]
-            value = functionality_var.get().strip() or config["placeholder"]
-            prompt = config["builder"](value)
+            values = {name: var.get() for name, var in field_vars.items()}
+
+            def replace_placeholder(match):
+                placeholder = match.group(1).strip()
+                value = values.get(placeholder, "")
+                return value if value.strip() else match.group(0)
+
+            content = re.sub(r"\[(.*?)\]", replace_placeholder, config.get("template", ""))
             if config.get("include_file_path_instruction", True):
-                prompt = ensure_file_path_comment_instruction(prompt)
-            return prompt
+                content = ensure_file_path_comment_instruction(content)
+            return content
 
         def show_copy_notice():
             notice = tk.Toplevel(dialog)
             notice.overrideredirect(True)
             notice.configure(bg="#263448")
             tk.Label(
-                notice, text="Prompt copiado",
-                bg="#263448", fg="#ffffff",
-                font=(self.doc_sidebar_font_family, 9), padx=6, pady=3
+                notice,
+                text="Prompt copiado",
+                bg="#263448",
+                fg="#ffffff",
+                font=(self.doc_sidebar_font_family, 9),
+                padx=6,
+                pady=3,
             ).pack()
             notice.update_idletasks()
             x = dialog.winfo_rootx() + (dialog.winfo_width() - notice.winfo_width()) // 2
@@ -2075,16 +2031,26 @@ class DocView(ttk.Frame):
 
         def center_dialog():
             dialog.update_idletasks()
-            width = dialog.winfo_width()
-            height = dialog.winfo_height()
+            width = max(dialog.winfo_reqwidth(), 520)
+            height = max(dialog.winfo_reqheight(), 230)
             screen_width = dialog.winfo_screenwidth()
             screen_height = dialog.winfo_screenheight()
-            x = max((screen_width - width) // 2, 0)
-            y = max((screen_height - height) // 2, 0)
+            parent_x = parent.winfo_rootx()
+            parent_y = parent.winfo_rooty()
+            parent_width = parent.winfo_width()
+            parent_height = parent.winfo_height()
+            x = parent_x + max((parent_width - width) // 2, 0)
+            y = parent_y + max((parent_height - height) // 2, 0)
+            x = min(max(x, 0), max(screen_width - width, 0))
+            y = min(max(y, 0), max(screen_height - height, 0))
             dialog.geometry(f"{width}x{height}+{x}+{y}")
+            if not dialog.winfo_viewable():
+                dialog.deiconify()
+            dialog.lift()
+            dialog.focus_force()
+            dialog.grab_set()
 
         def copy_prompt():
-            config = prompt_configs[prompt_index["value"]]
             content = build_prompt_content().strip()
             try:
                 copied = False
@@ -2098,26 +2064,28 @@ class DocView(ttk.Frame):
             except Exception as exc:
                 messagebox.showerror("Error", f"No se pudo copiar el prompt: {exc}", parent=dialog)
 
-        copy_button = ttk.Button(
-            wrapper, text="Copiar", style="PromptCopy.TButton", command=copy_prompt
-        )
-        copy_button.pack(pady=(14, 0))
+        def save_current_field_values():
+            prompt_values[prompt_index["value"]] = {
+                name: variable.get() for name, variable in field_vars.items()
+            }
+
+        ttk.Button(
+            wrapper,
+            text="Copiar",
+            style="PromptCopy.TButton",
+            command=copy_prompt,
+        ).pack(pady=(14, 0))
 
         def sync_prompt_selector():
             config = prompt_configs[prompt_index["value"]]
-            title_var.set(config["name"])
-            dialog.title(config["name"])
-            functionality_var.set("")
-            input_label_var.set(config.get("input_label", ""))
-            if config.get("input_label"):
-                input_card.pack(fill="x", pady=(10, 0))
-                dialog.geometry("520x205")
-            else:
-                input_card.pack_forget()
-                dialog.geometry("520x190")
+            title_var.set(config.get("title", "(Sin título)"))
+            dialog.title(config.get("title", "Prompt"))
+            input_label_var.set(config.get("input_label", "Completa los datos del prompt"))
+            refresh_input_fields()
             dialog.after_idle(center_dialog)
 
         def switch_prompt(delta):
+            save_current_field_values()
             prompt_index["value"] = (prompt_index["value"] + delta) % len(prompt_configs)
             sync_prompt_selector()
 
@@ -2135,6 +2103,14 @@ class DocView(ttk.Frame):
         dialog.bind("<Command-Left>", on_prev_prompt)
         dialog.bind("<Command-Right>", on_next_prompt)
         sync_prompt_selector()
+
+    def _safe_open_prompt_builder(self):
+        """Opens the prompt popup without allowing a UI exception to be silent."""
+        try:
+            self._open_prompt_builder()
+        except Exception as exc:
+            logging.exception("No se pudo abrir el popup de Prompt")
+            messagebox.showerror("Prompt", f"No se pudo abrir el popup de Prompt: {exc}")
 
     def _display_message(self, message):
 
@@ -3053,6 +3029,7 @@ class DocView(ttk.Frame):
         iid = self.section_tree.identify_row(event.y)
         if not iid:
             # Clicked on empty space - deselect
+            self._advanced_doc_search_scope = None
             selected = self.section_tree.selection()
             if selected:
                 self.section_tree.selection_remove(*selected)

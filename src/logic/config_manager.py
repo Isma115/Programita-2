@@ -12,6 +12,147 @@ from src.logic.app_paths import (
     running_from_project_root,
 )
 
+
+DEFAULT_DOCUMENTATION_PROMPTS = (
+    {
+        "title": "Documentación",
+        "input_label": "Describe la funcionalidad o componente que quieres documentar",
+        "template": (
+            "Genera un documento markdown para conocer de forma simple y directa el flujo de la funcionalidad del software "
+            "\"[FUNCIONALIDAD]\".\n\n"
+            "Junto con referencias al código y funciones, variables o elementos importantes relacionados con el flujo. "
+            "Incluye una pequeña descripción de lo que hace cada paso y documenta cada funcionalidad implicada. "
+            "Agrega trozos de código en cada apartado para saber qué código se está ejecutando en cada paso.\n\n"
+            "Estructura obligatoria del documento:\n"
+            "1. Primero escribe el flujo en lenguaje no técnico, simple y directo.\n"
+            "2. Después añade el apartado equivalente en lenguaje técnico.\n"
+            "3. Divide el documento por pasos claros del flujo.\n"
+            "4. En cada paso, indica referencias al código relacionado.\n"
+            "5. Señala funciones, variables, componentes, endpoints, consultas o tablas importantes si aplica.\n"
+            "6. Añade fragmentos de código útiles y concretos en cada apartado.\n\n"
+            "Formato esperado:\n"
+            "- Documento en Markdown.\n"
+            "- Explicación clara y directa.\n"
+            "- Primero visión funcional y después visión técnica.\n"
+            "- Código de apoyo en cada sección relevante.\n\n"
+            "Guarda el documento en docs."
+        ),
+        "include_file_path_instruction": True,
+    },
+    {
+        "title": "Documentación funcional",
+        "input_label": "Indica el flujo o comportamiento específico que quieres documentar",
+        "template": (
+            "Documenta el flujo de código de [X] con las siguientes normas:\n\n"
+            "- Divide el Markdown por pasos\n"
+            "- Cada paso tiene que tener esta estructura:\n"
+            "   1. x número de paso\n"
+            "   2. Descripción sencilla pero detallada de lo que se hace en este paso\n"
+            "   3. Trozo de código exacto o algoritmo que se ejecuta solamente en este paso\n"
+            "   4. No te dejes partes del flujo que sean relevantes, tanto frontend como backend y rutas deben incluirse\n"
+            "   5. Añade comentarios extra al código si es necesario, para explicar de manera sencilla y fácil que hace cada cosa\n"
+            "   6. Repetir para los pasos numerados siguientes hasta el paso final en el fin del documento\n"
+            "- Guarda el documento markdown en una carpeta docs"
+        ),
+        "include_file_path_instruction": True,
+    },
+    {
+        "title": "Optimización",
+        "input_label": "Indica la parte del código que quieres optimizar",
+        "template": (
+            "Genera un documento markdown con un plan claro para optimizar la parte del código "
+            "\"[PARTE_CODIGO]\".\n\n"
+            "El objetivo es hacer esa zona más legible, mantenible y eficiente sin romper el comportamiento actual. "
+            "Analiza nombres, responsabilidades, complejidad, duplicidad, estructura, posibles mejoras de rendimiento "
+            "y riesgos del refactor.\n\n"
+            "Estructura obligatoria del documento:\n"
+            "1. Resume qué hace actualmente esa parte del código en lenguaje simple.\n"
+            "2. Describe los problemas detectados de legibilidad, diseño, mantenimiento y rendimiento.\n"
+            "3. Propón una secuencia de pasos concreta para optimizarla.\n"
+            "4. En cada paso, indica archivos, funciones, clases, variables o componentes implicados.\n"
+            "5. Explica el beneficio esperado de cada cambio.\n"
+            "6. Añade fragmentos de código o pseudocódigo cuando ayuden a entender el cambio.\n"
+            "7. Cierra con una checklist de validación para confirmar que el refactor no rompe nada.\n\n"
+            "Formato esperado:\n"
+            "- Documento en Markdown.\n"
+            "- Pasos ordenados y accionables.\n"
+            "- Explicación directa, sin relleno.\n"
+            "- Con referencias concretas al código.\n\n"
+            "Guarda el documento en docs."
+        ),
+        "include_file_path_instruction": True,
+    },
+    {
+        "title": "Test",
+        "input_label": "Indica la característica que quieres comprobar manualmente",
+        "template": (
+            "Propón una prueba manual para validar la característica del software "
+            "\"[CARACTERISTICA]\".\n\n"
+            "El objetivo es definir una comprobación simple, clara y fácil de seguir para verificar manualmente que "
+            "esa característica funciona correctamente.\n\n"
+            "Estructura obligatoria del documento:\n"
+            "1. Resume qué se quiere comprobar y cuál es el comportamiento esperado de la característica.\n"
+            "2. Indica el contexto previo necesario para hacer la prueba manual.\n"
+            "3. Describe los pasos exactos que debe seguir una persona dentro de la app/web/software.\n"
+            "4. Explica qué debe comprobar manualmente en cada paso.\n"
+            "5. Indica el resultado esperado final para dar la prueba por válida.\n"
+            "6. Añade una breve lista de señales claras de que la prueba ha fallado.\n\n"
+            "Formato esperado:\n"
+            "- Documento en Markdown.\n"
+            "- Explicación directa y accionable.\n"
+            "- Pasos numerados y fáciles de seguir.\n"
+            "- Solo prueba manual, sin tests automáticos.\n\n"
+            "Guarda el documento en docs."
+        ),
+        "include_file_path_instruction": True,
+    },
+    {
+        "title": "Lista de ficheros",
+        "input_label": "Indica la funcionalidad cuyos archivos relevantes necesitas identificar",
+        "template": (
+            "Actúa como un agente de código senior.\n\n"
+            "Tu tarea es identificar los archivos de código relevantes para la parte del sistema "
+            "\"[PARTE_CODIGO]\".\n\n"
+            "Devuelve únicamente una lista simple de rutas de archivos de código relevantes.\n"
+            "No añadas explicaciones, descripciones, encabezados, categorías, viñetas anidadas, comentarios ni texto extra.\n"
+            "No incluyas archivos no relacionados.\n"
+            "Prioriza archivos donde esté la lógica principal, los puntos de entrada, dependencias directas y piezas claramente implicadas.\n\n"
+            "Formato obligatorio de salida:\n"
+            "- Una ruta por línea.\n"
+            "- Solo texto plano con las rutas.\n"
+            "- Sin nada antes ni después de la lista."
+        ),
+        "include_file_path_instruction": False,
+    },
+    {
+        "title": "Dividir en regiones",
+        "input_label": "Indica la zona o componente del código que quieres dividir en regiones",
+        "template": (
+            "Realiza una división del código en regiones usando la sintaxis de comentarios propia del lenguaje del archivo.\n"
+            "Los comentarios de apertura y cierre de cada región deben ser específicos del lenguaje de programación correspondiente, "
+            "no un formato genérico.\n"
+            "Ejemplos de sintaxis válida: JavaScript/TypeScript/C++/Java con `// #region` y `// #endregion`; "
+            "Python/Shell con `# #region` y `# #endregion`; SQL/Lua con `-- #region` y `-- #endregion`; "
+            "CSS/C con `/* #region */` y `/* #endregion */`; HTML/XML con `<!-- #region -->` y `<!-- #endregion -->`.\n"
+            "Usa este formato de cabecera:\n"
+            "#region Nombre del componente | Estilo/Funcionalidad/Vista/Backend | Descripcion\n"
+            "Plantilla base:\n"
+            "#region Tabla de usuarios | Vista | descripcion\n"
+            "La primera parte debe ser el nombre del componente concreto al que hace referencia la región, "
+            "normalmente un componente pequeño no atómico como tabla de usuarios, formulario de login, sección lateral izquierda, "
+            "ventana modal, sidebar, formulario, tabla, panel o sección.\n"
+            "Regla obligatoria: no puede haber regiones dentro de otras regiones.\n"
+            "Aplica esto a la parte: [ZONA_CODIGO].\n"
+        ),
+        "include_file_path_instruction": False,
+    },
+)
+
+
+def default_documentation_prompts():
+    """Returns independent copies of the built-in documentation prompts."""
+    return [dict(prompt) for prompt in DEFAULT_DOCUMENTATION_PROMPTS]
+
 class ConfigManager:
     """
     Manages application configuration using a JSON file.
@@ -132,6 +273,16 @@ class ConfigManager:
         if "sus_mod_enabled" not in self.config:
             self.config["sus_mod_enabled"] = False
             migrated = True
+        if "documentation_prompts" not in self.config:
+            self.config["documentation_prompts"] = default_documentation_prompts()
+            migrated = True
+        else:
+            normalized_prompts = self._normalize_documentation_prompts(
+                self.config.get("documentation_prompts")
+            )
+            if normalized_prompts != self.config.get("documentation_prompts"):
+                self.config["documentation_prompts"] = normalized_prompts
+                migrated = True
 
         for legacy_key in ("return_structures",):
             if legacy_key in self.config:
@@ -298,6 +449,46 @@ class ConfigManager:
     def set_prompting_path(self, path):
         """Sets the prompting folder path and saves config."""
         self.config["prompting_path"] = path
+        self.save_config()
+
+    def _normalize_documentation_prompts(self, prompts):
+        """Normalizes editable Documentation prompt definitions."""
+        if not isinstance(prompts, list):
+            return default_documentation_prompts()
+
+        normalized = []
+        for prompt in prompts:
+            if not isinstance(prompt, dict):
+                continue
+
+            raw_title = prompt.get("title", "")
+            raw_template = prompt.get("template", "")
+            raw_input_label = prompt.get("input_label", "")
+            title = str(raw_title or "").strip()
+            template = str(raw_template or "")
+            if not title and not template.strip():
+                continue
+
+            normalized.append({
+                "title": title or "(Sin título)",
+                "input_label": str(raw_input_label or "").strip(),
+                "template": template,
+                "include_file_path_instruction": bool(
+                    prompt.get("include_file_path_instruction", True)
+                ),
+            })
+        return normalized
+
+    def get_documentation_prompts(self):
+        """Returns the prompts used by the Documentation view."""
+        prompts = self._normalize_documentation_prompts(
+            self.config.get("documentation_prompts", [])
+        )
+        return [dict(prompt) for prompt in prompts]
+
+    def set_documentation_prompts(self, prompts):
+        """Persists the prompts used by the Documentation view."""
+        self.config["documentation_prompts"] = self._normalize_documentation_prompts(prompts)
         self.save_config()
 
     def get_file_limit(self):

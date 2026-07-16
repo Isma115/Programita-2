@@ -6,6 +6,7 @@ from src.ui.styles import Styles
 from src.ui.layout import MainLayout
 from src.logic.controller import Controller
 from src.ui.search_overlay import SearchOverlay
+from src.ui.popups.documentation_prompts_dialog import DocumentationPromptsDialog
 from src.logic.app_paths import bundled_path
 
 class Application:
@@ -62,6 +63,7 @@ class Application:
 
         # --- Global Hotkey: Ctrl+F / Cmd+F → Search Overlay ---
         self._search_overlay = None
+        self._documentation_prompts_dialog = None
         self.root.bind("<Control-f>", self._open_search_overlay)
         self.root.bind("<Control-F>", self._open_search_overlay)
         self.root.bind("<Command-f>", self._open_search_overlay)
@@ -256,6 +258,11 @@ class Application:
         )
         self.options_menu.add_separator()
         self.options_menu.add_command(
+            label="Prompts",
+            command=self._on_open_documentation_prompts
+        )
+        self.options_menu.add_separator()
+        self.options_menu.add_command(
             label="Regionar",
             command=self._on_regionize_clipboard
         )
@@ -433,6 +440,23 @@ class Application:
         if code_view is not None and hasattr(code_view, "_should_show_project_regions_in_file_list"):
             if code_view._should_show_project_regions_in_file_list():
                 code_view._schedule_region_list_refresh()
+
+    def _on_open_documentation_prompts(self):
+        """Opens the modal editor for Documentation prompt templates."""
+        dialog = self._documentation_prompts_dialog
+        if dialog is not None:
+            try:
+                if dialog.winfo_exists():
+                    dialog.lift()
+                    dialog.focus_force()
+                    return
+            except tk.TclError:
+                pass
+
+        self._documentation_prompts_dialog = DocumentationPromptsDialog(
+            self.root,
+            self.controller.config_manager,
+        )
 
     def _set_code_file_limits(self, min_limit=None, max_limit=None, preferred="min", refresh=True):
         """Updates Code View min/max file limits, even if the view is not available yet."""

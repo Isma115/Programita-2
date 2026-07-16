@@ -1,8 +1,8 @@
 {
-    "last_project": "/Users/ismaelmoraledalopez/Desktop/pruebas/OpenDesign",
+    "last_project": "/Users/ismaelmoraledalopez/Documents/Azure-Irrigation-Web/HidraSmart-Irrigation-System",
     "file_limit": 50,
     "return_files": false,
-    "doc_path": null,
+    "doc_path": "/Users/ismaelmoraledalopez/Documents/Documentacion Irrigation",
     "doc_path_history": [
         "/Users/ismaelmoraledalopez/Documents/Documentacion Irrigation"
     ],
@@ -23,9 +23,10 @@
         "/Users/ismaelmoraledalopez/Desktop/pruebas/EnTest",
         "/Users/ismaelmoraledalopez/Desktop/pruebas/OneShotDeep4Flash",
         "/Users/ismaelmoraledalopez/Documents/Codigos_Python/HidraSmart-Irrigation-System.Codigos_Python/Codigos_Python/SHP a BBDD",
-        "/Users/ismaelmoraledalopez/Desktop/pruebas/OpenDesign"
+        "/Users/ismaelmoraledalopez/Desktop/pruebas/OpenDesign",
+        "/Users/ismaelmoraledalopez/Documents/Codigos_Python/HidraSmart-Irrigation-System.Codigos_Python/Codigos_Python"
     ],
-    "current_project_index": 11,
+    "current_project_index": 0,
     "db_config": {
         "host": "hidralab-server.mysql.database.azure.com",
         "port": "3306",
@@ -36,7 +37,7 @@
     },
     "doc_view_settings": {
         "is_dark_mode": true,
-        "is_editor_mode": false,
+        "is_editor_mode": true,
         "code_sash_ratio": 0.525503355704698,
         "is_fullscreen_mode": false,
         "markdown_preview_zoom": 1.0,
@@ -45,7 +46,7 @@
     "last_doc_section": "Gestor de Equipos",
     "last_code_section": "Asignar Volumen",
     "implementation_mode": false,
-    "last_doc_file": "/Users/ismaelmoraledalopez/Desktop/pruebas/OpenDesign/ESPECS.md",
+    "last_doc_file": "/Users/ismaelmoraledalopez/Documents/Documentacion Irrigation/env/.env produccion.md",
     "sections_path": "/Users/ismaelmoraledalopez/Desktop/pruebas/Porfofo",
     "code_extensions_filter": "",
     "include_project_tree": false,
@@ -69,6 +70,44 @@
     "anti_agent_enabled": false,
     "region_injection_enabled": false,
     "sus_mod_enabled": false,
-    "list_project_documents_enabled": true,
-    "advanced_doc_search_enabled": true
+    "list_project_documents_enabled": false,
+    "advanced_doc_search_enabled": true,
+    "documentation_prompts": [
+        {
+            "title": "Documentaci\u00f3n",
+            "input_label": "Describe la funcionalidad o componente que quieres documentar",
+            "template": "Genera un documento markdown para conocer de forma simple y directa el flujo de la funcionalidad del software \"[FUNCIONALIDAD]\".\n\nJunto con referencias al c\u00f3digo y funciones, variables o elementos importantes relacionados con el flujo. Incluye una peque\u00f1a descripci\u00f3n de lo que hace cada paso y documenta cada funcionalidad implicada. Agrega trozos de c\u00f3digo en cada apartado para saber qu\u00e9 c\u00f3digo se est\u00e1 ejecutando en cada paso.\n\nEstructura obligatoria del documento:\n1. Primero escribe el flujo en lenguaje no t\u00e9cnico, simple y directo.\n2. Despu\u00e9s a\u00f1ade el apartado equivalente en lenguaje t\u00e9cnico.\n3. Divide el documento por pasos claros del flujo.\n4. En cada paso, indica referencias al c\u00f3digo relacionado.\n5. Se\u00f1ala funciones, variables, componentes, endpoints, consultas o tablas importantes si aplica.\n6. A\u00f1ade fragmentos de c\u00f3digo \u00fatiles y concretos en cada apartado.\n\nFormato esperado:\n- Documento en Markdown.\n- Explicaci\u00f3n clara y directa.\n- Primero visi\u00f3n funcional y despu\u00e9s visi\u00f3n t\u00e9cnica.\n- C\u00f3digo de apoyo en cada secci\u00f3n relevante.\n\nGuarda el documento en docs.",
+            "include_file_path_instruction": true
+        },
+        {
+            "title": "Documentaci\u00f3n funcional",
+            "input_label": "Indica el flujo o comportamiento espec\u00edfico que quieres documentar",
+            "template": "Documenta el flujo de c\u00f3digo de [X] con las siguientes normas:\n\n- Divide el Markdown por pasos\n- Cada paso tiene que tener esta estructura:\n   1. x n\u00famero de paso\n   2. Descripci\u00f3n sencilla pero detallada de lo que se hace en este paso\n   3. Trozo de c\u00f3digo exacto o algoritmo que se ejecuta solamente en este paso\n   4. No te dejes partes del flujo que sean relevantes, tanto frontend como backend y rutas deben incluirse\n   5. A\u00f1ade comentarios extra al c\u00f3digo si es necesario, para explicar de manera sencilla y f\u00e1cil que hace cada cosa\n   6. Repetir para los pasos numerados siguientes hasta el paso final en el fin del documento\n- Guarda el documento markdown en una carpeta docs",
+            "include_file_path_instruction": true
+        },
+        {
+            "title": "Optimizaci\u00f3n",
+            "input_label": "Indica la parte del c\u00f3digo que quieres optimizar",
+            "template": "Genera un documento markdown con un plan claro para optimizar la parte del c\u00f3digo \"[PARTE_CODIGO]\".\n\nEl objetivo es hacer esa zona m\u00e1s legible, mantenible y eficiente sin romper el comportamiento actual. Analiza nombres, responsabilidades, complejidad, duplicidad, estructura, posibles mejoras de rendimiento y riesgos del refactor.\n\nEstructura obligatoria del documento:\n1. Resume qu\u00e9 hace actualmente esa parte del c\u00f3digo en lenguaje simple.\n2. Describe los problemas detectados de legibilidad, dise\u00f1o, mantenimiento y rendimiento.\n3. Prop\u00f3n una secuencia de pasos concreta para optimizarla.\n4. En cada paso, indica archivos, funciones, clases, variables o componentes implicados.\n5. Explica el beneficio esperado de cada cambio.\n6. A\u00f1ade fragmentos de c\u00f3digo o pseudoc\u00f3digo cuando ayuden a entender el cambio.\n7. Cierra con una checklist de validaci\u00f3n para confirmar que el refactor no rompe nada.\n\nFormato esperado:\n- Documento en Markdown.\n- Pasos ordenados y accionables.\n- Explicaci\u00f3n directa, sin relleno.\n- Con referencias concretas al c\u00f3digo.\n\nGuarda el documento en docs.",
+            "include_file_path_instruction": true
+        },
+        {
+            "title": "Test",
+            "input_label": "Indica la caracter\u00edstica que quieres comprobar manualmente",
+            "template": "Prop\u00f3n una prueba manual para validar la caracter\u00edstica del software \"[CARACTERISTICA]\".\n\nEl objetivo es definir una comprobaci\u00f3n simple, clara y f\u00e1cil de seguir para verificar manualmente que esa caracter\u00edstica funciona correctamente.\n\nEstructura obligatoria del documento:\n1. Resume qu\u00e9 se quiere comprobar y cu\u00e1l es el comportamiento esperado de la caracter\u00edstica.\n2. Indica el contexto previo necesario para hacer la prueba manual.\n3. Describe los pasos exactos que debe seguir una persona dentro de la app/web/software.\n4. Explica qu\u00e9 debe comprobar manualmente en cada paso.\n5. Indica el resultado esperado final para dar la prueba por v\u00e1lida.\n6. A\u00f1ade una breve lista de se\u00f1ales claras de que la prueba ha fallado.\n\nFormato esperado:\n- Documento en Markdown.\n- Explicaci\u00f3n directa y accionable.\n- Pasos numerados y f\u00e1ciles de seguir.\n- Solo prueba manual, sin tests autom\u00e1ticos.\n\nGuarda el documento en docs.",
+            "include_file_path_instruction": true
+        },
+        {
+            "title": "Lista de ficheros",
+            "input_label": "Indica la funcionalidad cuyos archivos relevantes necesitas identificar",
+            "template": "Act\u00faa como un agente de c\u00f3digo senior.\n\nTu tarea es identificar los archivos de c\u00f3digo relevantes para la parte del sistema \"[PARTE_CODIGO]\".\n\nDevuelve \u00fanicamente una lista simple de rutas de archivos de c\u00f3digo relevantes.\nNo a\u00f1adas explicaciones, descripciones, encabezados, categor\u00edas, vi\u00f1etas anidadas, comentarios ni texto extra.\nNo incluyas archivos no relacionados.\nPrioriza archivos donde est\u00e9 la l\u00f3gica principal, los puntos de entrada, dependencias directas y piezas claramente implicadas.\n\nFormato obligatorio de salida:\n- Una ruta por l\u00ednea.\n- Solo texto plano con las rutas.\n- Sin nada antes ni despu\u00e9s de la lista.",
+            "include_file_path_instruction": false
+        },
+        {
+            "title": "Dividir en regiones",
+            "input_label": "Indica la zona o componente del c\u00f3digo que quieres dividir en regiones",
+            "template": "Realiza una divisi\u00f3n del c\u00f3digo en regiones usando la sintaxis de comentarios propia del lenguaje del archivo.\nLos comentarios de apertura y cierre de cada regi\u00f3n deben ser espec\u00edficos del lenguaje de programaci\u00f3n correspondiente, no un formato gen\u00e9rico.\nEjemplos de sintaxis v\u00e1lida: JavaScript/TypeScript/C++/Java con `// #region` y `// #endregion`; Python/Shell con `# #region` y `# #endregion`; SQL/Lua con `-- #region` y `-- #endregion`; CSS/C con `/* #region */` y `/* #endregion */`; HTML/XML con `<!-- #region -->` y `<!-- #endregion -->`.\nUsa este formato de cabecera:\n#region Nombre del componente | Estilo/Funcionalidad/Vista/Backend | Descripcion\nPlantilla base:\n#region Tabla de usuarios | Vista | descripcion\nLa primera parte debe ser el nombre del componente concreto al que hace referencia la regi\u00f3n, normalmente un componente peque\u00f1o no at\u00f3mico como tabla de usuarios, formulario de login, secci\u00f3n lateral izquierda, ventana modal, sidebar, formulario, tabla, panel o secci\u00f3n.\nRegla obligatoria: no puede haber regiones dentro de otras regiones.\nAplica esto a la parte: [ZONA_CODIGO].\n",
+            "include_file_path_instruction": false
+        }
+    ]
 }
